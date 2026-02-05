@@ -1,36 +1,31 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-
-// --- IMPORTAÇÃO ---
-// Importa db e messaging do arquivo que está na MESMA pasta
 import { db, messaging } from './firebase'; 
-// ------------------
-
 import { collection, addDoc, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
 import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2 } from 'lucide-react';
 
-// --- Componentes Visuais (Botões e Cards) ---
 const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: Icon }) => {
-  const base = "flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
   const variants = {
     primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-200",
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50",
     danger: "bg-red-50 text-red-600 hover:bg-red-100",
+    success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200"
   };
+  const finalVariant = disabled && variant !== 'danger' ? 'secondary' : variant;
   return (
-    <button onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${variants[finalVariant]} ${className}`}>
       {Icon && <Icon size={18} />}
-      {children}
+      <span translate="no">{children}</span> 
     </button>
   );
 };
 
 const Card = ({ children, title }) => (
-  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6">
+  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 h-full flex flex-col">
     {title && <h3 className="font-bold text-slate-800 text-lg border-b border-slate-100 pb-4 mb-4">{title}</h3>}
-    {children}
+    <div className="flex-1">{children}</div>
   </div>
 );
 
@@ -41,7 +36,6 @@ const Badge = ({ status }) => (
   </span>
 );
 
-// --- Lógica Principal do App ---
 export default function App() {
   const [currentView, setCurrentView] = useState('landing');
   const [subscribers, setSubscribers] = useState([]);
@@ -49,8 +43,8 @@ export default function App() {
   const [csvInput, setCsvInput] = useState('');
   const [patientPhone, setPatientPhone] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isSending, setIsSending] = useState(false);
 
-  // 1. Carrega os dados do banco (Bastidores)
   useEffect(() => {
     if (!db) return;
     try {
@@ -58,12 +52,12 @@ export default function App() {
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setSubscribers(usersList);
-      }, (error) => console.error("Erro de conexão silencioso:", error));
+      }, (error) => console.error("Erro conexão:", error));
       return () => unsubscribe();
     } catch (e) { console.error(e); }
   }, []);
 
-  // 2. Cadastro do Paciente (Com Token e Verificação de Duplicidade)
+  // 2. Cadastro de Paciente (Versão Produção)
   const handlePatientRegister = async () => {
     if (patientPhone.length < 8) return alert("Celular inválido.");
     setIsSaving(true);
@@ -75,30 +69,27 @@ export default function App() {
       const querySnapshot = await getDocs(q);
 
       if (!querySnapshot.empty) {
-        // Se já existe, pula para o sucesso sem duplicar
         setCurrentView('patient-success');
         setIsSaving(false);
         return; 
       }
 
-      // B. Tentar pegar Token de Push
-      let currentToken = "";
+      // B. Obter Token (Silencioso - Sem alertas técnicos)
+      let currentToken = null;
       try {
         if (messaging) {
-            // OBS: Substitua 'SUA_VAPID_KEY_AQUI' pela chave gerada no Firebase Console > Cloud Messaging > Web Push
             currentToken = await getToken(messaging, { 
                 vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' 
             });
-            console.log("Token gerado:", currentToken);
         }
-      } catch (err) {
-        console.log("Aviso: Token não gerado (provavelmente localhost ou falta VAPID key).");
+      } catch (err) { 
+        console.log("Token não gerado (permissão ou ambiente):", err);
       }
 
       // C. Salvar no Banco
       await addDoc(collection(db, "users"), {
         phone: cleanPhone,
-        pushToken: currentToken || null,
+        pushToken: currentToken,
         createdAt: new Date(),
         deviceType: navigator.userAgent
       });
@@ -111,7 +102,6 @@ export default function App() {
     }
   };
 
-  // 3. Processar Planilha (Admin)
   const processCsv = () => {
     if (!csvInput) return;
     const lines = csvInput.split('\n');
@@ -119,13 +109,48 @@ export default function App() {
       const [nome, tel, data, hora] = line.split(',');
       if (!nome || !tel) return null;
       const cleanPhone = tel.trim().replace(/\D/g, '');
-      const isSubscribed = subscribers.some(s => s.phone === cleanPhone);
-      return { id, nome, cleanPhone, data, hora, isSubscribed };
+      const subscriber = subscribers.find(s => s.phone === cleanPhone);
+      return { 
+        id, nome, cleanPhone, data, hora, 
+        isSubscribed: !!subscriber,
+        pushToken: subscriber?.pushToken 
+      };
     }).filter(Boolean);
     setAppointments(processed);
   };
 
-  // --- Renderização das Telas ---
+  const handleSendReminders = async () => {
+    const targets = appointments.filter(a => a.isSubscribed && a.pushToken);
+    
+    if (targets.length === 0) return alert("Nenhum paciente conectado nesta lista.");
+    
+    if (!confirm(`Confirmar envio para ${targets.length} pacientes?`)) return;
+
+    setIsSending(true);
+    try {
+      const tokens = targets.map(t => t.pushToken);
+      const response = await fetch('/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokens,
+          title: 'Lembrete Psi 🧠',
+          body: 'Olá! Não se esqueça da sua sessão amanhã. Confirme sua presença.'
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        alert(`Sucesso! ${result.enviados} mensagens enviadas.`);
+      } else {
+        alert("Erro no envio: " + JSON.stringify(result));
+      }
+    } catch (error) {
+      alert("Erro de conexão com o servidor: " + error.message);
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   if (currentView === 'landing') {
     return (
@@ -183,16 +208,10 @@ export default function App() {
           <CheckCircle className="w-12 h-12 text-emerald-500" />
         </div>
         <h2 className="text-2xl font-bold text-emerald-900">Tudo Pronto!</h2>
-        
-        {/* MENSAGEM ESPECÍFICA QUE VOCÊ PEDIU */}
         <p className="text-emerald-700 mt-2 mb-6 text-lg">
           Seu celular foi registrado com sucesso. <br/>
           <strong>Você receberá lembretes 48h, 24h e 12h antes da sua sessão.</strong>
         </p>
-
-        <div className="text-sm text-emerald-800 bg-white/60 p-4 rounded-lg border border-emerald-200 mb-8 max-w-xs mx-auto">
-          <strong>Dica:</strong> Não feche esta aba ou adicione à tela inicial para garantir o recebimento.
-        </div>
         <Button onClick={() => setCurrentView('landing')} variant="secondary">Voltar ao Início</Button>
       </div>
     );
@@ -208,34 +227,44 @@ export default function App() {
           </div>
           <button onClick={() => setCurrentView('landing')} className="text-slate-500 flex gap-2 items-center hover:text-red-600 transition-colors bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm"><LogOut size={16}/> Sair</button>
         </div>
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 gap-6 h-[500px]">
           <Card title="Importar Agenda do Dia">
-            <textarea value={csvInput} onChange={(e) => setCsvInput(e.target.value)} placeholder="Cole aqui: Nome, Celular, Data, Hora" className="w-full h-40 p-3 border border-slate-300 rounded-lg text-xs font-mono mb-4 focus:ring-2 focus:ring-indigo-500 outline-none resize-none" />
-            <Button onClick={processCsv} className="w-full" icon={Send}>Verificar Lista</Button>
+            <textarea value={csvInput} onChange={(e) => setCsvInput(e.target.value)} placeholder="Cole aqui: Nome, Celular, Data, Hora" className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono mb-4 focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1" />
+            <Button onClick={processCsv} className="w-full mt-auto" icon={Send}>Verificar Lista</Button>
           </Card>
-          <Card title="Status dos Pacientes">
+          
+          <Card title="Disparo de Lembretes">
             {appointments.length === 0 ? (
-              <div className="text-slate-400 text-center py-12 flex flex-col items-center">
+              <div className="text-slate-400 text-center py-12 flex flex-col items-center justify-center h-full">
                 <Users className="w-8 h-8 opacity-20 mb-2"/>
                 <p>Nenhum dado importado.</p>
               </div>
             ) : (
-              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                {appointments.map((app) => (
-                  <div key={app.id} className="flex justify-between items-center p-3 border border-slate-100 rounded-lg bg-slate-50">
-                    <div>
-                      <span className="text-sm font-bold text-slate-700 block">{app.nome}</span>
-                      <span className="text-xs text-slate-400">{app.cleanPhone}</span>
+              <div className="flex flex-col h-full">
+                <div className="space-y-2 flex-1 overflow-y-auto pr-1 mb-4">
+                  {appointments.map((app) => (
+                    <div key={app.id} className="flex justify-between items-center p-3 border border-slate-100 rounded-lg bg-slate-50">
+                      <div>
+                        <span className="text-sm font-bold text-slate-700 block">{app.nome}</span>
+                        <span className="text-xs text-slate-400">{app.cleanPhone}</span>
+                      </div>
+                      <Badge status={app.isSubscribed ? 'match' : 'missing'} />
                     </div>
-                    <Badge status={app.isSubscribed ? 'match' : 'missing'} />
-                  </div>
-                ))}
+                  ))}
+                </div>
+                
+                <Button 
+                  onClick={handleSendReminders} 
+                  variant="success" 
+                  disabled={isSending || appointments.filter(a => a.isSubscribed).length === 0}
+                  icon={isSending ? Loader2 : Bell}
+                >
+                  {isSending ? "Enviando..." : 
+                   appointments.filter(a => a.isSubscribed).length > 0 
+                     ? `Enviar Lembrete para ${appointments.filter(a => a.isSubscribed).length} Pessoas`
+                     : "Nenhum paciente conectado na lista"}
+                </Button>
               </div>
-            )}
-             {appointments.length > 0 && (
-                 <div className="mt-4 pt-4 border-t border-slate-100 text-center text-xs text-slate-400">
-                    Total: {appointments.length} | Conectados: {appointments.filter(a => a.isSubscribed).length}
-                 </div>
             )}
           </Card>
         </div>

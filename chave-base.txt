@@ -7,3 +7,9 @@ const firebaseConfig = {
   messagingSenderId: "832341424705",
   appId: "1:832341424705:web:04916a4cd4408aeb33e4c0"
 };
+
+
+
+Certificado push da web Key
+
+BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM
