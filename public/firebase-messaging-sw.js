@@ -1,4 +1,4 @@
-// Service Worker Atualizado - Versão Final de Correção de Links (v3)
+// Service Worker Atualizado - Versão Simples (Sem Links Externos)
 importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js');
 importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-messaging.js');
 
@@ -15,17 +15,11 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('Notificação recebida:', payload);
 
-  // Tenta encontrar o link em vários lugares possíveis da mensagem
-  const link = payload.fcmOptions?.link || payload.data?.link || 'https://agenda.msgflow.app.br';
-
   const notificationTitle = payload.notification?.title || 'Lembrete Psi';
   const notificationOptions = {
     body: payload.notification?.body || 'Nova mensagem recebida.',
-    icon: '/icon.png',
-    // Guardamos o link explicitamente nos dados da notificação
-    data: {
-      click_url: link
-    }
+    icon: '/icon.png'
+    // Removemos a lógica de data { click_url } para simplificar
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
@@ -37,14 +31,22 @@ self.addEventListener('notificationclick', function(event) {
   
   event.notification.close();
 
-  // Recupera o link. Se falhar, usa o site principal como segurança.
-  let linkParaAbrir = event.notification.data?.click_url;
-  if (!linkParaAbrir) {
-      linkParaAbrir = 'https://agenda.msgflow.app.br';
-  }
+  // URL fixa do site principal (sem links externos para WhatsApp por enquanto)
+  const urlToOpen = 'https://agenda.msgflow.app.br';
 
-  // Abertura direta (Mais compatível com links externos como WhatsApp em Mobile)
   event.waitUntil(
-    clients.openWindow(linkParaAbrir)
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      // Tenta focar se já estiver aberto
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url === urlToOpen && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Se não, abre nova janela
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
+    })
   );
 });
