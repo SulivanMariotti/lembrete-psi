@@ -5,7 +5,7 @@ import { db, messaging } from './firebase';
 // ADICIONADO: setDoc para salvar agenda com ID personalizado (evitar duplicatas)
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -94,6 +94,20 @@ const StatCard = ({ title, value, icon: Icon, colorClass }) => (
     </div>
   </div>
 );
+
+// --- Helper de Data para Recorrência ---
+const getDayName = (dateString) => {
+    try {
+        const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        // Tenta converter DD/MM/YYYY para objeto Date
+        let parts = dateString.split('/');
+        // Note: month is 0-indexed in JS
+        const date = new Date(parts[2], parts[1] - 1, parts[0]);
+        return days[date.getDay()];
+    } catch (e) {
+        return 'Dia da semana';
+    }
+};
 
 export default function App() {
   // Estados Gerais
@@ -184,8 +198,6 @@ export default function App() {
   const fetchPatientAppointments = async (phone) => {
     setIsLoadingAppointments(true);
     try {
-        // CORREÇÃO: Removemos o orderBy daqui para evitar erro de índice no Firebase
-        // Fazemos a ordenação via Javascript (Cliente)
         const q = query(
             collection(db, "appointments"), 
             where("phone", "==", phone)
@@ -193,7 +205,6 @@ export default function App() {
         const snapshot = await getDocs(q);
         const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        // Filtra apenas datas futuras ou de hoje E ordena
         const today = new Date().toISOString().split('T')[0];
         const futureApps = apps
             .filter(a => a.isoDate >= today)
@@ -396,23 +407,22 @@ export default function App() {
   const handleSyncSchedule = async () => {
     if (appointments.length === 0) return showToast("Não há agendamentos para salvar.", "error");
     
-    if(!confirm(`Deseja salvar estes ${appointments.length} agendamentos no sistema? Isso permitirá que os pacientes vejam a agenda no app.`)) return;
+    if(!confirm(`Deseja sincronizar ${appointments.length} agendamentos? Isso atualizará a agenda no aplicativo dos pacientes.`)) return;
 
     setIsSaving(true);
-    let savedCount = 0;
 
     try {
         const promises = appointments.map(async (app) => {
             if (!app.isoDate || !app.hora) return;
             
-            // Cria um ID único para evitar duplicatas: Telefone + Data + Hora
+            // Cria um ID único: Telefone + Data + Hora
             const docId = `${app.cleanPhone}_${app.isoDate}_${app.hora.replace(':','')}`;
             
             await setDoc(doc(db, "appointments", docId), {
                 phone: app.cleanPhone,
                 patientName: app.nome,
-                date: app.data, // formato display (dd/mm/aaaa)
-                isoDate: app.isoDate, // formato ordenação (aaaa-mm-dd)
+                date: app.data, // formato display
+                isoDate: app.isoDate, // formato ordenação
                 time: app.hora,
                 professional: app.profissional,
                 createdAt: new Date()
@@ -421,7 +431,7 @@ export default function App() {
         });
 
         await Promise.all(promises);
-        showToast("Agenda sincronizada com sucesso!");
+        showToast("Agenda do mês sincronizada com sucesso!");
     } catch (error) {
         showToast("Erro ao salvar agenda: " + error.message, "error");
     } finally {
@@ -580,8 +590,16 @@ export default function App() {
     );
   }
 
-  // TELA DO PACIENTE - AGORA COM AGENDA
+  // --- TELA DO PACIENTE REFORMULADA (Recorrência + Disclaimer) ---
   if (currentView === 'patient-success') {
+    // Lógica para encontrar a recorrência (Ex: "Toda Terça-feira")
+    const nextAppointment = myAppointments.length > 0 ? myAppointments[0] : null;
+    let recurrenceText = "Aguardando agendamento";
+    if (nextAppointment) {
+        const dayName = getDayName(nextAppointment.date);
+        recurrenceText = `Toda ${dayName} às ${nextAppointment.time}`;
+    }
+
     return (
       <div className="min-h-screen bg-violet-50 flex flex-col p-6 overflow-hidden">
         {/* Header Paciente */}
@@ -600,50 +618,60 @@ export default function App() {
             </button>
         </div>
 
-        {/* Card Principal */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-violet-100">
-            <div className="flex items-center gap-4 mb-4">
-                <div className="bg-violet-100 p-3 rounded-full">
-                    <CheckCircle className="w-6 h-6 text-violet-600" />
+        {/* Card de Recorrência (Novo Destaque) */}
+        {nextAppointment ? (
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl shadow-xl p-6 mb-6 text-white relative overflow-hidden">
+                <div className="relative z-10">
+                    <p className="text-violet-100 text-xs font-medium uppercase tracking-wider mb-1">Seu Horário Fixo</p>
+                    <h3 className="text-2xl font-bold mb-2">{recurrenceText}</h3>
+                    <div className="flex items-center gap-2 text-sm opacity-90">
+                        <User size={16} /> 
+                        <span>{nextAppointment.professional || 'Psicoterapia'}</span>
+                    </div>
                 </div>
-                <div>
-                    <h3 className="font-bold text-slate-800">Notificações Ativas</h3>
-                    <p className="text-xs text-slate-500">Você receberá lembretes das suas sessões.</p>
-                </div>
+                {/* Efeito decorativo */}
+                <div className="absolute -right-6 -bottom-10 w-32 h-32 bg-white opacity-10 rounded-full"></div>
             </div>
-            <div className="text-xs bg-slate-50 p-3 rounded-lg text-slate-500 border border-slate-100">
-                Aviso: Mantenha este site na tela inicial para garantir o recebimento.
+        ) : (
+            <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-slate-200 text-center">
+                <p className="text-slate-500">Nenhum horário fixo identificado ainda.</p>
             </div>
+        )}
+
+        {/* Disclaimer Importante */}
+        <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 mb-6 flex gap-3">
+            <Info className="text-amber-600 w-5 h-5 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800 leading-relaxed">
+                <strong>Atenção:</strong> Este horário é válido como uma sessão semanal recorrente até que seja solicitada alteração ou que a Clínica mude previamente com o consentimento do paciente (ou responsável, se menor).
+            </p>
         </div>
 
-        {/* Lista de Sessões */}
+        {/* Lista de Próximas Sessões Específicas */}
         <div className="flex-1 overflow-y-auto">
-            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
-                <Calendar size={18} className="text-violet-600"/> Minhas Próximas Sessões
+            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm uppercase text-slate-500">
+                <Calendar size={16}/> Datas Confirmadas
             </h3>
             
             {isLoadingAppointments ? (
                 <div className="flex justify-center py-8"><Loader2 className="animate-spin text-violet-400" /></div>
             ) : myAppointments.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-3 pb-8">
                     {myAppointments.map(app => (
-                        <div key={app.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 relative overflow-hidden">
-                            <div className="bg-violet-600 text-white w-14 h-14 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                                <span className="font-bold text-lg">{app.date.split('/')[0]}</span>
-                                <span className="text-[10px] uppercase">{new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','')}</span>
+                        <div key={app.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+                            <div className="bg-slate-100 text-slate-600 w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+                                <span className="font-bold text-sm">{app.date.split('/')[0]}</span>
+                                <span className="text-[9px] uppercase">{new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','')}</span>
                             </div>
                             <div>
-                                <p className="font-bold text-slate-800 text-sm">{app.professional || 'Psicoterapia'}</p>
-                                <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                                    <Clock size={12}/> {app.time} horas
-                                </p>
+                                <p className="font-bold text-slate-700 text-sm">Sessão Agendada</p>
+                                <p className="text-xs text-slate-500">{app.date} às {app.time}</p>
                             </div>
                         </div>
                     ))}
                 </div>
             ) : (
-                <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
-                    <p className="text-slate-400 text-sm">Nenhuma sessão agendada.</p>
+                <div className="text-center py-4 text-slate-400 text-xs">
+                    Nenhuma data específica carregada.
                 </div>
             )}
         </div>
@@ -694,7 +722,7 @@ export default function App() {
                 <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
                     <div>
                         <h2 className="text-2xl font-bold mb-2">Pronto para os envios de hoje?</h2>
-                        <p className="opacity-90">Carregue a planilha da semana para disparar os lembretes de 48h, 24h e 12h.</p>
+                        <p className="opacity-90">Carregue a planilha MENSAL ou SEMANAL para disparar os lembretes de 48h, 24h e 12h.</p>
                     </div>
                     <Button onClick={() => setAdminTab('uploads')} variant="white" className="px-8 py-4 text-lg">
                         Começar Disparos
@@ -736,7 +764,7 @@ export default function App() {
                         <textarea 
                             value={csvInput} 
                             onChange={(e) => setCsvInput(e.target.value)} 
-                            placeholder="Cole aqui a planilha CSV:&#10;Nome, Telefone, Data, Hora, Profissional" 
+                            placeholder="Cole aqui a planilha MENSAL ou SEMANAL:&#10;Nome, Telefone, Data, Hora, Profissional" 
                             className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-violet-500 outline-none resize-none flex-1 text-slate-900" 
                         />
                         <div className="flex gap-2">
