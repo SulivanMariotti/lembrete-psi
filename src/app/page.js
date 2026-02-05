@@ -4,9 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2 } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, MessageCircle } from 'lucide-react';
 
-const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: Icon }) => {
+// --- Componentes UI ---
+const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: Icon, as = 'button', ...props }) => {
   const variants = {
     primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-200",
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50",
@@ -14,11 +15,13 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200"
   };
   const finalVariant = disabled && variant !== 'danger' ? 'secondary' : variant;
+  
+  const Component = as;
   return (
-    <button onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${variants[finalVariant]} ${className}`}>
+    <Component onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${variants[finalVariant]} ${className}`} {...props}>
       {Icon && <Icon size={18} />}
       <span translate="no">{children}</span> 
-    </button>
+    </Component>
   );
 };
 
@@ -29,12 +32,28 @@ const Card = ({ children, title }) => (
   </div>
 );
 
-const Badge = ({ status }) => (
-  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 w-fit ${status === 'match' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
-    {status === 'match' ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
-    {status === 'match' ? "Conectado" : "Não Cadastrado"}
-  </span>
-);
+const Badge = ({ status, text }) => {
+  let style = "bg-slate-100 text-slate-600 border-slate-200";
+  let icon = null;
+
+  if (status === 'match') {
+    style = "bg-emerald-100 text-emerald-700 border-emerald-200";
+    icon = <CheckCircle size={12} />;
+  } else if (status === 'missing') {
+    style = "bg-red-50 text-red-600 border-red-100";
+    icon = <AlertTriangle size={12} />;
+  } else if (status === 'time') {
+    style = "bg-blue-50 text-blue-700 border-blue-200";
+    icon = <Clock size={12} />;
+  }
+
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 w-fit whitespace-nowrap ${style}`}>
+      {icon}
+      {text}
+    </span>
+  );
+};
 
 export default function App() {
   const [currentView, setCurrentView] = useState('landing');
@@ -42,9 +61,14 @@ export default function App() {
   const [appointments, setAppointments] = useState([]);
   const [csvInput, setCsvInput] = useState('');
   const [patientPhone, setPatientPhone] = useState('');
+  
+  // CORREÇÃO 1: Número padrão atualizado
+  const [whatsappNumber, setWhatsappNumber] = useState('551141163129'); 
+  
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
+  // 1. Carregar dados do banco
   useEffect(() => {
     if (!db) return;
     try {
@@ -57,14 +81,13 @@ export default function App() {
     } catch (e) { console.error(e); }
   }, []);
 
-  // 2. Cadastro de Paciente (Versão Produção)
+  // 2. Cadastro de Paciente
   const handlePatientRegister = async () => {
     if (patientPhone.length < 8) return alert("Celular inválido.");
     setIsSaving(true);
     const cleanPhone = patientPhone.replace(/\D/g, '');
 
     try {
-      // A. Verificar se já existe
       const q = query(collection(db, "users"), where("phone", "==", cleanPhone));
       const querySnapshot = await getDocs(q);
 
@@ -74,7 +97,6 @@ export default function App() {
         return; 
       }
 
-      // B. Obter Token (Silencioso - Sem alertas técnicos)
       let currentToken = null;
       try {
         if (messaging) {
@@ -82,11 +104,8 @@ export default function App() {
                 vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' 
             });
         }
-      } catch (err) { 
-        console.log("Token não gerado (permissão ou ambiente):", err);
-      }
+      } catch (err) { console.log("Token não gerado:", err); }
 
-      // C. Salvar no Banco
       await addDoc(collection(db, "users"), {
         phone: cleanPhone,
         pushToken: currentToken,
@@ -102,55 +121,148 @@ export default function App() {
     }
   };
 
-  const processCsv = () => {
-    if (!csvInput) return;
-    const lines = csvInput.split('\n');
+  // 3. Processar Planilha (Agora aceita numero atual do zap para recalcular)
+  const processCsv = (inputText = csvInput, currentWhatsapp = whatsappNumber) => {
+    if (!inputText) return;
+    const lines = inputText.split('\n');
+    
     const processed = lines.map((line, id) => {
-      const [nome, tel, data, hora] = line.split(',');
+      let parts = line.split(',');
+      if (parts.length < 2 && line.includes(';')) {
+         parts = line.split(';');
+      }
+
+      const [nome, tel, dataStr, hora] = parts;
       if (!nome || !tel) return null;
+      
       const cleanPhone = tel.trim().replace(/\D/g, '');
       const subscriber = subscribers.find(s => s.phone === cleanPhone);
+      
+      // Lógica de Datas
+      let timeLabel = "Data Inválida";
+      let reminderType = null;
+      let messageBody = "";
+      
+      // Link do WhatsApp usando o número atualizado
+      const linkZap = `https://wa.me/${currentWhatsapp.replace(/\D/g, '')}`;
+
+      if (dataStr && hora) {
+        try {
+            let isoDate = dataStr.trim();
+            if (isoDate.includes('/')) {
+                const [d, m, y] = isoDate.split('/');
+                isoDate = `${y}-${m}-${d}`;
+            }
+            
+            const sessionDate = new Date(`${isoDate}T${hora.trim()}:00`);
+            const now = new Date();
+            const diffHours = (sessionDate - now) / (1000 * 60 * 60);
+
+            if (diffHours < 0) {
+                timeLabel = "Já passou";
+            } else if (diffHours <= 12) {
+                timeLabel = "Faltam < 12h (Hoje)";
+                reminderType = "12h";
+                messageBody = `Olá ${nome.split(' ')[0]}! Sua sessão é hoje às ${hora.trim()}. Dúvidas? ${linkZap}`;
+            } else if (diffHours <= 30) { 
+                timeLabel = "Faltam ~24h (Amanhã)";
+                reminderType = "24h";
+                messageBody = `Olá ${nome.split(' ')[0]}, lembrete: Sua sessão é amanhã às ${hora.trim()}. Confirmar: ${linkZap}`;
+            } else if (diffHours <= 54) {
+                timeLabel = "Faltam ~48h";
+                reminderType = "48h";
+                messageBody = `Olá ${nome.split(' ')[0]}, lembrete: Sessão em ${dataStr} às ${hora.trim()}. Contato: ${linkZap}`;
+            } else {
+                timeLabel = `Faltam ${Math.round(diffHours / 24)} dias`;
+            }
+        } catch (e) {
+            timeLabel = "Erro Data";
+        }
+      }
+
       return { 
-        id, nome, cleanPhone, data, hora, 
+        id, nome, cleanPhone, data: dataStr, hora, 
         isSubscribed: !!subscriber,
-        pushToken: subscriber?.pushToken 
+        pushToken: subscriber?.pushToken,
+        timeLabel,
+        reminderType, 
+        messageBody,
+        linkZap 
       };
     }).filter(Boolean);
+    
     setAppointments(processed);
   };
 
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      setCsvInput(text);
+      processCsv(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const clearData = () => {
+    setCsvInput('');
+    setAppointments([]);
+  };
+
+  // 4. Enviar
   const handleSendReminders = async () => {
-    const targets = appointments.filter(a => a.isSubscribed && a.pushToken);
+    const targets = appointments.filter(a => a.isSubscribed && a.pushToken && a.reminderType);
     
-    if (targets.length === 0) return alert("Nenhum paciente conectado nesta lista.");
+    if (targets.length === 0) return alert("Nenhum lembrete pendente para agora.");
     
-    if (!confirm(`Confirmar envio para ${targets.length} pacientes?`)) return;
+    // CORREÇÃO 2: Resumo detalhado restaurado
+    const counts = { '48h': 0, '24h': 0, '12h': 0 };
+    targets.forEach(t => {
+        if (counts[t.reminderType] !== undefined) {
+            counts[t.reminderType]++;
+        }
+    });
+    
+    const summary = `Confirmar envio com link WhatsApp (${whatsappNumber})?\n\n` + 
+                    `- 48h antes: ${counts['48h']}\n` + 
+                    `- 24h antes: ${counts['24h']}\n` + 
+                    `- 12h antes: ${counts['12h']}\n\n` + 
+                    `Total: ${targets.length} lembretes`;
+
+    if (!confirm(summary)) return;
 
     setIsSending(true);
+    let successCount = 0;
+
     try {
-      const tokens = targets.map(t => t.pushToken);
-      const response = await fetch('/api/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tokens,
-          title: 'Lembrete Psi 🧠',
-          body: 'Olá! Não se esqueça da sua sessão amanhã. Confirme sua presença.'
-        })
-      });
-      
-      const result = await response.json();
-      if (result.success) {
-        alert(`Sucesso! ${result.enviados} mensagens enviadas.`);
-      } else {
-        alert("Erro no envio: " + JSON.stringify(result));
-      }
+        const promises = targets.map(target => {
+            return fetch('/api/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tokens: [target.pushToken], 
+                    title: 'Lembrete Psi 🧠',
+                    body: target.messageBody,
+                    link: target.linkZap
+                })
+            }).then(res => res.json().then(data => data.success ? 1 : 0));
+        });
+
+        const results = await Promise.all(promises);
+        successCount = results.reduce((a, b) => a + b, 0);
+
+        alert(`Concluído! ${successCount} mensagens enviadas.`);
+
     } catch (error) {
-      alert("Erro de conexão com o servidor: " + error.message);
+      alert("Erro no envio: " + error.message);
     } finally {
       setIsSending(false);
     }
   };
+
+  // --- Renderização ---
 
   if (currentView === 'landing') {
     return (
@@ -219,7 +331,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Painel da Clínica</h1>
@@ -227,43 +339,95 @@ export default function App() {
           </div>
           <button onClick={() => setCurrentView('landing')} className="text-slate-500 flex gap-2 items-center hover:text-red-600 transition-colors bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm"><LogOut size={16}/> Sair</button>
         </div>
-        <div className="grid md:grid-cols-2 gap-6 h-[500px]">
-          <Card title="Importar Agenda do Dia">
-            <textarea value={csvInput} onChange={(e) => setCsvInput(e.target.value)} placeholder="Cole aqui: Nome, Celular, Data, Hora" className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono mb-4 focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1" />
-            <Button onClick={processCsv} className="w-full mt-auto" icon={Send}>Verificar Lista</Button>
+        <div className="grid md:grid-cols-2 gap-6 h-[600px]">
+          
+          <Card title="1. Configuração e Agenda">
+            <div className="flex flex-col h-full gap-4">
+              
+              {/* CAMPO DE WHATSAPP NOVO */}
+              <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
+                <label className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-1 mb-1">
+                  <MessageCircle size={14} /> WhatsApp da Clínica (Para Links)
+                </label>
+                <input 
+                  type="text" 
+                  value={whatsappNumber}
+                  onChange={(e) => {
+                      setWhatsappNumber(e.target.value);
+                      processCsv(csvInput, e.target.value); // Atualiza os links em tempo real
+                  }}
+                  className="w-full bg-white p-2 text-sm rounded border border-indigo-200 focus:outline-indigo-500"
+                  placeholder="5511999999999"
+                />
+              </div>
+
+              <textarea 
+                value={csvInput} 
+                onChange={(e) => setCsvInput(e.target.value)} 
+                placeholder="Cole aqui a lista: Nome, Telefone, Data, Hora" 
+                className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1" 
+              />
+              
+              <div className="flex gap-2">
+                <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" id="csvUpload" />
+                <label htmlFor="csvUpload" className="flex-1">
+                  <Button as="div" variant="secondary" icon={Upload} className="w-full">Carregar Planilha</Button>
+                </label>
+                
+                {csvInput && (
+                  <Button onClick={clearData} variant="danger" className="px-3" title="Limpar lista">
+                    <Trash2 size={18} />
+                  </Button>
+                )}
+
+                <Button onClick={() => processCsv()} className="flex-1" icon={Send}>Verificar</Button>
+              </div>
+            </div>
           </Card>
           
-          <Card title="Disparo de Lembretes">
+          <Card title="2. Envios Pendentes">
             {appointments.length === 0 ? (
               <div className="text-slate-400 text-center py-12 flex flex-col items-center justify-center h-full">
-                <Users className="w-8 h-8 opacity-20 mb-2"/>
+                <FileSpreadsheet className="w-12 h-12 opacity-20 mb-2"/>
                 <p>Nenhum dado importado.</p>
               </div>
             ) : (
               <div className="flex flex-col h-full">
                 <div className="space-y-2 flex-1 overflow-y-auto pr-1 mb-4">
                   {appointments.map((app) => (
-                    <div key={app.id} className="flex justify-between items-center p-3 border border-slate-100 rounded-lg bg-slate-50">
-                      <div>
-                        <span className="text-sm font-bold text-slate-700 block">{app.nome}</span>
-                        <span className="text-xs text-slate-400">{app.cleanPhone}</span>
+                    <div key={app.id} className={`flex flex-col p-3 border rounded-lg ${app.reminderType ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-100 opacity-60'}`}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-bold text-slate-700">{app.nome}</span>
+                        <Badge status={app.isSubscribed ? 'match' : 'missing'} text={app.isSubscribed ? "App Instalado" : "Sem App"} />
                       </div>
-                      <Badge status={app.isSubscribed ? 'match' : 'missing'} />
+                      <div className="flex justify-between items-center text-xs text-slate-500">
+                        <span>{app.data} às {app.hora}</span>
+                        {app.reminderType ? (
+                            <span className="font-bold text-indigo-600 flex items-center gap-1">
+                                <Mail size={10} /> Enviar Aviso {app.reminderType}
+                            </span>
+                        ) : (
+                            <span>{app.timeLabel}</span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
                 
-                <Button 
-                  onClick={handleSendReminders} 
-                  variant="success" 
-                  disabled={isSending || appointments.filter(a => a.isSubscribed).length === 0}
-                  icon={isSending ? Loader2 : Bell}
-                >
-                  {isSending ? "Enviando..." : 
-                   appointments.filter(a => a.isSubscribed).length > 0 
-                     ? `Enviar Lembrete para ${appointments.filter(a => a.isSubscribed).length} Pessoas`
-                     : "Nenhum paciente conectado na lista"}
-                </Button>
+                {appointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
+                  <Button 
+                    onClick={handleSendReminders} 
+                    variant="success" 
+                    disabled={isSending}
+                    icon={isSending ? Loader2 : Bell}
+                  >
+                    {isSending ? "Enviando..." : `Disparar ${appointments.filter(a => a.isSubscribed && a.reminderType).length} Lembretes`}
+                  </Button>
+                ) : (
+                  <p className="text-center text-xs text-slate-400 mt-auto bg-slate-50 p-2 rounded">
+                    Nenhum lembrete pendente para o horário atual.
+                  </p>
+                )}
               </div>
             )}
           </Card>
