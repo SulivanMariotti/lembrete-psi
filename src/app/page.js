@@ -6,6 +6,17 @@ import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, quer
 import { getToken } from 'firebase/messaging';
 import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, MessageCircle, HeartPulse, LifeBuoy, Shield, CalendarCheck, BarChart3, ScrollText, FileSignature } from 'lucide-react';
 
+// --- Função de Segurança (HASH) ---
+// Transforma "1234" em "03ac674216f3e15c..." irreversível
+const hashPin = async (pin) => {
+  if (!pin) return null;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
@@ -79,7 +90,6 @@ const Badge = ({ status, text }) => {
     icon = <ScrollText size={12} />;
   }
 
-
   return (
     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 w-fit whitespace-nowrap ${style}`}>
       {icon}
@@ -129,7 +139,7 @@ export default function App() {
   const [authStep, setAuthStep] = useState('phone'); 
   const [userPin, setUserPin] = useState('');
   const [tempUserDoc, setTempUserDoc] = useState(null); 
-  const [currentUser, setCurrentUser] = useState(null); // Dados do usuário logado em tempo real
+  const [currentUser, setCurrentUser] = useState(null); 
 
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -154,7 +164,7 @@ export default function App() {
   const [showSOS, setShowSOS] = useState(false); 
   const [showProfile, setShowProfile] = useState(false); 
   const [newPin, setNewPin] = useState(''); 
-  const [showContract, setShowContract] = useState(false); // NOVO: Modal de Contrato
+  const [showContract, setShowContract] = useState(false); 
 
   // Filtro por Profissional
   const [filterProf, setFilterProf] = useState('Todos');
@@ -169,7 +179,7 @@ export default function App() {
     msg12h: "Olá {nome}! Sua sessão com {profissional} é hoje às {hora}. Até logo!",
     whatsapp: "551141163129",
     contractText: "1. O horário da sessão é de sua exclusiva responsabilidade.\n2. Faltas não avisadas com 24h de antecedência serão cobradas.\n3. O sigilo profissional é absoluto.\n4. Férias e reajustes serão comunicados previamente.",
-    contractVersion: 1 // Versão inicial do contrato
+    contractVersion: 1 
   });
 
   const showToast = (msg, type = 'success') => setToast({ msg, type });
@@ -179,7 +189,6 @@ export default function App() {
     const isDeviceIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     setIsIOS(isDeviceIOS);
 
-    // Carregar do localStorage (Backup inicial)
     const savedConfig = localStorage.getItem('psi_msg_config');
     if (savedConfig) {
         setMsgConfig(prev => ({ ...prev, ...JSON.parse(savedConfig) }));
@@ -188,20 +197,17 @@ export default function App() {
     if (!db) return;
 
     try {
-      // LISTENER DE CONFIGURAÇÃO GLOBAL (Sincronização Nuvem)
       const unsubConfig = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
         if (docSnap.exists()) {
             setMsgConfig(prev => ({ ...prev, ...docSnap.data() }));
         }
       });
 
-      // Listeners principais
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setSubscribers(usersList);
         
-        // Atualiza currentUser se estiver logado
         const savedPhone = localStorage.getItem('psi_user_phone');
         if (savedPhone) {
             const found = usersList.find(u => u.phone === savedPhone);
@@ -231,10 +237,8 @@ export default function App() {
     } catch (e) { console.error(e); }
   }, []);
 
-  // Verificar Contrato ao Entrar
   useEffect(() => {
     if (currentView === 'patient-success' && currentUser) {
-        // Se a versão aceita for menor que a versão atual da clínica, força o modal
         if (!currentUser.acceptedTermsVersion || currentUser.acceptedTermsVersion < (msgConfig.contractVersion || 1)) {
             setShowContract(true);
         }
@@ -242,7 +246,6 @@ export default function App() {
   }, [currentView, currentUser, msgConfig]);
 
 
-  // Máscara de Telefone
   const formatPhone = (val) => {
     val = val.replace(/\D/g, "");
     if (val.length > 11) val = val.slice(0, 11);
@@ -288,7 +291,7 @@ export default function App() {
     return unsubscribe;
   };
 
-  // --- NOVA LÓGICA DE LOGIN COM PIN ---
+  // --- NOVA LÓGICA DE LOGIN COM PIN + HASH ---
   const handleCheckPhone = async () => {
     const rawPhone = patientPhone.replace(/\D/g, '');
     if (rawPhone.length < 10) return showToast("Por favor, digite um celular válido.", "error");
@@ -325,14 +328,26 @@ export default function App() {
 
     try {
         if (authStep === 'pin-verify') {
-            if (tempUserDoc && tempUserDoc.pin === userPin) {
+            // LOGIN: Verificar senha
+            const hashedInput = await hashPin(userPin);
+            
+            // Verifica se o PIN no banco bate com o Hash atual OU se bate com o texto puro (Legado/Migração)
+            const isMatch = tempUserDoc && (tempUserDoc.pin === hashedInput || tempUserDoc.pin === userPin);
+
+            if (isMatch) {
+                // Se era texto puro, atualizamos para Hash agora mesmo (Migração silenciosa)
+                if (tempUserDoc.pin === userPin && tempUserDoc.pin !== hashedInput) {
+                     await updateDoc(doc(db, "users", tempUserDoc.id), { pin: hashedInput });
+                }
                 await finalizeLogin(rawPhone, tempUserDoc.id);
             } else {
                 showToast("Senha incorreta.", "error");
                 setIsSaving(false);
             }
         } else {
+            // CADASTRO / REDEFINIÇÃO: Salvar Hash
             let userId = tempUserDoc?.id;
+            const hashedPin = await hashPin(userPin);
             
             let currentToken = null;
             try {
@@ -345,14 +360,14 @@ export default function App() {
 
             if (userId) {
                 await updateDoc(doc(db, "users", userId), {
-                    pin: userPin,
+                    pin: hashedPin, // Salva criptografado
                     pushToken: currentToken || tempUserDoc.pushToken,
                     lastSeen: new Date()
                 });
             } else {
                 const docRef = await addDoc(collection(db, "users"), {
                     phone: rawPhone,
-                    pin: userPin,
+                    pin: hashedPin, // Salva criptografado
                     pushToken: currentToken,
                     createdAt: new Date(),
                     lastSeen: new Date(),
@@ -387,7 +402,6 @@ export default function App() {
       setCurrentView('landing');
   };
 
-  // --- FUNÇÕES DO PACIENTE ---
   useEffect(() => {
     if (currentView === 'patient-success') {
         const phone = localStorage.getItem('psi_user_phone');
@@ -436,7 +450,8 @@ export default function App() {
         
         if (!snapshot.empty) {
             const userId = snapshot.docs[0].id;
-            await updateDoc(doc(db, "users", userId), { pin: newPin });
+            const hashedNewPin = await hashPin(newPin); // Criptografa o novo PIN
+            await updateDoc(doc(db, "users", userId), { pin: hashedNewPin });
             showToast("Senha alterada com sucesso!");
             setNewPin('');
             setShowProfile(false);
@@ -444,23 +459,6 @@ export default function App() {
     } catch (error) {
         showToast("Erro ao alterar senha.", "error");
     }
-  };
-
-  // NOVO: Aceitar Contrato
-  const handleAcceptContract = async () => {
-      if (!currentUser) return;
-      try {
-          await updateDoc(doc(db, "users", currentUser.id), {
-              acceptedTerms: true,
-              acceptedTermsVersion: msgConfig.contractVersion || 1,
-              acceptedTermsAt: new Date(),
-              acceptedTermsContent: msgConfig.contractText
-          });
-          setShowContract(false);
-          showToast("Termos aceites com sucesso!");
-      } catch (error) {
-          showToast("Erro ao aceitar termos: " + error.message, "error");
-      }
   };
 
   // --- FUNÇÕES ADMIN ---
@@ -715,17 +713,14 @@ export default function App() {
     }
   };
 
-  // NOVO: Função para salvar configuração NA NUVEM e LOCALMENTE
   const saveConfig = async (incrementVersion = false) => {
     const newConfig = { ...msgConfig };
     if (incrementVersion) {
         newConfig.contractVersion = (newConfig.contractVersion || 1) + 1;
     }
     setMsgConfig(newConfig);
-    // Salva local (backup)
     localStorage.setItem('psi_msg_config', JSON.stringify(newConfig));
     
-    // Salva na nuvem (Firestore) para todos os dispositivos verem
     try {
         await setDoc(doc(db, "settings", "global"), newConfig);
         showToast(incrementVersion ? "Termos atualizados para todos!" : "Configurações sincronizadas!");
@@ -742,7 +737,6 @@ export default function App() {
 
   const totalMessagesSent = historyLogs.reduce((acc, curr) => acc + (curr.count || 0), 0);
   
-  // Dashboard atualizado
   const totalFutureApps = dbAppointments.length;
 
   // --- Renderização ---
@@ -840,7 +834,7 @@ export default function App() {
                   value={userPin} 
                   onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))} 
                   placeholder="****" 
-                  className="w-full text-center text-3xl p-3 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[0.5em] mt-1" 
+                  className="w-full text-center text-4xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[0.5em] mt-1" 
                 />
               </div>
               <Button onClick={handleAuthSubmit} disabled={isSaving || userPin.length < 4} className="w-full py-4 text-lg mt-6" icon={isSaving ? Loader2 : KeyRound}>
@@ -1169,17 +1163,38 @@ export default function App() {
                     <StatCard title="Total Pacientes" value={subscribers.length} icon={Users} colorClass="bg-blue-100 text-blue-600" />
                     <StatCard title="Pacientes Ativos (30d)" value={activeUsersCount} icon={Activity} colorClass="bg-emerald-100 text-emerald-600" />
                     <StatCard title="Mensagens Enviadas" value={totalMessagesSent} icon={Send} colorClass="bg-purple-100 text-purple-600" />
+                    {/* KPI: Agendamentos Futuros */}
+                    <StatCard title="Agendamentos" value={totalFutureApps} subtext="Sessões futuras" icon={CalendarCheck} colorClass="bg-orange-100 text-orange-600" />
                 </div>
                 
                 <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
                     <div>
-                        <h2 className="text-2xl font-bold mb-2">Pronto para os envios de hoje?</h2>
-                        <p className="opacity-90">Carregue a planilha MENSAL ou SEMANAL para disparar os lembretes de 48h, 24h e 12h.</p>
+                        <h2 className="text-2xl font-bold mb-2">Gestão Diária</h2>
+                        <p className="opacity-90">Verifique os agendamentos e dispare os lembretes para os pacientes.</p>
                     </div>
                     <Button onClick={() => setAdminTab('uploads')} variant="white" className="px-8 py-4 text-lg">
                         Começar Disparos
                     </Button>
                 </div>
+                
+                {/* Visualização Rápida de Agendamentos Futuros */}
+                <Card title="Próximas Sessões Sincronizadas">
+                     {dbAppointments.length === 0 ? (
+                        <p className="text-center text-slate-400 py-8">Nenhuma sessão sincronizada no banco.</p>
+                     ) : (
+                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                             {dbAppointments.sort((a,b) => a.isoDate.localeCompare(b.isoDate)).slice(0, 10).map(app => (
+                                 <div key={app.id} className="flex justify-between items-center p-3 border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                                     <div className="flex flex-col">
+                                         <span className="font-bold text-slate-700 text-sm">{app.patientName}</span>
+                                         <span className="text-xs text-slate-400">{app.date} às {app.time}</span>
+                                     </div>
+                                     <Badge status={'pending'} text={'Agendado'} />
+                                 </div>
+                             ))}
+                         </div>
+                     )}
+                </Card>
             </div>
         )}
 
