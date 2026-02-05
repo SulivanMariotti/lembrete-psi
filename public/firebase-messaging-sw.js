@@ -1,4 +1,4 @@
-// Service Worker Atualizado - Versão de Correção de Links
+// Service Worker Atualizado - Versão Final de Correção de Links (v3)
 importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js');
 importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-messaging.js');
 
@@ -43,20 +43,8 @@ self.addEventListener('notificationclick', function(event) {
       linkParaAbrir = 'https://agenda.msgflow.app.br';
   }
 
-  // Lógica avançada para abrir a janela
+  // Abertura direta (Mais compatível com links externos como WhatsApp em Mobile)
   event.waitUntil(
-    clients.matchAll({type: 'window', includeUncontrolled: true}).then(windowClients => {
-      // Se já houver uma aba aberta com esse link, foca nela
-      for (let i = 0; i < windowClients.length; i++) {
-        const client = windowClients[i];
-        if (client.url === linkParaAbrir && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      // Se não, abre uma nova janela/aba
-      if (clients.openWindow) {
-        return clients.openWindow(linkParaAbrir);
-      }
-    })
+    clients.openWindow(linkParaAbrir)
   );
 });
