@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
-import { collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
+// ADICIONADO: setDoc para salvar agenda com ID personalizado (evitar duplicatas)
+import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload } from 'lucide-react';
 
-// --- Componente TOAST (Notificação Visual Suave) ---
+// --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(onClose, 4000);
@@ -17,7 +18,7 @@ const Toast = ({ message, type, onClose }) => {
 
   const styles = type === 'error' 
     ? 'bg-red-500 border-red-600' 
-    : 'bg-emerald-600 border-emerald-700'; // Mantive o verde apenas para sucesso (convenção visual)
+    : 'bg-emerald-600 border-emerald-700'; 
   
   const icon = type === 'error' ? <XCircle size={20} /> : <CheckCircle size={20} />;
 
@@ -33,12 +34,10 @@ const Toast = ({ message, type, onClose }) => {
 // --- Componentes UI ---
 const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: Icon, as = 'button', ...props }) => {
   const variants = {
-    // Nova Paleta: Violeta/Índigo
     primary: "bg-violet-600 text-white hover:bg-violet-700 shadow-md shadow-violet-200",
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50",
     danger: "bg-red-50 text-red-600 hover:bg-red-100",
     success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200",
-    // Nova variante para botões brancos em fundos escuros
     white: "bg-white text-violet-700 hover:bg-violet-50 shadow-md border-transparent"
   };
   
@@ -56,7 +55,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
 const Card = ({ children, title, className = "" }) => (
   <div className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 h-full flex flex-col ${className}`}>
     {title && <h3 className="font-bold text-slate-800 text-lg border-b border-slate-100 pb-4 mb-4">{title}</h3>}
-    <div className="flex-1">{children}</div>
+    <div className="flex-1 overflow-hidden flex flex-col">{children}</div>
   </div>
 );
 
@@ -107,13 +106,23 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
   
+  // Estados do Paciente (Agenda)
+  const [myAppointments, setMyAppointments] = useState([]);
+  const [isLoadingAppointments, setIsLoadingAppointments] = useState(false);
+
   // Admin & UI
   const [adminTab, setAdminTab] = useState('dashboard'); 
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState({ msg: '', type: '' });
   const [isIOS, setIsIOS] = useState(false);
 
-  // Configuração de Mensagens
+  // Filtro por Profissional
+  const [filterProf, setFilterProf] = useState('Todos');
+
+  // Estados para Adição Manual
+  const [manualEntry, setManualEntry] = useState({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
+  const [showManualForm, setShowManualForm] = useState(false);
+
   const [msgConfig, setMsgConfig] = useState({
     msg48h: "Olá {nome}, lembrete antecipado: Sessão com {profissional} confirmada para {data} às {hora}.",
     msg24h: "Olá {nome}, lembrete: Sua sessão com {profissional} é amanhã às {hora}.",
@@ -147,6 +156,7 @@ export default function App() {
 
       const savedPhone = localStorage.getItem('psi_user_phone');
       if (savedPhone) {
+        // Se já tiver telefone salvo, tenta atualizar o acesso e buscar agenda
         const trackAccess = async () => {
             const qUser = query(collection(db, "users"), where("phone", "==", savedPhone));
             const snapshot = await getDocs(qUser);
@@ -170,7 +180,31 @@ export default function App() {
     setPatientPhone(val);
   };
 
-  // 2. Cadastro de Paciente
+  // Funcao para Buscar Agenda do Paciente (App do Paciente)
+  const fetchPatientAppointments = async (phone) => {
+    setIsLoadingAppointments(true);
+    try {
+        const q = query(
+            collection(db, "appointments"), 
+            where("phone", "==", phone),
+            orderBy("isoDate", "asc") // Ordena por data (mais próxima primeiro)
+        );
+        const snapshot = await getDocs(q);
+        const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Filtra apenas datas futuras ou de hoje
+        const today = new Date().toISOString().split('T')[0];
+        const futureApps = apps.filter(a => a.isoDate >= today);
+        
+        setMyAppointments(futureApps);
+    } catch (error) {
+        console.error("Erro ao buscar agenda:", error);
+    } finally {
+        setIsLoadingAppointments(false);
+    }
+  };
+
+  // 2. Cadastro de Paciente (Login/Entrada)
   const handlePatientRegister = async () => {
     const rawPhone = patientPhone.replace(/\D/g, '');
     if (rawPhone.length < 10) return showToast("Por favor, digite um celular válido.", "error");
@@ -179,6 +213,10 @@ export default function App() {
 
     try {
       localStorage.setItem('psi_user_phone', rawPhone);
+      
+      // Busca a agenda dele
+      await fetchPatientAppointments(rawPhone);
+
       const q = query(collection(db, "users"), where("phone", "==", rawPhone));
       const querySnapshot = await getDocs(q);
 
@@ -186,7 +224,7 @@ export default function App() {
         querySnapshot.forEach(async (docRef) => {
             await updateDoc(doc(db, "users", docRef.id), { lastSeen: new Date() });
         });
-        setCurrentView('patient-success');
+        setCurrentView('patient-success'); // Vai para a tela de dashboard do paciente
         setIsSaving(false);
         return; 
       }
@@ -227,11 +265,12 @@ export default function App() {
   };
 
   const handleExportCSV = () => {
-    const headers = "Telefone,Data Cadastro,Ultimo Acesso\n";
+    const headers = "Nome,Telefone,Data Cadastro,Ultimo Acesso\n";
     const rows = subscribers.map(u => {
         const joined = u.createdAt?.seconds ? new Date(u.createdAt.seconds * 1000).toLocaleDateString() : '';
         const seen = u.lastSeen?.seconds ? new Date(u.lastSeen.seconds * 1000).toLocaleDateString() : '';
-        return `${u.phone},${joined},${seen}`;
+        const safeName = u.name ? `"${u.name}"` : 'Sem nome';
+        return `${safeName},${u.phone},${joined},${seen}`;
     }).join("\n");
     
     const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -261,10 +300,11 @@ export default function App() {
       let timeLabel = "Data Inválida";
       let reminderType = null;
       let messageBody = "";
+      let isoDate = "";
 
       if (dataStr && hora) {
         try {
-            let isoDate = dataStr.trim();
+            isoDate = dataStr.trim();
             if (isoDate.includes('/')) {
                 const [d, m, y] = isoDate.split('/');
                 isoDate = `${y}-${m}-${d}`;
@@ -297,7 +337,7 @@ export default function App() {
       }
 
       return { 
-        id, nome, cleanPhone, data: dataStr, hora, profissional: nomeProfissional,
+        id, nome, cleanPhone, data: dataStr, isoDate, hora, profissional: nomeProfissional,
         isSubscribed: !!subscriber, pushToken: subscriber?.pushToken,
         timeLabel, reminderType, messageBody
       };
@@ -305,6 +345,17 @@ export default function App() {
     
     setAppointments(processed);
   };
+
+  // --- FILTROS ---
+  const professionalsList = useMemo(() => {
+    const profs = new Set(appointments.map(a => a.profissional));
+    return ['Todos', ...Array.from(profs)];
+  }, [appointments]);
+
+  const filteredAppointments = useMemo(() => {
+    if (filterProf === 'Todos') return appointments;
+    return appointments.filter(a => a.profissional === filterProf);
+  }, [appointments, filterProf]);
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -318,14 +369,65 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  const clearData = () => { setCsvInput(''); setAppointments([]); };
-
-  // 4. Enviar e Salvar Histórico
-  const handleSendReminders = async () => {
-    const targets = appointments.filter(a => a.isSubscribed && a.pushToken && a.reminderType);
-    if (targets.length === 0) return showToast("Nenhum lembrete pendente.", "error");
+  const handleAddManual = () => {
+    const { nome, telefone, data, hora, profissional } = manualEntry;
+    if (!nome || !telefone || !data || !hora) return showToast("Preencha os campos obrigatórios.", "error");
     
-    const summary = `Confirmar envio?\n\n` + 
+    const newLine = `${nome},${telefone},${data},${hora},${profissional || ''}`;
+    const newInput = csvInput ? csvInput + '\n' + newLine : newLine;
+    
+    setCsvInput(newInput);
+    processCsv(newInput);
+    setManualEntry({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
+    setShowManualForm(false);
+    showToast("Agendamento adicionado!");
+  };
+
+  const clearData = () => { setCsvInput(''); setAppointments([]); setFilterProf('Todos'); };
+
+  // --- SINCRONIZAR AGENDA (Salvar no Banco) ---
+  const handleSyncSchedule = async () => {
+    if (appointments.length === 0) return showToast("Não há agendamentos para salvar.", "error");
+    
+    if(!confirm(`Deseja salvar estes ${appointments.length} agendamentos no sistema? Isso permitirá que os pacientes vejam a agenda no app.`)) return;
+
+    setIsSaving(true);
+    let savedCount = 0;
+
+    try {
+        const promises = appointments.map(async (app) => {
+            if (!app.isoDate || !app.hora) return;
+            
+            // Cria um ID único para evitar duplicatas: Telefone + Data + Hora
+            const docId = `${app.cleanPhone}_${app.isoDate}_${app.hora.replace(':','')}`;
+            
+            await setDoc(doc(db, "appointments", docId), {
+                phone: app.cleanPhone,
+                patientName: app.nome,
+                date: app.data, // formato display (dd/mm/aaaa)
+                isoDate: app.isoDate, // formato ordenação (aaaa-mm-dd)
+                time: app.hora,
+                professional: app.profissional,
+                createdAt: new Date()
+            });
+            return 1;
+        });
+
+        await Promise.all(promises);
+        showToast("Agenda sincronizada com sucesso!");
+    } catch (error) {
+        showToast("Erro ao salvar agenda: " + error.message, "error");
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+  // 4. Enviar
+  const handleSendReminders = async () => {
+    const targets = filteredAppointments.filter(a => a.isSubscribed && a.pushToken && a.reminderType);
+    if (targets.length === 0) return showToast("Nenhum lembrete pendente para esta seleção.", "error");
+    
+    const summary = `Confirmar envio ${filterProf !== 'Todos' ? 'para '+filterProf : ''}?\n\n` + 
                     `- 48h antes: ${targets.filter(t => t.reminderType === '48h').length}\n` + 
                     `- 24h antes: ${targets.filter(t => t.reminderType === '24h').length}\n` + 
                     `- 12h antes: ${targets.filter(t => t.reminderType === '12h').length}\n\n` + 
@@ -337,8 +439,8 @@ export default function App() {
     let successCount = 0;
 
     try {
-        const promises = targets.map(target => {
-            return fetch('/api/send', {
+        const promises = targets.map(async (target) => {
+            const response = await fetch('/api/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -346,7 +448,17 @@ export default function App() {
                     title: 'Lembrete Psi 🧠',
                     body: target.messageBody
                 })
-            }).then(res => res.json().then(data => data.success ? 1 : 0));
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                const subscriber = subscribers.find(s => s.phone === target.cleanPhone);
+                if (subscriber && (!subscriber.name || subscriber.name !== target.nome)) {
+                     updateDoc(doc(db, "users", subscriber.id), { name: target.nome }).catch(console.error);
+                }
+                return 1;
+            }
+            return 0;
         });
 
         const results = await Promise.all(promises);
@@ -357,7 +469,7 @@ export default function App() {
                 sentAt: new Date(),
                 count: successCount,
                 types: [...new Set(targets.map(t => t.reminderType))], 
-                summary: `${successCount} mensagens enviadas.`
+                summary: `${successCount} mensagens (${filterProf}).`
             });
         }
 
@@ -384,7 +496,6 @@ export default function App() {
     showToast("Configurações de mensagem salvas!");
   };
 
-  // Cálculos do Dashboard
   const activeUsersCount = subscribers.filter(u => {
     if (!u.lastSeen?.seconds) return false;
     const diffDays = (new Date() - new Date(u.lastSeen.seconds * 1000)) / (1000 * 60 * 60 * 24);
@@ -462,18 +573,73 @@ export default function App() {
     );
   }
 
+  // TELA DO PACIENTE - AGORA COM AGENDA
   if (currentView === 'patient-success') {
     return (
-      <div className="min-h-screen bg-violet-50 flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-sm mb-6 animate-bounce">
-          <CheckCircle className="w-12 h-12 text-violet-500" />
+      <div className="min-h-screen bg-violet-50 flex flex-col p-6 overflow-hidden">
+        {/* Header Paciente */}
+        <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+                <div className="bg-white p-2 rounded-full shadow-sm">
+                    <User className="text-violet-600 w-6 h-6" />
+                </div>
+                <div>
+                    <h2 className="font-bold text-slate-800">Olá, Paciente</h2>
+                    <p className="text-xs text-slate-500">Bem-vindo de volta</p>
+                </div>
+            </div>
+            <button onClick={() => setCurrentView('landing')} className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-colors">
+                <LogOut size={18} />
+            </button>
         </div>
-        <h2 className="text-2xl font-bold text-violet-900">Tudo Pronto!</h2>
-        <p className="text-violet-700 mt-2 mb-6 text-lg">
-          Seu celular foi registrado com sucesso. <br/>
-          <strong>Você receberá lembretes 48h, 24h e 12h antes da sua sessão.</strong>
-        </p>
-        <Button onClick={() => setCurrentView('landing')} variant="secondary">Voltar ao Início</Button>
+
+        {/* Card Principal */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-violet-100">
+            <div className="flex items-center gap-4 mb-4">
+                <div className="bg-violet-100 p-3 rounded-full">
+                    <CheckCircle className="w-6 h-6 text-violet-600" />
+                </div>
+                <div>
+                    <h3 className="font-bold text-slate-800">Notificações Ativas</h3>
+                    <p className="text-xs text-slate-500">Você receberá lembretes das suas sessões.</p>
+                </div>
+            </div>
+            <div className="text-xs bg-slate-50 p-3 rounded-lg text-slate-500 border border-slate-100">
+                Aviso: Mantenha este site na tela inicial para garantir o recebimento.
+            </div>
+        </div>
+
+        {/* Lista de Sessões */}
+        <div className="flex-1 overflow-y-auto">
+            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Calendar size={18} className="text-violet-600"/> Minhas Próximas Sessões
+            </h3>
+            
+            {isLoadingAppointments ? (
+                <div className="flex justify-center py-8"><Loader2 className="animate-spin text-violet-400" /></div>
+            ) : myAppointments.length > 0 ? (
+                <div className="space-y-3">
+                    {myAppointments.map(app => (
+                        <div key={app.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 relative overflow-hidden">
+                            <div className="bg-violet-600 text-white w-14 h-14 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+                                <span className="font-bold text-lg">{app.date.split('/')[0]}</span>
+                                <span className="text-[10px] uppercase">{new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','')}</span>
+                            </div>
+                            <div>
+                                <p className="font-bold text-slate-800 text-sm">{app.professional || 'Psicoterapia'}</p>
+                                <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                                    <Clock size={12}/> {app.time} horas
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
+                    <p className="text-slate-400 text-sm">Nenhuma sessão agendada.</p>
+                </div>
+            )}
+        </div>
       </div>
     );
   }
@@ -509,7 +675,7 @@ export default function App() {
           <button onClick={() => setCurrentView('landing')} className="text-slate-500 flex gap-2 items-center hover:text-red-600 transition-colors bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm"><LogOut size={16}/> Sair</button>
         </div>
 
-        {/* DASHBOARD (NOVO) */}
+        {/* DASHBOARD */}
         {adminTab === 'dashboard' && (
             <div className="space-y-6">
                 <div className="grid md:grid-cols-3 gap-6">
@@ -523,7 +689,6 @@ export default function App() {
                         <h2 className="text-2xl font-bold mb-2">Pronto para os envios de hoje?</h2>
                         <p className="opacity-90">Carregue a planilha da semana para disparar os lembretes de 48h, 24h e 12h.</p>
                     </div>
-                    {/* Botão Branco agora usa variante "white" para garantir contraste */}
                     <Button onClick={() => setAdminTab('uploads')} variant="white" className="px-8 py-4 text-lg">
                         Começar Disparos
                     </Button>
@@ -536,10 +701,35 @@ export default function App() {
             <div className="grid md:grid-cols-2 gap-6 h-[600px]">
                 <Card title="1. Carregar Agenda">
                     <div className="flex flex-col h-full gap-4">
+                        
+                        {/* Formulário de Adição Rápida */}
+                        {showManualForm ? (
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-2 text-sm animate-in fade-in zoom-in">
+                                <div className="grid grid-cols-2 gap-2 mb-2">
+                                    <input placeholder="Nome" className="p-2 rounded border" value={manualEntry.nome} onChange={e=>setManualEntry({...manualEntry, nome: e.target.value})} />
+                                    <input placeholder="Tel (com DDD)" className="p-2 rounded border" value={manualEntry.telefone} onChange={e=>setManualEntry({...manualEntry, telefone: e.target.value})} />
+                                    <input type="date" className="p-2 rounded border" value={manualEntry.data} onChange={e=>setManualEntry({...manualEntry, data: e.target.value})} />
+                                    <input type="time" className="p-2 rounded border" value={manualEntry.hora} onChange={e=>setManualEntry({...manualEntry, hora: e.target.value})} />
+                                </div>
+                                <input placeholder="Profissional (opcional)" className="p-2 rounded border w-full mb-2" value={manualEntry.profissional} onChange={e=>setManualEntry({...manualEntry, profissional: e.target.value})} />
+                                <div className="flex gap-2">
+                                    <Button onClick={handleAddManual} variant="success" className="flex-1 text-xs py-1">Adicionar</Button>
+                                    <Button onClick={()=>setShowManualForm(false)} variant="secondary" className="text-xs py-1">Cancelar</Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex gap-2">
+                                <Button onClick={()=>setShowManualForm(true)} variant="secondary" icon={PlusCircle} className="mb-2 flex-1">Adicionar Manual</Button>
+                                <Button onClick={handleSyncSchedule} variant="primary" icon={CloudUpload} className="mb-2 flex-1" disabled={isSaving || appointments.length === 0}>
+                                    Sincronizar Agenda
+                                </Button>
+                            </div>
+                        )}
+
                         <textarea 
                             value={csvInput} 
                             onChange={(e) => setCsvInput(e.target.value)} 
-                            placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora, Profissional" 
+                            placeholder="Cole aqui a planilha CSV:&#10;Nome, Telefone, Data, Hora, Profissional" 
                             className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-violet-500 outline-none resize-none flex-1 text-slate-900" 
                         />
                         <div className="flex gap-2">
@@ -559,7 +749,21 @@ export default function App() {
                     </div>
                 </Card>
                 <Card title="2. Envios Pendentes">
-                    {appointments.length === 0 ? (
+                    {/* Filtro por Profissional */}
+                    <div className="flex gap-2 mb-2 overflow-x-auto pb-2 border-b border-slate-100">
+                        <Filter size={14} className="text-slate-400 mt-1.5"/>
+                        {professionalsList.map(prof => (
+                            <button
+                                key={prof}
+                                onClick={() => setFilterProf(prof)}
+                                className={`text-xs px-2 py-1 rounded-full whitespace-nowrap transition-colors ${filterProf === prof ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                {prof}
+                            </button>
+                        ))}
+                    </div>
+
+                    {filteredAppointments.length === 0 ? (
                         <div className="text-slate-400 text-center py-12 flex flex-col items-center justify-center h-full">
                             <FileSpreadsheet className="w-12 h-12 opacity-20 mb-2"/>
                             <p>Nenhum dado importado.</p>
@@ -567,7 +771,7 @@ export default function App() {
                     ) : (
                         <div className="flex flex-col h-full">
                             <div className="space-y-2 flex-1 overflow-y-auto pr-1 mb-4">
-                                {appointments.map((app) => (
+                                {filteredAppointments.map((app) => (
                                     <div key={app.id} className={`flex flex-col p-3 border rounded-lg ${app.reminderType ? 'bg-violet-50 border-violet-200' : 'bg-white border-slate-100 opacity-60'}`}>
                                         <div className="flex justify-between items-center mb-1">
                                             <div className="flex flex-col">
@@ -589,9 +793,10 @@ export default function App() {
                                     </div>
                                 ))}
                             </div>
-                            {appointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
+                            
+                            {filteredAppointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
                                 <Button onClick={handleSendReminders} variant="success" disabled={isSending} icon={isSending ? Loader2 : Bell}>
-                                    {isSending ? "Enviando..." : `Disparar ${appointments.filter(a => a.isSubscribed && a.reminderType).length} Lembretes`}
+                                    {isSending ? "Enviando..." : `Disparar ${filteredAppointments.filter(a => a.isSubscribed && a.reminderType).length} Lembretes`}
                                 </Button>
                             ) : (
                                 <p className="text-center text-xs text-slate-400 mt-auto bg-slate-50 p-2 rounded">
@@ -619,8 +824,8 @@ export default function App() {
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-50 text-slate-500 font-medium sticky top-0">
                                 <tr>
+                                    <th className="px-4 py-3">Paciente</th>
                                     <th className="px-4 py-3">Telefone</th>
-                                    <th className="px-4 py-3">Data Cadastro</th>
                                     <th className="px-4 py-3">Último Acesso</th>
                                     <th className="px-4 py-3 text-right">Ações</th>
                                 </tr>
@@ -628,10 +833,10 @@ export default function App() {
                             <tbody className="divide-y divide-slate-100">
                                 {subscribers.filter(u => u.phone.includes(searchTerm)).map(user => (
                                     <tr key={user.id} className="hover:bg-slate-50">
-                                        <td className="px-4 py-3 font-mono text-slate-700">{user.phone}</td>
-                                        <td className="px-4 py-3 text-slate-500">
-                                            {user.createdAt?.seconds ? new Date(user.createdAt.seconds * 1000).toLocaleDateString() : 'N/A'}
+                                        <td className="px-4 py-3 font-medium text-slate-800">
+                                            {user.name || 'Sem nome'}
                                         </td>
+                                        <td className="px-4 py-3 font-mono text-slate-600">{user.phone}</td>
                                         <td className="px-4 py-3 text-slate-500">
                                             {user.lastSeen?.seconds ? (
                                                 <span className="flex items-center gap-1 text-violet-600 font-medium">
