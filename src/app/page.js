@@ -4,8 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-// CORREÇÃO: Adicionado 'HeartPulse' na lista de imports abaixo
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, MessageCircle, HeartPulse } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, MessageCircle, HeartPulse, LifeBuoy, Shield } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -38,7 +37,8 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50",
     danger: "bg-red-50 text-red-600 hover:bg-red-100",
     success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200",
-    white: "bg-white text-violet-700 hover:bg-violet-50 shadow-md border-transparent"
+    white: "bg-white text-violet-700 hover:bg-violet-50 shadow-md border-transparent",
+    rose: "bg-rose-500 text-white hover:bg-rose-600 shadow-md shadow-rose-200" // Novo para SOS
   };
   
   const finalVariant = disabled && variant !== 'danger' ? 'secondary' : variant;
@@ -117,9 +117,9 @@ export default function App() {
   
   // LOGIN / AUTH
   const [patientPhone, setPatientPhone] = useState('');
-  const [authStep, setAuthStep] = useState('phone'); // 'phone' | 'pin-create' | 'pin-verify'
+  const [authStep, setAuthStep] = useState('phone'); 
   const [userPin, setUserPin] = useState('');
-  const [tempUserDoc, setTempUserDoc] = useState(null); // Guarda dados temporários durante login
+  const [tempUserDoc, setTempUserDoc] = useState(null); 
 
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -138,9 +138,12 @@ export default function App() {
   const [toast, setToast] = useState({ msg: '', type: '' });
   const [isIOS, setIsIOS] = useState(false);
   
-  // Novo: Visualização de Notas pelo Admin
+  // Modais
   const [selectedUserLogs, setSelectedUserLogs] = useState(null); 
   const [userLogs, setUserLogs] = useState([]);
+  const [showSOS, setShowSOS] = useState(false); // Modal SOS
+  const [showProfile, setShowProfile] = useState(false); // Modal Perfil/Senha
+  const [newPin, setNewPin] = useState(''); // Novo PIN para troca
 
   // Filtro por Profissional
   const [filterProf, setFilterProf] = useState('Todos');
@@ -149,12 +152,11 @@ export default function App() {
   const [manualEntry, setManualEntry] = useState({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
   const [showManualForm, setShowManualForm] = useState(false);
 
-  // Configuração de Mensagens E WhatsApp
   const [msgConfig, setMsgConfig] = useState({
     msg48h: "Olá {nome}, lembrete antecipado: Sessão com {profissional} confirmada para {data} às {hora}.",
     msg24h: "Olá {nome}, lembrete: Sua sessão com {profissional} é amanhã às {hora}.",
     msg12h: "Olá {nome}! Sua sessão com {profissional} é hoje às {hora}. Até logo!",
-    whatsapp: "551141163129" // Número padrão
+    whatsapp: "551141163129" 
   });
 
   const showToast = (msg, type = 'success') => setToast({ msg, type });
@@ -166,7 +168,6 @@ export default function App() {
 
     const savedConfig = localStorage.getItem('psi_msg_config');
     if (savedConfig) {
-        // Mescla configuração salva com o estado inicial para garantir que o campo whatsapp exista
         setMsgConfig(prev => ({ ...prev, ...JSON.parse(savedConfig) }));
     }
 
@@ -230,7 +231,6 @@ export default function App() {
     }
   };
 
-  // Funcao para buscar as notas do paciente
   const fetchPatientNotes = (phone) => {
     const q = query(collection(db, "patient_notes"), where("phone", "==", phone));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -242,8 +242,6 @@ export default function App() {
   };
 
   // --- NOVA LÓGICA DE LOGIN COM PIN ---
-  
-  // Passo 1: Verificar Telefone
   const handleCheckPhone = async () => {
     const rawPhone = patientPhone.replace(/\D/g, '');
     if (rawPhone.length < 10) return showToast("Por favor, digite um celular válido.", "error");
@@ -257,7 +255,6 @@ export default function App() {
             const userData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
             setTempUserDoc(userData);
             
-            // Se tiver PIN, pede verificação. Se não (ou foi resetado), pede criação.
             if (userData.pin) {
                 setAuthStep('pin-verify'); 
             } else {
@@ -273,7 +270,6 @@ export default function App() {
     }
   };
 
-  // Passo 2: Finalizar Login/Cadastro
   const handleAuthSubmit = async () => {
     if (userPin.length < 4) return showToast("A senha deve ter 4 dígitos.", "error");
     const rawPhone = patientPhone.replace(/\D/g, '');
@@ -343,7 +339,7 @@ export default function App() {
       setCurrentView('landing');
   };
 
-  // Efeito para carregar as notas quando o paciente entra
+  // --- FUNÇÕES DO PACIENTE ---
   useEffect(() => {
     if (currentView === 'patient-success') {
         const phone = localStorage.getItem('psi_user_phone');
@@ -381,6 +377,30 @@ export default function App() {
       }
   };
 
+  // NOVO: Função para o paciente mudar a própria senha
+  const handleChangePin = async () => {
+    if (!newPin || newPin.length < 4) return showToast("O novo PIN deve ter 4 números.", "error");
+    
+    const phone = localStorage.getItem('psi_user_phone');
+    if (!phone) return;
+
+    try {
+        const q = query(collection(db, "users"), where("phone", "==", phone));
+        const snapshot = await getDocs(q);
+        
+        if (!snapshot.empty) {
+            const userId = snapshot.docs[0].id;
+            await updateDoc(doc(db, "users", userId), { pin: newPin });
+            showToast("Senha alterada com sucesso!");
+            setNewPin('');
+            setShowProfile(false);
+        }
+    } catch (error) {
+        showToast("Erro ao alterar senha.", "error");
+    }
+  };
+
+  // --- FUNÇÕES ADMIN ---
   const handleViewLogs = async (user) => {
     setSelectedUserLogs(user);
     try {
@@ -404,7 +424,6 @@ export default function App() {
     }
   };
 
-  // NOVO: Função para RESETAR PIN (Admin)
   const handleResetPin = async (userId, phone) => {
     if(!confirm(`Resetar a senha do paciente ${phone}? Ele poderá criar uma nova no próximo acesso.`)) return;
     try {
@@ -783,6 +802,69 @@ export default function App() {
         >
             <MessageCircle size={28} />
         </a>
+        
+        {/* MODAL SOS (NOVO) */}
+        {showSOS && (
+            <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white rounded-xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden">
+                    <div className="bg-rose-500 p-4 text-white flex justify-between items-center">
+                        <h3 className="font-bold flex items-center gap-2"><LifeBuoy size={20}/> Apoio Emocional</h3>
+                        <button onClick={() => setShowSOS(false)}><X size={20} className="hover:text-rose-100"/></button>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <p className="text-sm text-slate-600 text-center mb-2">Se você está passando por um momento difícil, não hesite em pedir ajuda.</p>
+                        
+                        <a href="tel:188" className="flex items-center justify-between p-4 bg-rose-50 border border-rose-100 rounded-xl hover:bg-rose-100 transition-colors">
+                            <div className="flex flex-col">
+                                <span className="font-bold text-rose-700 text-lg">Ligar 188</span>
+                                <span className="text-xs text-rose-500">CVV - Centro de Valorização da Vida</span>
+                            </div>
+                            <Smartphone size={24} className="text-rose-500" />
+                        </a>
+                        
+                        <div className="border-t border-slate-100 pt-4 mt-2">
+                             <p className="text-xs text-slate-500 text-center mb-3">Contato da Clínica</p>
+                             <a 
+                                href={`https://wa.me/${msgConfig.whatsapp ? msgConfig.whatsapp.replace(/\D/g, '') : '551141163129'}`}
+                                target="_blank"
+                                className="w-full bg-green-500 text-white py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-green-600 transition-colors font-medium"
+                             >
+                                 <MessageCircle size={18} /> Chamar no WhatsApp
+                             </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* MODAL PERFIL/SENHA (NOVO) */}
+        {showProfile && (
+            <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white rounded-xl w-full max-w-sm flex flex-col shadow-2xl p-6">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2"><Shield size={20} className="text-violet-600"/> Alterar Senha</h3>
+                        <button onClick={() => {setShowProfile(false); setNewPin('');}}><X size={20} className="text-slate-400"/></button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-400">Novo PIN (4 Dígitos)</label>
+                            <input 
+                                type="tel" 
+                                maxLength={4}
+                                value={newPin} 
+                                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))} 
+                                placeholder="****" 
+                                className="w-full text-center text-3xl p-3 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[0.5em] mt-1" 
+                            />
+                        </div>
+                        <Button onClick={handleChangePin} disabled={newPin.length < 4} className="w-full">
+                            Confirmar Troca
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Header Paciente */}
         <div className="flex justify-between items-center mb-6">
@@ -792,12 +874,18 @@ export default function App() {
                 </div>
                 <div>
                     <h2 className="font-bold text-slate-800">Olá, Paciente</h2>
-                    <p className="text-xs text-slate-500">Bem-vindo de volta</p>
+                    <p className="text-xs text-slate-500 cursor-pointer hover:text-violet-600 underline" onClick={() => setShowProfile(true)}>Meus Dados / Senha</p>
                 </div>
             </div>
-            <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-colors" title="Sair">
-                <LogOut size={18} />
-            </button>
+            
+            <div className="flex gap-2">
+                <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow-md shadow-rose-200 hover:bg-rose-600 transition-all animate-pulse" title="Ajuda / SOS">
+                    <LifeBuoy size={18} />
+                </button>
+                <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-colors" title="Sair">
+                    <LogOut size={18} />
+                </button>
+            </div>
         </div>
 
         {/* AVISO DE CONSTÂNCIA NO PAINEL */}
