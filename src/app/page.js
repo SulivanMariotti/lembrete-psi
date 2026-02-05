@@ -156,7 +156,7 @@ export default function App() {
 
       const savedPhone = localStorage.getItem('psi_user_phone');
       if (savedPhone) {
-        // Se já tiver telefone salvo, tenta atualizar o acesso e buscar agenda
+        // Se já tiver telefone salvo, tenta atualizar o acesso
         const trackAccess = async () => {
             const qUser = query(collection(db, "users"), where("phone", "==", savedPhone));
             const snapshot = await getDocs(qUser);
@@ -184,21 +184,28 @@ export default function App() {
   const fetchPatientAppointments = async (phone) => {
     setIsLoadingAppointments(true);
     try {
+        // CORREÇÃO: Removemos o orderBy daqui para evitar erro de índice no Firebase
+        // Fazemos a ordenação via Javascript (Cliente)
         const q = query(
             collection(db, "appointments"), 
-            where("phone", "==", phone),
-            orderBy("isoDate", "asc") // Ordena por data (mais próxima primeiro)
+            where("phone", "==", phone)
         );
         const snapshot = await getDocs(q);
         const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        // Filtra apenas datas futuras ou de hoje
+        // Filtra apenas datas futuras ou de hoje E ordena
         const today = new Date().toISOString().split('T')[0];
-        const futureApps = apps.filter(a => a.isoDate >= today);
+        const futureApps = apps
+            .filter(a => a.isoDate >= today)
+            .sort((a, b) => {
+                if (a.isoDate === b.isoDate) return a.time.localeCompare(b.time);
+                return a.isoDate.localeCompare(b.isoDate);
+            });
         
         setMyAppointments(futureApps);
     } catch (error) {
         console.error("Erro ao buscar agenda:", error);
+        showToast("Erro ao carregar agenda. Tente novamente.", "error");
     } finally {
         setIsLoadingAppointments(false);
     }
