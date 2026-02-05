@@ -4,9 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity } from 'lucide-react';
 
-// --- Componente TOAST (Notificação Visual) ---
+// --- Componente TOAST (Notificação Visual Suave) ---
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(onClose, 4000);
@@ -17,7 +17,7 @@ const Toast = ({ message, type, onClose }) => {
 
   const styles = type === 'error' 
     ? 'bg-red-500 border-red-600' 
-    : 'bg-emerald-600 border-emerald-700';
+    : 'bg-emerald-600 border-emerald-700'; // Mantive o verde apenas para sucesso (convenção visual)
   
   const icon = type === 'error' ? <XCircle size={20} /> : <CheckCircle size={20} />;
 
@@ -33,12 +33,17 @@ const Toast = ({ message, type, onClose }) => {
 // --- Componentes UI ---
 const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: Icon, as = 'button', ...props }) => {
   const variants = {
-    primary: "bg-teal-600 text-white hover:bg-teal-700 shadow-md shadow-teal-200",
+    // Nova Paleta: Violeta/Índigo
+    primary: "bg-violet-600 text-white hover:bg-violet-700 shadow-md shadow-violet-200",
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50",
     danger: "bg-red-50 text-red-600 hover:bg-red-100",
-    success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200"
+    success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200",
+    // Nova variante para botões brancos em fundos escuros
+    white: "bg-white text-violet-700 hover:bg-violet-50 shadow-md border-transparent"
   };
+  
   const finalVariant = disabled && variant !== 'danger' ? 'secondary' : variant;
+  
   const Component = as;
   return (
     <Component onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${variants[finalVariant]} ${className}`} {...props}>
@@ -58,21 +63,44 @@ const Card = ({ children, title, className = "" }) => (
 const Badge = ({ status, text }) => {
   let style = "bg-slate-100 text-slate-600 border-slate-200";
   let icon = null;
-  if (status === 'match') { style = "bg-emerald-100 text-emerald-700 border-emerald-200"; icon = <CheckCircle size={12} />; }
-  else if (status === 'missing') { style = "bg-red-50 text-red-600 border-red-100"; icon = <AlertTriangle size={12} />; }
-  else if (status === 'time') { style = "bg-blue-50 text-blue-700 border-blue-200"; icon = <Clock size={12} />; }
+
+  if (status === 'match') {
+    style = "bg-violet-100 text-violet-700 border-violet-200";
+    icon = <CheckCircle size={12} />;
+  } else if (status === 'missing') {
+    style = "bg-red-50 text-red-600 border-red-100";
+    icon = <AlertTriangle size={12} />;
+  } else if (status === 'time') {
+    style = "bg-indigo-50 text-indigo-700 border-indigo-200";
+    icon = <Clock size={12} />;
+  }
+
   return (
     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 w-fit whitespace-nowrap ${style}`}>
-      {icon} {text}
+      {icon}
+      {text}
     </span>
   );
 };
+
+// --- Componente de Estatística ---
+const StatCard = ({ title, value, icon: Icon, colorClass }) => (
+  <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+    <div className={`p-3 rounded-lg ${colorClass}`}>
+      <Icon size={24} />
+    </div>
+    <div>
+      <p className="text-xs text-slate-500 font-medium uppercase">{title}</p>
+      <p className="text-2xl font-bold text-slate-800">{value}</p>
+    </div>
+  </div>
+);
 
 export default function App() {
   // Estados Gerais
   const [currentView, setCurrentView] = useState('landing');
   const [subscribers, setSubscribers] = useState([]);
-  const [historyLogs, setHistoryLogs] = useState([]); // Histórico
+  const [historyLogs, setHistoryLogs] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [csvInput, setCsvInput] = useState('');
   const [patientPhone, setPatientPhone] = useState('');
@@ -80,34 +108,30 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
   
   // Admin & UI
-  const [adminTab, setAdminTab] = useState('uploads'); // uploads, users, history, config
+  const [adminTab, setAdminTab] = useState('dashboard'); 
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState({ msg: '', type: '' });
   const [isIOS, setIsIOS] = useState(false);
 
-  // Configuração de Mensagens (Carregada do LocalStorage ou Padrão)
+  // Configuração de Mensagens
   const [msgConfig, setMsgConfig] = useState({
     msg48h: "Olá {nome}, lembrete antecipado: Sessão com {profissional} confirmada para {data} às {hora}.",
     msg24h: "Olá {nome}, lembrete: Sua sessão com {profissional} é amanhã às {hora}.",
     msg12h: "Olá {nome}! Sua sessão com {profissional} é hoje às {hora}. Até logo!"
   });
 
-  // Helper para mostrar Toast
   const showToast = (msg, type = 'success') => setToast({ msg, type });
 
-  // 1. Efeitos Iniciais (Banco, Config, Detecção iOS)
+  // 1. Efeitos Iniciais
   useEffect(() => {
-    // Detecção iOS
     const isDeviceIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     setIsIOS(isDeviceIOS);
 
-    // Carregar Configurações Salvas
     const savedConfig = localStorage.getItem('psi_msg_config');
     if (savedConfig) setMsgConfig(JSON.parse(savedConfig));
 
     if (!db) return;
 
-    // A. Ouvinte de Usuários
     try {
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -115,14 +139,12 @@ export default function App() {
         setSubscribers(usersList);
       }, (error) => console.error("Erro conexão:", error));
       
-      // B. Ouvinte de Histórico
       const qHist = query(collection(db, "history"), orderBy("sentAt", "desc"), limit(50));
       const unsubscribeHist = onSnapshot(qHist, (snapshot) => {
         const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setHistoryLogs(logs);
       });
 
-      // C. Rastreio de Acesso
       const savedPhone = localStorage.getItem('psi_user_phone');
       if (savedPhone) {
         const trackAccess = async () => {
@@ -144,7 +166,7 @@ export default function App() {
     let val = e.target.value.replace(/\D/g, "");
     if (val.length > 11) val = val.slice(0, 11);
     if (val.length > 2) val = `(${val.slice(0, 2)}) ${val.slice(2)}`;
-    if (val.length > 9) val = `${val.slice(0, 9)}-${val.slice(9)}`;
+    if (val.length > 7) val = `${val.slice(0, 7)}-${val.slice(7)}`;
     setPatientPhone(val);
   };
 
@@ -204,7 +226,23 @@ export default function App() {
     }
   };
 
-  // 3. Processar Planilha (Agora com Profissional)
+  const handleExportCSV = () => {
+    const headers = "Telefone,Data Cadastro,Ultimo Acesso\n";
+    const rows = subscribers.map(u => {
+        const joined = u.createdAt?.seconds ? new Date(u.createdAt.seconds * 1000).toLocaleDateString() : '';
+        const seen = u.lastSeen?.seconds ? new Date(u.lastSeen.seconds * 1000).toLocaleDateString() : '';
+        return `${u.phone},${joined},${seen}`;
+    }).join("\n");
+    
+    const blob = new Blob([headers + rows], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pacientes_permitta_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
+  // 3. Processar Planilha
   const processCsv = (inputText = csvInput) => {
     if (!inputText) return;
     const lines = inputText.split('\n');
@@ -213,16 +251,13 @@ export default function App() {
       let parts = line.split(',');
       if (parts.length < 2 && line.includes(';')) parts = line.split(';');
 
-      // Adicionado campo 'profissional' na 5ª posição
       const [nome, tel, dataStr, hora, profissional] = parts;
       if (!nome || !tel) return null;
       
       const cleanPhone = tel.trim().replace(/\D/g, '');
       const subscriber = subscribers.find(s => s.phone === cleanPhone);
-      
-      // Nome do Profissional (Limpeza e Padrão)
       const nomeProfissional = profissional ? profissional.trim() : 'Psicólogo(a)';
-
+      
       let timeLabel = "Data Inválida";
       let reminderType = null;
       let messageBody = "";
@@ -239,33 +274,20 @@ export default function App() {
             const now = new Date();
             const diffHours = (sessionDate - now) / (1000 * 60 * 60);
 
-            // Usa as mensagens personalizadas do estado msgConfig
             if (diffHours < 0) {
                 timeLabel = "Já passou";
             } else if (diffHours <= 12) {
                 timeLabel = "Faltam < 12h";
                 reminderType = "12h";
-                messageBody = msgConfig.msg12h
-                    .replace('{nome}', nome.split(' ')[0])
-                    .replace('{data}', dataStr)
-                    .replace('{hora}', hora.trim())
-                    .replace('{profissional}', nomeProfissional); // Substituição nova
+                messageBody = msgConfig.msg12h.replace('{nome}', nome.split(' ')[0]).replace('{data}', dataStr).replace('{hora}', hora.trim()).replace('{profissional}', nomeProfissional);
             } else if (diffHours <= 30) { 
                 timeLabel = "Faltam ~24h";
                 reminderType = "24h";
-                messageBody = msgConfig.msg24h
-                    .replace('{nome}', nome.split(' ')[0])
-                    .replace('{data}', dataStr)
-                    .replace('{hora}', hora.trim())
-                    .replace('{profissional}', nomeProfissional); // Substituição nova
+                messageBody = msgConfig.msg24h.replace('{nome}', nome.split(' ')[0]).replace('{data}', dataStr).replace('{hora}', hora.trim()).replace('{profissional}', nomeProfissional);
             } else if (diffHours <= 54) {
                 timeLabel = "Faltam ~48h";
                 reminderType = "48h";
-                messageBody = msgConfig.msg48h
-                    .replace('{nome}', nome.split(' ')[0])
-                    .replace('{data}', dataStr)
-                    .replace('{hora}', hora.trim())
-                    .replace('{profissional}', nomeProfissional); // Substituição nova
+                messageBody = msgConfig.msg48h.replace('{nome}', nome.split(' ')[0]).replace('{data}', dataStr).replace('{hora}', hora.trim()).replace('{profissional}', nomeProfissional);
             } else {
                 timeLabel = `Faltam ${Math.round(diffHours / 24)} dias`;
             }
@@ -275,10 +297,8 @@ export default function App() {
       }
 
       return { 
-        id, nome, cleanPhone, data: dataStr, hora, 
-        profissional: nomeProfissional,
-        isSubscribed: !!subscriber,
-        pushToken: subscriber?.pushToken,
+        id, nome, cleanPhone, data: dataStr, hora, profissional: nomeProfissional,
+        isSubscribed: !!subscriber, pushToken: subscriber?.pushToken,
         timeLabel, reminderType, messageBody
       };
     }).filter(Boolean);
@@ -332,12 +352,11 @@ export default function App() {
         const results = await Promise.all(promises);
         successCount = results.reduce((a, b) => a + b, 0);
 
-        // Salvar no Histórico
         if (successCount > 0) {
             await addDoc(collection(db, "history"), {
                 sentAt: new Date(),
                 count: successCount,
-                types: [...new Set(targets.map(t => t.reminderType))], // ex: ['24h', '48h']
+                types: [...new Set(targets.map(t => t.reminderType))], 
                 summary: `${successCount} mensagens enviadas.`
             });
         }
@@ -365,16 +384,24 @@ export default function App() {
     showToast("Configurações de mensagem salvas!");
   };
 
+  // Cálculos do Dashboard
+  const activeUsersCount = subscribers.filter(u => {
+    if (!u.lastSeen?.seconds) return false;
+    const diffDays = (new Date() - new Date(u.lastSeen.seconds * 1000)) / (1000 * 60 * 60 * 24);
+    return diffDays <= 30;
+  }).length;
+
+  const totalMessagesSent = historyLogs.reduce((acc, curr) => acc + (curr.count || 0), 0);
+
   // --- Renderização ---
 
   if (currentView === 'landing') {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
         <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-lg space-y-6 relative">
-          {/* TOAST Container */}
           {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({msg:'', type:''})} />}
 
-          <div className="w-16 h-16 bg-teal-600 rounded-xl flex items-center justify-center mx-auto shadow-teal-200 shadow-lg">
+          <div className="w-16 h-16 bg-violet-600 rounded-xl flex items-center justify-center mx-auto shadow-violet-200 shadow-lg">
             <Bell className="text-white w-8 h-8" />
           </div>
           <div>
@@ -389,7 +416,6 @@ export default function App() {
             <p className="text-xs text-slate-400">Funciona direto no navegador.</p>
           </div>
 
-          {/* Aviso iPhone */}
           {isIOS && (
             <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 text-left text-sm text-slate-600 animate-pulse">
                 <p className="font-bold flex items-center gap-2 mb-1"><Share size={16}/> Usuários iPhone:</p>
@@ -398,7 +424,7 @@ export default function App() {
           )}
 
           <div className="pt-4 border-t border-slate-100">
-            <button onClick={handleAdminAccess} className="text-sm text-slate-400 hover:text-teal-600 underline">
+            <button onClick={handleAdminAccess} className="text-sm text-slate-400 hover:text-violet-600 underline">
               Acesso da Clínica (Admin)
             </button>
           </div>
@@ -424,7 +450,7 @@ export default function App() {
               value={patientPhone} 
               onChange={handlePhoneChange} 
               placeholder="(11) 99999-9999" 
-              className="w-full text-2xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-teal-500 text-slate-900 placeholder:text-slate-300 focus:ring-2 focus:ring-teal-100 transition-all" 
+              className="w-full text-2xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 placeholder:text-slate-300 focus:ring-2 focus:ring-violet-100 transition-all" 
             />
           </div>
           <Button onClick={handlePatientRegister} disabled={isSaving} className="w-full py-4 text-lg" icon={isSaving ? Loader2 : CheckCircle}>
@@ -438,12 +464,12 @@ export default function App() {
 
   if (currentView === 'patient-success') {
     return (
-      <div className="min-h-screen bg-teal-50 flex flex-col items-center justify-center p-8 text-center">
+      <div className="min-h-screen bg-violet-50 flex flex-col items-center justify-center p-8 text-center">
         <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-sm mb-6 animate-bounce">
-          <CheckCircle className="w-12 h-12 text-teal-500" />
+          <CheckCircle className="w-12 h-12 text-violet-500" />
         </div>
-        <h2 className="text-2xl font-bold text-teal-900">Tudo Pronto!</h2>
-        <p className="text-teal-700 mt-2 mb-6 text-lg">
+        <h2 className="text-2xl font-bold text-violet-900">Tudo Pronto!</h2>
+        <p className="text-violet-700 mt-2 mb-6 text-lg">
           Seu celular foi registrado com sucesso. <br/>
           <strong>Você receberá lembretes 48h, 24h e 12h antes da sua sessão.</strong>
         </p>
@@ -460,28 +486,50 @@ export default function App() {
       <div className="max-w-6xl mx-auto space-y-6">
         
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Painel da Clínica</h1>
-            <p className="text-sm text-slate-500">{subscribers.length} pacientes conectados</p>
-          </div>
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><LayoutDashboard className="text-violet-600"/> Painel Permittá</h1>
           
           <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
-            <button onClick={() => setAdminTab('uploads')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'uploads' ? 'bg-teal-600 text-white shadow' : 'text-slate-500 hover:text-teal-600'}`}>
+            <button onClick={() => setAdminTab('dashboard')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'dashboard' ? 'bg-violet-600 text-white shadow' : 'text-slate-500 hover:text-violet-600'}`}>
+                <LayoutDashboard size={16} /> Visão Geral
+            </button>
+            <button onClick={() => setAdminTab('uploads')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'uploads' ? 'bg-violet-600 text-white shadow' : 'text-slate-500 hover:text-violet-600'}`}>
                 <Send size={16} /> Disparos
             </button>
-            <button onClick={() => setAdminTab('users')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'users' ? 'bg-teal-600 text-white shadow' : 'text-slate-500 hover:text-teal-600'}`}>
+            <button onClick={() => setAdminTab('users')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'users' ? 'bg-violet-600 text-white shadow' : 'text-slate-500 hover:text-violet-600'}`}>
                 <Users size={16} /> Pacientes
             </button>
-            <button onClick={() => setAdminTab('history')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'history' ? 'bg-teal-600 text-white shadow' : 'text-slate-500 hover:text-teal-600'}`}>
+            <button onClick={() => setAdminTab('history')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'history' ? 'bg-violet-600 text-white shadow' : 'text-slate-500 hover:text-violet-600'}`}>
                 <History size={16} /> Histórico
             </button>
-            <button onClick={() => setAdminTab('config')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'config' ? 'bg-teal-600 text-white shadow' : 'text-slate-500 hover:text-teal-600'}`}>
+            <button onClick={() => setAdminTab('config')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${adminTab === 'config' ? 'bg-violet-600 text-white shadow' : 'text-slate-500 hover:text-violet-600'}`}>
                 <Settings size={16} /> Config
             </button>
           </div>
 
           <button onClick={() => setCurrentView('landing')} className="text-slate-500 flex gap-2 items-center hover:text-red-600 transition-colors bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm"><LogOut size={16}/> Sair</button>
         </div>
+
+        {/* DASHBOARD (NOVO) */}
+        {adminTab === 'dashboard' && (
+            <div className="space-y-6">
+                <div className="grid md:grid-cols-3 gap-6">
+                    <StatCard title="Total Pacientes" value={subscribers.length} icon={Users} colorClass="bg-blue-100 text-blue-600" />
+                    <StatCard title="Pacientes Ativos (30d)" value={activeUsersCount} icon={Activity} colorClass="bg-emerald-100 text-emerald-600" />
+                    <StatCard title="Mensagens Enviadas" value={totalMessagesSent} icon={Send} colorClass="bg-purple-100 text-purple-600" />
+                </div>
+                
+                <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div>
+                        <h2 className="text-2xl font-bold mb-2">Pronto para os envios de hoje?</h2>
+                        <p className="opacity-90">Carregue a planilha da semana para disparar os lembretes de 48h, 24h e 12h.</p>
+                    </div>
+                    {/* Botão Branco agora usa variante "white" para garantir contraste */}
+                    <Button onClick={() => setAdminTab('uploads')} variant="white" className="px-8 py-4 text-lg">
+                        Começar Disparos
+                    </Button>
+                </div>
+            </div>
+        )}
 
         {/* ABA DISPAROS */}
         {adminTab === 'uploads' && (
@@ -492,7 +540,7 @@ export default function App() {
                             value={csvInput} 
                             onChange={(e) => setCsvInput(e.target.value)} 
                             placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora, Profissional" 
-                            className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-teal-500 outline-none resize-none flex-1 text-slate-900" 
+                            className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-violet-500 outline-none resize-none flex-1 text-slate-900" 
                         />
                         <div className="flex gap-2">
                             <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" id="csvUpload" />
@@ -520,7 +568,7 @@ export default function App() {
                         <div className="flex flex-col h-full">
                             <div className="space-y-2 flex-1 overflow-y-auto pr-1 mb-4">
                                 {appointments.map((app) => (
-                                    <div key={app.id} className={`flex flex-col p-3 border rounded-lg ${app.reminderType ? 'bg-teal-50 border-teal-200' : 'bg-white border-slate-100 opacity-60'}`}>
+                                    <div key={app.id} className={`flex flex-col p-3 border rounded-lg ${app.reminderType ? 'bg-violet-50 border-violet-200' : 'bg-white border-slate-100 opacity-60'}`}>
                                         <div className="flex justify-between items-center mb-1">
                                             <div className="flex flex-col">
                                                 <span className="text-sm font-bold text-slate-700">{app.nome}</span>
@@ -531,7 +579,7 @@ export default function App() {
                                         <div className="flex justify-between items-center text-xs text-slate-500 mt-2">
                                             <span>{app.data} às {app.hora}</span>
                                             {app.reminderType ? (
-                                                <span className="font-bold text-teal-600 flex items-center gap-1">
+                                                <span className="font-bold text-violet-600 flex items-center gap-1">
                                                     <Mail size={10} /> Enviar Aviso {app.reminderType}
                                                 </span>
                                             ) : (
@@ -558,16 +606,14 @@ export default function App() {
 
         {/* ABA PACIENTES */}
         {adminTab === 'users' && (
-            <Card title="Base de Pacientes Cadastrados" className="h-[600px]">
+            <Card title="Base de Pacientes" className="h-[600px]">
                 <div className="flex flex-col h-full">
                     <div className="flex gap-2 mb-4">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
-                            <input type="text" placeholder="Pesquisar por telefone..." className="w-full pl-10 p-2 border border-slate-300 rounded-lg text-sm outline-teal-500 text-slate-900" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
+                            <input type="text" placeholder="Pesquisar por telefone..." className="w-full pl-10 p-2 border border-slate-300 rounded-lg text-sm outline-violet-500 text-slate-900" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
                         </div>
-                        <div className="text-xs text-slate-500 flex items-center bg-slate-100 px-3 rounded-lg border border-slate-200">
-                            Total: {subscribers.length}
-                        </div>
+                        <Button onClick={handleExportCSV} variant="secondary" icon={Download}>Exportar CSV</Button>
                     </div>
                     <div className="flex-1 overflow-y-auto border border-slate-100 rounded-lg">
                         <table className="w-full text-sm text-left">
@@ -588,7 +634,7 @@ export default function App() {
                                         </td>
                                         <td className="px-4 py-3 text-slate-500">
                                             {user.lastSeen?.seconds ? (
-                                                <span className="flex items-center gap-1 text-teal-600 font-medium">
+                                                <span className="flex items-center gap-1 text-violet-600 font-medium">
                                                     <Eye size={12} />
                                                     {new Date(user.lastSeen.seconds * 1000).toLocaleDateString()}
                                                 </span>
@@ -609,7 +655,7 @@ export default function App() {
             </Card>
         )}
 
-        {/* ABA HISTÓRICO (NOVO) */}
+        {/* ABA HISTÓRICO */}
         {adminTab === 'history' && (
             <Card title="Histórico de Envios" className="h-[600px]">
                 <div className="flex-1 overflow-y-auto">
@@ -629,7 +675,7 @@ export default function App() {
                                     </div>
                                     <div className="flex gap-2">
                                         {log.types?.map(t => (
-                                            <span key={t} className="bg-teal-100 text-teal-700 px-2 py-1 rounded text-xs font-bold">{t}</span>
+                                            <span key={t} className="bg-violet-100 text-violet-700 px-2 py-1 rounded text-xs font-bold">{t}</span>
                                         ))}
                                     </div>
                                 </div>
@@ -640,11 +686,11 @@ export default function App() {
             </Card>
         )}
 
-        {/* ABA CONFIGURAÇÃO (NOVO) */}
+        {/* ABA CONFIGURAÇÃO */}
         {adminTab === 'config' && (
             <Card title="Personalizar Mensagens">
                 <div className="space-y-6 max-w-2xl mx-auto py-4">
-                    <div className="bg-teal-50 p-4 rounded-lg border border-teal-100 text-sm text-teal-800">
+                    <div className="bg-violet-50 p-4 rounded-lg border border-violet-100 text-sm text-violet-800">
                         <strong>Dica:</strong> Use as variáveis <code>{'{nome}'}</code>, <code>{'{data}'}</code>, <code>{'{hora}'}</code> e <code>{'{profissional}'}</code> para personalizar automaticamente.
                     </div>
                     
@@ -653,7 +699,7 @@ export default function App() {
                         <textarea 
                             value={msgConfig.msg48h}
                             onChange={(e) => setMsgConfig({...msgConfig, msg48h: e.target.value})}
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none h-24"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24"
                         />
                     </div>
                     <div>
@@ -661,7 +707,7 @@ export default function App() {
                         <textarea 
                             value={msgConfig.msg24h}
                             onChange={(e) => setMsgConfig({...msgConfig, msg24h: e.target.value})}
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none h-24"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24"
                         />
                     </div>
                     <div>
@@ -669,7 +715,7 @@ export default function App() {
                         <textarea 
                             value={msgConfig.msg12h}
                             onChange={(e) => setMsgConfig({...msgConfig, msg12h: e.target.value})}
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none h-24"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24"
                         />
                     </div>
                     <Button onClick={saveConfig} icon={Save} className="w-full">Salvar Configurações</Button>
