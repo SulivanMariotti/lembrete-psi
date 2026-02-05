@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, MessageCircle, HeartPulse, LifeBuoy, Shield } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, MessageCircle, HeartPulse, LifeBuoy, Shield, CalendarCheck, BarChart3, ScrollText, FileSignature } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -37,8 +37,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50",
     danger: "bg-red-50 text-red-600 hover:bg-red-100",
     success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200",
-    white: "bg-white text-violet-700 hover:bg-violet-50 shadow-md border-transparent",
-    rose: "bg-rose-500 text-white hover:bg-rose-600 shadow-md shadow-rose-200" // Novo para SOS
+    white: "bg-white text-violet-700 hover:bg-violet-50 shadow-md border-transparent"
   };
   
   const finalVariant = disabled && variant !== 'danger' ? 'secondary' : variant;
@@ -63,16 +62,23 @@ const Badge = ({ status, text }) => {
   let style = "bg-slate-100 text-slate-600 border-slate-200";
   let icon = null;
 
-  if (status === 'match') {
+  if (status === 'match' || status === 'confirmed') {
     style = "bg-violet-100 text-violet-700 border-violet-200";
     icon = <CheckCircle size={12} />;
   } else if (status === 'missing') {
     style = "bg-red-50 text-red-600 border-red-100";
     icon = <AlertTriangle size={12} />;
-  } else if (status === 'time') {
+  } else if (status === 'time' || status === 'pending') {
     style = "bg-indigo-50 text-indigo-700 border-indigo-200";
     icon = <Clock size={12} />;
+  } else if (status === 'signed') {
+    style = "bg-emerald-100 text-emerald-700 border-emerald-200";
+    icon = <FileSignature size={12} />;
+  } else if (status === 'unsigned') {
+    style = "bg-amber-100 text-amber-700 border-amber-200";
+    icon = <ScrollText size={12} />;
   }
+
 
   return (
     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 w-fit whitespace-nowrap ${style}`}>
@@ -83,7 +89,7 @@ const Badge = ({ status, text }) => {
 };
 
 // --- Componente de Estatística ---
-const StatCard = ({ title, value, icon: Icon, colorClass }) => (
+const StatCard = ({ title, value, subtext, icon: Icon, colorClass }) => (
   <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
     <div className={`p-3 rounded-lg ${colorClass}`}>
       <Icon size={24} />
@@ -91,6 +97,7 @@ const StatCard = ({ title, value, icon: Icon, colorClass }) => (
     <div>
       <p className="text-xs text-slate-500 font-medium uppercase">{title}</p>
       <p className="text-2xl font-bold text-slate-800">{value}</p>
+      {subtext && <p className="text-[10px] text-slate-400">{subtext}</p>}
     </div>
   </div>
 );
@@ -113,6 +120,8 @@ export default function App() {
   const [subscribers, setSubscribers] = useState([]);
   const [historyLogs, setHistoryLogs] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [dbAppointments, setDbAppointments] = useState([]); 
+  
   const [csvInput, setCsvInput] = useState('');
   
   // LOGIN / AUTH
@@ -120,6 +129,7 @@ export default function App() {
   const [authStep, setAuthStep] = useState('phone'); 
   const [userPin, setUserPin] = useState('');
   const [tempUserDoc, setTempUserDoc] = useState(null); 
+  const [currentUser, setCurrentUser] = useState(null); // Dados do usuário logado em tempo real
 
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -141,9 +151,10 @@ export default function App() {
   // Modais
   const [selectedUserLogs, setSelectedUserLogs] = useState(null); 
   const [userLogs, setUserLogs] = useState([]);
-  const [showSOS, setShowSOS] = useState(false); // Modal SOS
-  const [showProfile, setShowProfile] = useState(false); // Modal Perfil/Senha
-  const [newPin, setNewPin] = useState(''); // Novo PIN para troca
+  const [showSOS, setShowSOS] = useState(false); 
+  const [showProfile, setShowProfile] = useState(false); 
+  const [newPin, setNewPin] = useState(''); 
+  const [showContract, setShowContract] = useState(false); // NOVO: Modal de Contrato
 
   // Filtro por Profissional
   const [filterProf, setFilterProf] = useState('Todos');
@@ -156,7 +167,9 @@ export default function App() {
     msg48h: "Olá {nome}, lembrete antecipado: Sessão com {profissional} confirmada para {data} às {hora}.",
     msg24h: "Olá {nome}, lembrete: Sua sessão com {profissional} é amanhã às {hora}.",
     msg12h: "Olá {nome}! Sua sessão com {profissional} é hoje às {hora}. Até logo!",
-    whatsapp: "551141163129" 
+    whatsapp: "551141163129",
+    contractText: "1. O horário da sessão é de sua exclusiva responsabilidade.\n2. Faltas não avisadas com 24h de antecedência serão cobradas.\n3. O sigilo profissional é absoluto.\n4. Férias e reajustes serão comunicados previamente.",
+    contractVersion: 1 // Versão inicial do contrato
   });
 
   const showToast = (msg, type = 'success') => setToast({ msg, type });
@@ -174,10 +187,18 @@ export default function App() {
     if (!db) return;
 
     try {
+      // Listeners principais
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setSubscribers(usersList);
+        
+        // Atualiza currentUser se estiver logado
+        const savedPhone = localStorage.getItem('psi_user_phone');
+        if (savedPhone) {
+            const found = usersList.find(u => u.phone === savedPhone);
+            if (found) setCurrentUser(found);
+        }
       }, (error) => console.error("Erro conexão:", error));
       
       const qHist = query(collection(db, "history"), orderBy("sentAt", "desc"), limit(50));
@@ -186,14 +207,32 @@ export default function App() {
         setHistoryLogs(logs);
       });
 
+      const todayIso = new Date().toISOString().split('T')[0];
+      const qApps = query(collection(db, "appointments"), where("isoDate", ">=", todayIso));
+      const unsubscribeApps = onSnapshot(qApps, (snapshot) => {
+          const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setDbAppointments(apps);
+      });
+
       const savedPhone = localStorage.getItem('psi_user_phone');
       if (savedPhone) {
         setPatientPhone(formatPhone(savedPhone));
       }
 
-      return () => { unsubscribe(); unsubscribeHist(); };
+      return () => { unsubscribe(); unsubscribeHist(); unsubscribeApps(); };
     } catch (e) { console.error(e); }
   }, []);
+
+  // Verificar Contrato ao Entrar
+  useEffect(() => {
+    if (currentView === 'patient-success' && currentUser) {
+        // Se a versão aceita for menor que a versão atual da clínica, força o modal
+        if (!currentUser.acceptedTermsVersion || currentUser.acceptedTermsVersion < (msgConfig.contractVersion || 1)) {
+            setShowContract(true);
+        }
+    }
+  }, [currentView, currentUser, msgConfig]);
+
 
   // Máscara de Telefone
   const formatPhone = (val) => {
@@ -336,6 +375,7 @@ export default function App() {
       setPatientPhone('');
       setUserPin('');
       setAuthStep('phone');
+      setCurrentUser(null);
       setCurrentView('landing');
   };
 
@@ -377,10 +417,8 @@ export default function App() {
       }
   };
 
-  // NOVO: Função para o paciente mudar a própria senha
   const handleChangePin = async () => {
     if (!newPin || newPin.length < 4) return showToast("O novo PIN deve ter 4 números.", "error");
-    
     const phone = localStorage.getItem('psi_user_phone');
     if (!phone) return;
 
@@ -398,6 +436,23 @@ export default function App() {
     } catch (error) {
         showToast("Erro ao alterar senha.", "error");
     }
+  };
+
+  // NOVO: Aceitar Contrato
+  const handleAcceptContract = async () => {
+      if (!currentUser) return;
+      try {
+          await updateDoc(doc(db, "users", currentUser.id), {
+              acceptedTerms: true,
+              acceptedTermsVersion: msgConfig.contractVersion || 1,
+              acceptedTermsAt: new Date(),
+              acceptedTermsContent: msgConfig.contractText
+          });
+          setShowContract(false);
+          showToast("Termos aceites com sucesso!");
+      } catch (error) {
+          showToast("Erro ao aceitar termos: " + error.message, "error");
+      }
   };
 
   // --- FUNÇÕES ADMIN ---
@@ -435,13 +490,14 @@ export default function App() {
   };
 
   const handleExportCSV = () => {
-    const headers = "Nome,Telefone,Data Cadastro,Ultimo Acesso\n";
+    const headers = "Nome,Telefone,Data Cadastro,Ultimo Acesso,Versao Contrato\n";
     const rows = subscribers.map(u => {
         const joined = u.createdAt?.seconds ? new Date(u.createdAt.seconds * 1000).toLocaleDateString() : '';
         const seen = u.lastSeen?.seconds ? new Date(u.lastSeen.seconds * 1000).toLocaleDateString() : '';
         const safeName = u.name ? `"${u.name}"` : 'Sem nome';
-        const safePhone = u.phone || 'Sem telefone'; // Correção de segurança
-        return `${safeName},${safePhone},${joined},${seen}`;
+        const safePhone = u.phone || 'Sem telefone';
+        const contractVer = u.acceptedTermsVersion ? `v${u.acceptedTermsVersion}` : 'Pendente';
+        return `${safeName},${safePhone},${joined},${seen},${contractVer}`;
     }).join("\n");
     
     const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -651,9 +707,15 @@ export default function App() {
     }
   };
 
-  const saveConfig = () => {
-    localStorage.setItem('psi_msg_config', JSON.stringify(msgConfig));
-    showToast("Configurações salvas!");
+  // NOVO: Função para salvar e incrementar versão do contrato
+  const saveConfig = (incrementVersion = false) => {
+    const newConfig = { ...msgConfig };
+    if (incrementVersion) {
+        newConfig.contractVersion = (newConfig.contractVersion || 1) + 1;
+    }
+    setMsgConfig(newConfig);
+    localStorage.setItem('psi_msg_config', JSON.stringify(newConfig));
+    showToast(incrementVersion ? "Termos atualizados (novo aceite exigido)!" : "Configurações salvas!");
   };
 
   const activeUsersCount = subscribers.filter(u => {
@@ -663,6 +725,9 @@ export default function App() {
   }).length;
 
   const totalMessagesSent = historyLogs.reduce((acc, curr) => acc + (curr.count || 0), 0);
+  
+  // Dashboard atualizado
+  const totalFutureApps = dbAppointments.length;
 
   // --- Renderização ---
 
@@ -680,8 +745,7 @@ export default function App() {
             <p className="text-slate-500 mt-2">Nunca mais esqueça o horário da sua terapia.</p>
           </div>
           
-          {/* AVISO DE CONSTÂNCIA NA LANDING */}
-           <div className="bg-violet-50 p-3 rounded-lg border border-violet-100 text-xs text-violet-800 leading-relaxed">
+          <div className="bg-violet-50 p-3 rounded-lg border border-violet-100 text-xs text-violet-800 leading-relaxed">
             <p className="font-bold mb-1 flex items-center justify-center gap-1"><HeartPulse size={14}/> Importante</p>
             A constância é o segredo da evolução. Faltas frequentes podem prejudicar seu progresso terapêutico.
           </div>
@@ -760,7 +824,7 @@ export default function App() {
                   value={userPin} 
                   onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))} 
                   placeholder="****" 
-                  className="w-full text-center text-4xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[1em] focus:ring-2 focus:ring-violet-100 transition-all" 
+                  className="w-full text-center text-3xl p-3 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[0.5em] mt-1" 
                 />
               </div>
               <Button onClick={handleAuthSubmit} disabled={isSaving || userPin.length < 4} className="w-full py-4 text-lg mt-6" icon={isSaving ? Loader2 : KeyRound}>
@@ -792,7 +856,6 @@ export default function App() {
     return (
       <div className="min-h-screen bg-violet-50 flex flex-col p-6 overflow-hidden">
         {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({msg:'', type:''})} />}
-        {/* BOTÃO FLUTUANTE DO WHATSAPP (NOVO) */}
         <a 
             href={`https://wa.me/${msgConfig.whatsapp ? msgConfig.whatsapp.replace(/\D/g, '') : '551141163129'}`} 
             target="_blank" 
@@ -803,7 +866,7 @@ export default function App() {
             <MessageCircle size={28} />
         </a>
         
-        {/* MODAL SOS (NOVO) */}
+        {/* MODAL SOS */}
         {showSOS && (
             <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                 <div className="bg-white rounded-xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden">
@@ -837,7 +900,7 @@ export default function App() {
             </div>
         )}
 
-        {/* MODAL PERFIL/SENHA (NOVO) */}
+        {/* MODAL PERFIL/SENHA */}
         {showProfile && (
             <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                 <div className="bg-white rounded-xl w-full max-w-sm flex flex-col shadow-2xl p-6">
@@ -866,6 +929,32 @@ export default function App() {
             </div>
         )}
 
+        {/* MODAL CONTRATO (ATUALIZADO) */}
+        {showContract && (
+            <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white rounded-xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden max-h-[80vh]">
+                    <div className="bg-violet-600 p-4 text-white flex justify-between items-center">
+                        <h3 className="font-bold flex items-center gap-2"><ScrollText size={20}/> Termos e Combinados</h3>
+                        {/* Se o contrato já foi aceite e não mudou, pode fechar. Senão, é obrigatório */}
+                        {(currentUser?.acceptedTermsVersion === msgConfig.contractVersion) && (
+                           <button onClick={() => setShowContract(false)}><X size={20} className="hover:text-violet-200"/></button>
+                        )}
+                    </div>
+                    <div className="p-6 overflow-y-auto">
+                        <p className="text-xs text-slate-400 mb-2 font-mono">Versão: {msgConfig.contractVersion || 1}</p>
+                        <div className="prose prose-sm text-slate-700 whitespace-pre-wrap">
+                            {msgConfig.contractText || "Nenhum termo cadastrado."}
+                        </div>
+                    </div>
+                    <div className="p-4 border-t border-slate-100 bg-slate-50">
+                        <Button onClick={handleAcceptContract} className="w-full" variant="success">
+                            <FileSignature size={18} className="mr-2"/> Li e Aceito os Termos
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* Header Paciente */}
         <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
@@ -879,6 +968,10 @@ export default function App() {
             </div>
             
             <div className="flex gap-2">
+                {/* BOTÃO COMBINADOS */}
+                <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 hover:bg-violet-200 shadow-sm transition-colors" title="Meus Combinados">
+                    <ScrollText size={18} />
+                </button>
                 <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow-md shadow-rose-200 hover:bg-rose-600 transition-all animate-pulse" title="Ajuda / SOS">
                     <LifeBuoy size={18} />
                 </button>
@@ -888,7 +981,7 @@ export default function App() {
             </div>
         </div>
 
-        {/* AVISO DE CONSTÂNCIA NO PAINEL */}
+        {/* AVISO DE CONSTÂNCIA */}
         <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-violet-500 mb-6 flex gap-3 items-start">
              <div className="bg-violet-100 p-2 rounded-full flex-shrink-0">
                  <Activity size={20} className="text-violet-600" />
@@ -943,7 +1036,6 @@ export default function App() {
             />
             <Button onClick={handleSaveNote} className="w-full text-sm">Salvar Anotação</Button>
 
-            {/* Lista de Anotações */}
             {myNotes.length > 0 && (
                 <div className="mt-6 space-y-3">
                     <p className="text-xs font-bold text-slate-400 uppercase">Suas anotações recentes</p>
@@ -1205,6 +1297,7 @@ export default function App() {
                                 <tr>
                                     <th className="px-4 py-3">Paciente</th>
                                     <th className="px-4 py-3">Telefone</th>
+                                    <th className="px-4 py-3">Contrato</th>
                                     <th className="px-4 py-3">Último Acesso</th>
                                     <th className="px-4 py-3 text-right">Ações</th>
                                 </tr>
@@ -1216,6 +1309,12 @@ export default function App() {
                                             {user.name || 'Sem nome'}
                                         </td>
                                         <td className="px-4 py-3 font-mono text-slate-600">{user.phone}</td>
+                                        <td className="px-4 py-3 text-slate-500">
+                                           {user.acceptedTermsVersion === msgConfig.contractVersion ? 
+                                              <Badge status="signed" text={`v${user.acceptedTermsVersion}`}/> : 
+                                              <Badge status="unsigned" text="Pendente"/>
+                                           }
+                                        </td>
                                         <td className="px-4 py-3 text-slate-500">
                                             {user.lastSeen?.seconds ? (
                                                 <span className="flex items-center gap-1 text-violet-600 font-medium">
@@ -1239,7 +1338,7 @@ export default function App() {
                                     </tr>
                                 ))}
                                 {subscribers.filter(u => (u.phone || '').includes(searchTerm)).length === 0 && (
-                                    <tr><td colSpan="4" className="text-center py-8 text-slate-400">Nenhum paciente encontrado.</td></tr>
+                                    <tr><td colSpan="5" className="text-center py-8 text-slate-400">Nenhum paciente encontrado.</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1297,8 +1396,27 @@ export default function App() {
                             className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none text-slate-900"
                         />
                     </div>
+                    
+                    {/* CAMPO DE CONTRATO */}
+                    <div className="border-t border-slate-100 pt-6 mt-6">
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="block text-sm font-bold text-slate-700">Termos e Combinados (Contrato Terapêutico)</label>
+                            <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">Versão Atual: {msgConfig.contractVersion || 1}</span>
+                        </div>
+                        <textarea 
+                            value={msgConfig.contractText}
+                            onChange={(e) => setMsgConfig({...msgConfig, contractText: e.target.value})}
+                            placeholder="Escreva aqui as regras de faltas, férias, pagamentos..."
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-32 text-slate-900"
+                        />
+                        <div className="flex gap-2 mt-2">
+                            <Button onClick={() => saveConfig(false)} variant="secondary" className="flex-1 text-xs">Salvar Apenas Texto</Button>
+                            <Button onClick={() => saveConfig(true)} className="flex-1 text-xs" icon={Upload}>Salvar e Publicar Nova Versão</Button>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">* "Salvar e Publicar Nova Versão" obrigará todos os pacientes a aceitarem novamente os termos ao entrar.</p>
+                    </div>
 
-                    <div>
+                    <div className="border-t border-slate-100 pt-6 mt-6">
                         <label className="block text-sm font-bold text-slate-700 mb-2">Mensagem de 48h (Antecipado)</label>
                         <textarea 
                             value={msgConfig.msg48h}
@@ -1322,7 +1440,7 @@ export default function App() {
                             className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24 text-slate-900"
                         />
                     </div>
-                    <Button onClick={saveConfig} icon={Save} className="w-full">Salvar Configurações</Button>
+                    <Button onClick={() => saveConfig(false)} icon={Save} className="w-full">Salvar Configurações</Button>
                 </div>
             </Card>
         )}
