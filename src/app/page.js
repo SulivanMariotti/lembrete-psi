@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, HeartPulse } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -653,16 +653,30 @@ export default function App() {
             <p className="text-slate-500 mt-2">Nunca mais esqueça o horário da sua terapia.</p>
           </div>
           
+          {/* AVISO DE CONSTÂNCIA NA LANDING */}
+           <div className="bg-violet-50 p-3 rounded-lg border border-violet-100 text-xs text-violet-800 leading-relaxed">
+            <p className="font-bold mb-1 flex items-center justify-center gap-1"><HeartPulse size={14}/> Importante</p>
+            A constância é o segredo da evolução. Faltas frequentes podem prejudicar seu progresso terapêutico.
+          </div>
+
+          <div className="space-y-3">
+            <Button onClick={() => setCurrentView('patient-form')} className="w-full py-4 text-lg" icon={Smartphone}>
+              Acessar Meu Painel
+            </Button>
+            <p className="text-xs text-slate-400">Funciona direto no navegador.</p>
+          </div>
+
+          {isIOS && (
+            <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 text-left text-sm text-slate-600 animate-pulse">
+                <p className="font-bold flex items-center gap-2 mb-1"><Share size={16}/> Usuários iPhone:</p>
+                <p>Para receber notificações, toque no botão <strong>Compartilhar</strong> e escolha <strong>"Adicionar à Tela de Início"</strong>.</p>
+            </div>
+          )}
+
           <div className="pt-4 border-t border-slate-100">
             <button onClick={handleAdminAccess} className="text-sm text-slate-400 hover:text-violet-600 underline">
               Acesso da Clínica (Admin)
             </button>
-          </div>
-          
-          <div className="mt-4">
-              <Button onClick={() => setCurrentView('patient-form')} className="w-full py-4 text-lg" icon={Smartphone}>
-                Acessar Meu Painel
-              </Button>
           </div>
         </div>
       </div>
@@ -765,6 +779,19 @@ export default function App() {
             <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-colors" title="Sair">
                 <LogOut size={18} />
             </button>
+        </div>
+
+        {/* AVISO DE CONSTÂNCIA NO PAINEL */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-violet-500 mb-6 flex gap-3 items-start">
+             <div className="bg-violet-100 p-2 rounded-full flex-shrink-0">
+                 <Activity size={20} className="text-violet-600" />
+             </div>
+             <div>
+                 <h4 className="font-bold text-slate-800 text-sm">O segredo é a constância</h4>
+                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                     Lembre-se: cada sessão é um passo importante. Faltas podem interromper seu progresso. Priorize seu horário!
+                 </p>
+             </div>
         </div>
 
         {/* Card Recorrência */}
