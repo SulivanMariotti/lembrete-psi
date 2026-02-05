@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { db, messaging } from './firebase'; 
-import { collection, addDoc, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
+// ADICIONADO: updateDoc para atualizar o horário de acesso
+import { collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2 } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye } from 'lucide-react';
 
 // --- Componentes UI ---
 const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: Icon, as = 'button', ...props }) => {
@@ -25,8 +26,8 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
   );
 };
 
-const Card = ({ children, title }) => (
-  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 h-full flex flex-col">
+const Card = ({ children, title, className = "" }) => (
+  <div className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 h-full flex flex-col ${className}`}>
     {title && <h3 className="font-bold text-slate-800 text-lg border-b border-slate-100 pb-4 mb-4">{title}</h3>}
     <div className="flex-1">{children}</div>
   </div>
@@ -63,16 +64,38 @@ export default function App() {
   const [patientPhone, setPatientPhone] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  
+  const [adminTab, setAdminTab] = useState('uploads'); 
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // 1. Carregar dados do banco
+  // 1. Carregar dados do banco e Rastrear Acesso
   useEffect(() => {
     if (!db) return;
+
+    // A. Ouvinte de dados (mantém a lista atualizada)
     try {
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setSubscribers(usersList);
       }, (error) => console.error("Erro conexão:", error));
+      
+      // B. Rastreio de Acesso (Se já tiver cadastro no navegador)
+      const savedPhone = localStorage.getItem('psi_user_phone');
+      if (savedPhone) {
+        // Se o utilizador abriu a app e tem telefone salvo, atualizamos o "Visto por último"
+        const trackAccess = async () => {
+            const qUser = query(collection(db, "users"), where("phone", "==", savedPhone));
+            const snapshot = await getDocs(qUser);
+            snapshot.forEach(async (docRef) => {
+                await updateDoc(doc(db, "users", docRef.id), {
+                    lastSeen: new Date() // Marca a hora de agora
+                });
+            });
+        };
+        trackAccess();
+      }
+
       return () => unsubscribe();
     } catch (e) { console.error(e); }
   }, []);
@@ -84,10 +107,19 @@ export default function App() {
     const cleanPhone = patientPhone.replace(/\D/g, '');
 
     try {
+      // Salva no navegador para reconhecer na próxima vez
+      localStorage.setItem('psi_user_phone', cleanPhone);
+
       const q = query(collection(db, "users"), where("phone", "==", cleanPhone));
       const querySnapshot = await getDocs(q);
 
       if (!querySnapshot.empty) {
+        // Se já existe, atualiza o lastSeen também
+        querySnapshot.forEach(async (docRef) => {
+            await updateDoc(doc(db, "users", docRef.id), {
+                lastSeen: new Date()
+            });
+        });
         setCurrentView('patient-success');
         setIsSaving(false);
         return; 
@@ -106,6 +138,7 @@ export default function App() {
         phone: cleanPhone,
         pushToken: currentToken,
         createdAt: new Date(),
+        lastSeen: new Date(), // Marca o primeiro acesso
         deviceType: navigator.userAgent
       });
 
@@ -114,6 +147,15 @@ export default function App() {
       alert("Erro ao salvar: " + error.message);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId, phone) => {
+    if(!confirm(`Tem a certeza que deseja remover o paciente com o número ${phone}? Ele terá de se registar novamente.`)) return;
+    try {
+        await deleteDoc(doc(db, "users", userId));
+    } catch (error) {
+        alert("Erro ao apagar: " + error.message);
     }
   };
 
@@ -244,7 +286,6 @@ export default function App() {
     }
   };
 
-  // --- Função de Segurança para Admin ---
   const handleAdminAccess = () => {
     const password = prompt("Digite a senha de administrador:");
     if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) { 
@@ -294,7 +335,6 @@ export default function App() {
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">Celular (DDD + Número)</label>
-            {/* CORREÇÃO AQUI: text-slate-900 adicionado */}
             <input 
               type="tel" 
               value={patientPhone} 
@@ -331,89 +371,183 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex justify-between items-center">
+        
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Painel da Clínica</h1>
             <p className="text-sm text-slate-500">{subscribers.length} pacientes conectados</p>
           </div>
+          
+          <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+            <button 
+                onClick={() => setAdminTab('uploads')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${adminTab === 'uploads' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-indigo-600'}`}
+            >
+                <Send size={16} className="inline mr-2" /> Disparos
+            </button>
+            <button 
+                onClick={() => setAdminTab('users')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${adminTab === 'users' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-indigo-600'}`}
+            >
+                <Users size={16} className="inline mr-2" /> Pacientes
+            </button>
+          </div>
+
           <button onClick={() => setCurrentView('landing')} className="text-slate-500 flex gap-2 items-center hover:text-red-600 transition-colors bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm"><LogOut size={16}/> Sair</button>
         </div>
-        <div className="grid md:grid-cols-2 gap-6 h-[600px]">
-          
-          <Card title="1. Carregar Agenda da Semana">
-            <div className="flex flex-col h-full gap-4">
-              {/* CORREÇÃO AQUI: text-slate-900 adicionado */}
-              <textarea 
-                value={csvInput} 
-                onChange={(e) => setCsvInput(e.target.value)} 
-                placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora" 
-                className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1 text-slate-900" 
-              />
-              
-              <div className="flex gap-2">
-                <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" id="csvUpload" />
-                <label htmlFor="csvUpload" className="flex-1">
-                  <Button as="div" variant="secondary" icon={Upload} className="w-full">Carregar Planilha</Button>
-                </label>
-                
-                {csvInput && (
-                  <Button onClick={clearData} variant="danger" className="px-3" title="Limpar lista">
-                    <Trash2 size={18} />
-                  </Button>
-                )}
 
-                <Button onClick={() => processCsv()} className="flex-1" icon={Send}>Verificar</Button>
-              </div>
-            </div>
-          </Card>
-          
-          <Card title="2. Envios Pendentes">
-            {appointments.length === 0 ? (
-              <div className="text-slate-400 text-center py-12 flex flex-col items-center justify-center h-full">
-                <FileSpreadsheet className="w-12 h-12 opacity-20 mb-2"/>
-                <p>Nenhum dado importado.</p>
-              </div>
-            ) : (
-              <div className="flex flex-col h-full">
-                <div className="space-y-2 flex-1 overflow-y-auto pr-1 mb-4">
-                  {appointments.map((app) => (
-                    <div key={app.id} className={`flex flex-col p-3 border rounded-lg ${app.reminderType ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-100 opacity-60'}`}>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-bold text-slate-700">{app.nome}</span>
-                        <Badge status={app.isSubscribed ? 'match' : 'missing'} text={app.isSubscribed ? "App Instalado" : "Sem App"} />
-                      </div>
-                      <div className="flex justify-between items-center text-xs text-slate-500">
-                        <span>{app.data} às {app.hora}</span>
-                        {app.reminderType ? (
-                            <span className="font-bold text-indigo-600 flex items-center gap-1">
-                                <Mail size={10} /> Enviar Aviso {app.reminderType}
-                            </span>
-                        ) : (
-                            <span>{app.timeLabel}</span>
-                        )}
-                      </div>
+        {adminTab === 'uploads' && (
+            <div className="grid md:grid-cols-2 gap-6 h-[600px]">
+                <Card title="1. Carregar Agenda da Semana">
+                    <div className="flex flex-col h-full gap-4">
+                        <textarea 
+                            value={csvInput} 
+                            onChange={(e) => setCsvInput(e.target.value)} 
+                            placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora" 
+                            className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1 text-slate-900" 
+                        />
+                        <div className="flex gap-2">
+                            <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" id="csvUpload" />
+                            <label htmlFor="csvUpload" className="flex-1">
+                                <Button as="div" variant="secondary" icon={Upload} className="w-full">Carregar Planilha</Button>
+                            </label>
+                            
+                            {csvInput && (
+                                <Button onClick={clearData} variant="danger" className="px-3" title="Limpar lista">
+                                    <Trash2 size={18} />
+                                </Button>
+                            )}
+
+                            <Button onClick={() => processCsv()} className="flex-1" icon={Send}>Verificar</Button>
+                        </div>
                     </div>
-                  ))}
-                </div>
+                </Card>
                 
-                {appointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
-                  <Button 
-                    onClick={handleSendReminders} 
-                    variant="success" 
-                    disabled={isSending}
-                    icon={isSending ? Loader2 : Bell}
-                  >
-                    {isSending ? "Enviando..." : `Disparar ${appointments.filter(a => a.isSubscribed && a.reminderType).length} Lembretes`}
-                  </Button>
-                ) : (
-                  <p className="text-center text-xs text-slate-400 mt-auto bg-slate-50 p-2 rounded">
-                    Nenhum lembrete pendente para o horário atual.
-                  </p>
-                )}
-              </div>
-            )}
-          </Card>
-        </div>
+                <Card title="2. Envios Pendentes">
+                    {appointments.length === 0 ? (
+                        <div className="text-slate-400 text-center py-12 flex flex-col items-center justify-center h-full">
+                            <FileSpreadsheet className="w-12 h-12 opacity-20 mb-2"/>
+                            <p>Nenhum dado importado.</p>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col h-full">
+                            <div className="space-y-2 flex-1 overflow-y-auto pr-1 mb-4">
+                                {appointments.map((app) => (
+                                    <div key={app.id} className={`flex flex-col p-3 border rounded-lg ${app.reminderType ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-100 opacity-60'}`}>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm font-bold text-slate-700">{app.nome}</span>
+                                            <Badge status={app.isSubscribed ? 'match' : 'missing'} text={app.isSubscribed ? "App Instalado" : "Sem App"} />
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs text-slate-500">
+                                            <span>{app.data} às {app.hora}</span>
+                                            {app.reminderType ? (
+                                                <span className="font-bold text-indigo-600 flex items-center gap-1">
+                                                    <Mail size={10} /> Enviar Aviso {app.reminderType}
+                                                </span>
+                                            ) : (
+                                                <span>{app.timeLabel}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            
+                            {appointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
+                                <Button 
+                                    onClick={handleSendReminders} 
+                                    variant="success" 
+                                    disabled={isSending}
+                                    icon={isSending ? Loader2 : Bell}
+                                >
+                                    {isSending ? "Enviando..." : `Disparar ${appointments.filter(a => a.isSubscribed && a.reminderType).length} Lembretes`}
+                                </Button>
+                            ) : (
+                                <p className="text-center text-xs text-slate-400 mt-auto bg-slate-50 p-2 rounded">
+                                    Nenhum lembrete pendente para o horário atual.
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </Card>
+            </div>
+        )}
+
+        {adminTab === 'users' && (
+            <Card title="Base de Pacientes Cadastrados" className="h-[600px]">
+                <div className="flex flex-col h-full">
+                    <div className="flex gap-2 mb-4">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+                            <input 
+                                type="text" 
+                                placeholder="Pesquisar por telefone..." 
+                                className="w-full pl-10 p-2 border border-slate-300 rounded-lg text-sm outline-indigo-500 text-slate-900"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <div className="text-xs text-slate-500 flex items-center bg-slate-100 px-3 rounded-lg border border-slate-200">
+                            Total: {subscribers.length}
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto border border-slate-100 rounded-lg">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-50 text-slate-500 font-medium sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3">Telefone Cadastrado</th>
+                                    <th className="px-4 py-3">Data Cadastro</th>
+                                    <th className="px-4 py-3">Último Acesso</th>
+                                    <th className="px-4 py-3 text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {subscribers
+                                    .filter(u => u.phone.includes(searchTerm))
+                                    .map(user => (
+                                    <tr key={user.id} className="hover:bg-slate-50">
+                                        <td className="px-4 py-3 font-mono text-slate-700">{user.phone}</td>
+                                        <td className="px-4 py-3 text-slate-500">
+                                            {user.createdAt?.seconds 
+                                                ? new Date(user.createdAt.seconds * 1000).toLocaleDateString() 
+                                                : 'N/A'}
+                                        </td>
+                                        {/* NOVA COLUNA: ÚLTIMO ACESSO */}
+                                        <td className="px-4 py-3 text-slate-500">
+                                            {user.lastSeen?.seconds 
+                                                ? (
+                                                    <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                                                        <Eye size={12} />
+                                                        {new Date(user.lastSeen.seconds * 1000).toLocaleDateString()}
+                                                    </span>
+                                                )
+                                                : <span className="text-xs text-slate-300">Nunca</span>}
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                            <button 
+                                                onClick={() => handleDeleteUser(user.id, user.phone)}
+                                                className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition-colors"
+                                                title="Remover cadastro"
+                                            >
+                                                <UserMinus size={16} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {subscribers.filter(u => u.phone.includes(searchTerm)).length === 0 && (
+                                    <tr>
+                                        <td colSpan="4" className="text-center py-8 text-slate-400">
+                                            Nenhum paciente encontrado.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </Card>
+        )}
+
       </div>
     </div>
   );
