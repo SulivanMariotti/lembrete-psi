@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User } from 'lucide-react';
 
 // --- Componente TOAST (Notificação Visual) ---
 const Toast = ({ message, type, onClose }) => {
@@ -87,9 +87,9 @@ export default function App() {
 
   // Configuração de Mensagens (Carregada do LocalStorage ou Padrão)
   const [msgConfig, setMsgConfig] = useState({
-    msg48h: "Olá {nome}, lembrete antecipado: Sessão confirmada para {data} às {hora}.",
-    msg24h: "Olá {nome}, lembrete: Sua sessão é amanhã às {hora}.",
-    msg12h: "Olá {nome}! Sua sessão é hoje às {hora}. Até logo!"
+    msg48h: "Olá {nome}, lembrete antecipado: Sessão com {profissional} confirmada para {data} às {hora}.",
+    msg24h: "Olá {nome}, lembrete: Sua sessão com {profissional} é amanhã às {hora}.",
+    msg12h: "Olá {nome}! Sua sessão com {profissional} é hoje às {hora}. Até logo!"
   });
 
   // Helper para mostrar Toast
@@ -204,7 +204,7 @@ export default function App() {
     }
   };
 
-  // 3. Processar Planilha
+  // 3. Processar Planilha (Agora com Profissional)
   const processCsv = (inputText = csvInput) => {
     if (!inputText) return;
     const lines = inputText.split('\n');
@@ -213,12 +213,16 @@ export default function App() {
       let parts = line.split(',');
       if (parts.length < 2 && line.includes(';')) parts = line.split(';');
 
-      const [nome, tel, dataStr, hora] = parts;
+      // Adicionado campo 'profissional' na 5ª posição
+      const [nome, tel, dataStr, hora, profissional] = parts;
       if (!nome || !tel) return null;
       
       const cleanPhone = tel.trim().replace(/\D/g, '');
       const subscriber = subscribers.find(s => s.phone === cleanPhone);
       
+      // Nome do Profissional (Limpeza e Padrão)
+      const nomeProfissional = profissional ? profissional.trim() : 'Psicólogo(a)';
+
       let timeLabel = "Data Inválida";
       let reminderType = null;
       let messageBody = "";
@@ -244,21 +248,24 @@ export default function App() {
                 messageBody = msgConfig.msg12h
                     .replace('{nome}', nome.split(' ')[0])
                     .replace('{data}', dataStr)
-                    .replace('{hora}', hora.trim());
+                    .replace('{hora}', hora.trim())
+                    .replace('{profissional}', nomeProfissional); // Substituição nova
             } else if (diffHours <= 30) { 
                 timeLabel = "Faltam ~24h";
                 reminderType = "24h";
                 messageBody = msgConfig.msg24h
                     .replace('{nome}', nome.split(' ')[0])
                     .replace('{data}', dataStr)
-                    .replace('{hora}', hora.trim());
+                    .replace('{hora}', hora.trim())
+                    .replace('{profissional}', nomeProfissional); // Substituição nova
             } else if (diffHours <= 54) {
                 timeLabel = "Faltam ~48h";
                 reminderType = "48h";
                 messageBody = msgConfig.msg48h
                     .replace('{nome}', nome.split(' ')[0])
                     .replace('{data}', dataStr)
-                    .replace('{hora}', hora.trim());
+                    .replace('{hora}', hora.trim())
+                    .replace('{profissional}', nomeProfissional); // Substituição nova
             } else {
                 timeLabel = `Faltam ${Math.round(diffHours / 24)} dias`;
             }
@@ -269,6 +276,7 @@ export default function App() {
 
       return { 
         id, nome, cleanPhone, data: dataStr, hora, 
+        profissional: nomeProfissional,
         isSubscribed: !!subscriber,
         pushToken: subscriber?.pushToken,
         timeLabel, reminderType, messageBody
@@ -315,7 +323,7 @@ export default function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     tokens: [target.pushToken], 
-                    title: 'Lembrete Psi - PERMITTÁ 🧠',
+                    title: 'Lembrete Psi 🧠',
                     body: target.messageBody
                 })
             }).then(res => res.json().then(data => data.success ? 1 : 0));
@@ -483,7 +491,7 @@ export default function App() {
                         <textarea 
                             value={csvInput} 
                             onChange={(e) => setCsvInput(e.target.value)} 
-                            placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora" 
+                            placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora, Profissional" 
                             className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-teal-500 outline-none resize-none flex-1 text-slate-900" 
                         />
                         <div className="flex gap-2">
@@ -514,14 +522,17 @@ export default function App() {
                                 {appointments.map((app) => (
                                     <div key={app.id} className={`flex flex-col p-3 border rounded-lg ${app.reminderType ? 'bg-teal-50 border-teal-200' : 'bg-white border-slate-100 opacity-60'}`}>
                                         <div className="flex justify-between items-center mb-1">
-                                            <span className="text-sm font-bold text-slate-700">{app.nome}</span>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-bold text-slate-700">{app.nome}</span>
+                                                {app.profissional && <span className="text-xs text-slate-400 flex items-center gap-1"><User size={10}/> {app.profissional}</span>}
+                                            </div>
                                             <Badge status={app.isSubscribed ? 'match' : 'missing'} text={app.isSubscribed ? "App Instalado" : "Sem App"} />
                                         </div>
-                                        <div className="flex justify-between items-center text-xs text-slate-500">
+                                        <div className="flex justify-between items-center text-xs text-slate-500 mt-2">
                                             <span>{app.data} às {app.hora}</span>
                                             {app.reminderType ? (
                                                 <span className="font-bold text-teal-600 flex items-center gap-1">
-                                                    <Mail size={10} /> {app.reminderType}
+                                                    <Mail size={10} /> Enviar Aviso {app.reminderType}
                                                 </span>
                                             ) : (
                                                 <span>{app.timeLabel}</span>
@@ -547,7 +558,7 @@ export default function App() {
 
         {/* ABA PACIENTES */}
         {adminTab === 'users' && (
-            <Card title="Base de Pacientes" className="h-[600px]">
+            <Card title="Base de Pacientes Cadastrados" className="h-[600px]">
                 <div className="flex flex-col h-full">
                     <div className="flex gap-2 mb-4">
                         <div className="relative flex-1">
@@ -634,7 +645,7 @@ export default function App() {
             <Card title="Personalizar Mensagens">
                 <div className="space-y-6 max-w-2xl mx-auto py-4">
                     <div className="bg-teal-50 p-4 rounded-lg border border-teal-100 text-sm text-teal-800">
-                        <strong>Dica:</strong> Use as variáveis <code>{'{nome}'}</code>, <code>{'{data}'}</code> e <code>{'{hora}'}</code> para personalizar automaticamente.
+                        <strong>Dica:</strong> Use as variáveis <code>{'{nome}'}</code>, <code>{'{data}'}</code>, <code>{'{hora}'}</code> e <code>{'{profissional}'}</code> para personalizar automaticamente.
                     </div>
                     
                     <div>
