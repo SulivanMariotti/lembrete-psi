@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -127,11 +127,19 @@ export default function App() {
   const [myAppointments, setMyAppointments] = useState([]);
   const [isLoadingAppointments, setIsLoadingAppointments] = useState(false);
   
+  // NOVO: Estado para Notas do Paciente
+  const [noteContent, setNoteContent] = useState('');
+  const [myNotes, setMyNotes] = useState([]);
+
   // Admin & UI
   const [adminTab, setAdminTab] = useState('dashboard'); 
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState({ msg: '', type: '' });
   const [isIOS, setIsIOS] = useState(false);
+  
+  // Novo: Visualização de Notas pelo Admin
+  const [selectedUserLogs, setSelectedUserLogs] = useState(null); 
+  const [userLogs, setUserLogs] = useState([]);
 
   // Filtro por Profissional
   const [filterProf, setFilterProf] = useState('Todos');
@@ -159,7 +167,6 @@ export default function App() {
     if (!db) return;
 
     try {
-      // Admin Listeners
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -172,7 +179,6 @@ export default function App() {
         setHistoryLogs(logs);
       });
 
-      // Auto-Login Check (apenas para atualizar visualização, não autenticação crítica)
       const savedPhone = localStorage.getItem('psi_user_phone');
       if (savedPhone) {
         setPatientPhone(formatPhone(savedPhone));
@@ -218,6 +224,17 @@ export default function App() {
     }
   };
 
+  // Funcao para buscar as notas do paciente
+  const fetchPatientNotes = (phone) => {
+    const q = query(collection(db, "patient_notes"), where("phone", "==", phone));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const notes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        notes.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds);
+        setMyNotes(notes);
+    });
+    return unsubscribe;
+  };
+
   // --- NOVA LÓGICA DE LOGIN COM PIN ---
   
   // Passo 1: Verificar Telefone
@@ -231,17 +248,16 @@ export default function App() {
         const querySnapshot = await getDocs(q);
 
         if (!querySnapshot.empty) {
-            // Usuário existe
             const userData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
             setTempUserDoc(userData);
             
+            // Se tiver PIN, pede verificação. Se não (ou foi resetado), pede criação.
             if (userData.pin) {
-                setAuthStep('pin-verify'); // Tem senha, pede senha
+                setAuthStep('pin-verify'); 
             } else {
-                setAuthStep('pin-create'); // Usuário antigo sem senha, cria agora
+                setAuthStep('pin-create'); 
             }
         } else {
-            // Usuário novo
             setAuthStep('pin-create');
         }
     } catch (error) {
@@ -260,19 +276,15 @@ export default function App() {
 
     try {
         if (authStep === 'pin-verify') {
-            // LOGIN: Verificar senha
             if (tempUserDoc && tempUserDoc.pin === userPin) {
-                // Sucesso Login
                 await finalizeLogin(rawPhone, tempUserDoc.id);
             } else {
                 showToast("Senha incorreta.", "error");
                 setIsSaving(false);
             }
         } else {
-            // CADASTRO ou ATUALIZAÇÃO DE PIN
             let userId = tempUserDoc?.id;
             
-            // Pega Token
             let currentToken = null;
             try {
                 if (messaging) {
@@ -283,14 +295,12 @@ export default function App() {
             } catch (err) { console.log("Token falhou:", err); }
 
             if (userId) {
-                // Atualiza usuário existente com PIN novo
                 await updateDoc(doc(db, "users", userId), {
                     pin: userPin,
                     pushToken: currentToken || tempUserDoc.pushToken,
                     lastSeen: new Date()
                 });
             } else {
-                // Cria novo usuário
                 const docRef = await addDoc(collection(db, "users"), {
                     phone: rawPhone,
                     pin: userPin,
@@ -311,11 +321,8 @@ export default function App() {
 
   const finalizeLogin = async (phone, uid) => {
       localStorage.setItem('psi_user_phone', phone);
-      // Atualiza lastSeen
       await updateDoc(doc(db, "users", uid), { lastSeen: new Date() });
-      // Busca dados
       await fetchPatientAppointments(phone);
-      // Limpa estados
       setUserPin('');
       setAuthStep('phone');
       setIsSaving(false);
@@ -330,6 +337,57 @@ export default function App() {
       setCurrentView('landing');
   };
 
+  // Efeito para carregar as notas quando o paciente entra
+  useEffect(() => {
+    if (currentView === 'patient-success') {
+        const phone = localStorage.getItem('psi_user_phone');
+        if (phone) {
+            const unsub = fetchPatientNotes(phone);
+            return () => unsub(); 
+        }
+    }
+  }, [currentView]);
+
+  const handleSaveNote = async () => {
+    if (!noteContent.trim()) return showToast("Escreva algo para salvar.", "error");
+    const phone = localStorage.getItem('psi_user_phone');
+    if (!phone) return;
+
+    try {
+        await addDoc(collection(db, "patient_notes"), {
+            phone,
+            content: noteContent,
+            createdAt: new Date()
+        });
+        showToast("Anotação salva!");
+        setNoteContent('');
+    } catch (error) {
+        showToast("Erro ao salvar anotação.", "error");
+    }
+  };
+
+  const handleDeleteNote = async (id) => {
+      if(!confirm("Apagar esta anotação?")) return;
+      try {
+          await deleteDoc(doc(db, "patient_notes", id));
+      } catch (error) {
+          console.error(error);
+      }
+  };
+
+  const handleViewLogs = async (user) => {
+    setSelectedUserLogs(user);
+    try {
+        const q = query(collection(db, "patient_notes"), where("phone", "==", user.phone)); 
+        const snapshot = await getDocs(q);
+        let logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        logs.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds);
+        setUserLogs(logs);
+    } catch (error) {
+        showToast("Erro ao buscar anotações: " + error.message, "error");
+    }
+  };
+
   const handleDeleteUser = async (userId, phone) => {
     if(!confirm(`Remover paciente ${phone}?`)) return;
     try {
@@ -337,6 +395,17 @@ export default function App() {
         showToast("Paciente removido.");
     } catch (error) {
         showToast("Erro ao apagar: " + error.message, "error");
+    }
+  };
+
+  // NOVO: Função para RESETAR PIN (Admin)
+  const handleResetPin = async (userId, phone) => {
+    if(!confirm(`Resetar a senha do paciente ${phone}? Ele poderá criar uma nova no próximo acesso.`)) return;
+    try {
+        await updateDoc(doc(db, "users", userId), { pin: null });
+        showToast("Senha resetada com sucesso!");
+    } catch (error) {
+        showToast("Erro ao resetar: " + error.message, "error");
     }
   };
 
@@ -656,6 +725,11 @@ export default function App() {
                 {isSaving ? "Acessando..." : (authStep === 'pin-create' ? "Criar e Entrar" : "Entrar")}
               </Button>
               <button onClick={() => setAuthStep('phone')} className="w-full text-center text-sm text-slate-400 mt-4 hover:text-slate-600">Voltar</button>
+              {authStep === 'pin-verify' && (
+                  <p className="text-xs text-center text-violet-400 mt-4">
+                      Esqueceu a senha? Solicite o reset na clínica.
+                  </p>
+              )}
             </div>
           )}
 
@@ -719,6 +793,42 @@ export default function App() {
             </p>
         </div>
 
+        {/* ANOTAÇÕES PARA A SESSÃO */}
+        <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-slate-200">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <StickyNote size={18} className="text-violet-600"/> Anotações para a Terapia
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">Lembrete de algo para falar ou para o responsável informar ao profissional.</p>
+            
+            <textarea 
+                placeholder="Ex: Falar sobre a ansiedade na escola..."
+                className="w-full p-3 border border-slate-200 rounded-lg text-sm mb-3 focus:ring-2 focus:ring-violet-500 outline-none h-24 resize-none text-slate-900"
+                value={noteContent}
+                onChange={e => setNoteContent(e.target.value)}
+            />
+            <Button onClick={handleSaveNote} className="w-full text-sm">Salvar Anotação</Button>
+
+            {/* Lista de Anotações */}
+            {myNotes.length > 0 && (
+                <div className="mt-6 space-y-3">
+                    <p className="text-xs font-bold text-slate-400 uppercase">Suas anotações recentes</p>
+                    {myNotes.map(note => (
+                        <div key={note.id} className="bg-slate-50 p-3 rounded-lg border border-slate-100 relative group">
+                            <p className="text-sm text-slate-700 whitespace-pre-wrap">{note.content}</p>
+                            <div className="flex justify-between items-center mt-2">
+                                <span className="text-[10px] text-slate-400">
+                                    {note.createdAt?.seconds ? new Date(note.createdAt.seconds * 1000).toLocaleDateString() : 'Hoje'}
+                                </span>
+                                <button onClick={() => handleDeleteNote(note.id)} className="text-red-300 hover:text-red-500">
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+
         {/* Lista de Sessões */}
         <div className="flex-1 overflow-y-auto pb-4">
             <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm uppercase text-slate-500">
@@ -757,6 +867,32 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
       {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({msg:'', type:''})} />}
       
+      {/* Modal de Logs (Anotações) */}
+      {selectedUserLogs && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl">
+                <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
+                    <h3 className="font-bold text-slate-800">Anotações: {selectedUserLogs.name || selectedUserLogs.phone}</h3>
+                    <button onClick={() => setSelectedUserLogs(null)}><X size={20} className="text-slate-400 hover:text-slate-600"/></button>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 bg-slate-50/50">
+                    {userLogs.length === 0 ? <p className="text-center text-slate-400 py-10">Nenhuma anotação encontrada.</p> : (
+                        <div className="space-y-3">
+                            {userLogs.map(log => (
+                                <div key={log.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                    <p className="text-sm text-slate-700 whitespace-pre-wrap mb-2">{log.content}</p>
+                                    <span className="text-xs text-slate-400 block text-right border-t border-slate-50 pt-2">
+                                        {log.createdAt?.seconds ? new Date(log.createdAt.seconds * 1000).toLocaleString() : ''}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto space-y-6">
         
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -954,6 +1090,15 @@ export default function App() {
                                             ) : <span className="text-xs text-slate-300">Nunca</span>}
                                         </td>
                                         <td className="px-4 py-3 text-right flex justify-end gap-2">
+                                            {/* Botão de Resetar PIN (NOVO) */}
+                                            <button onClick={() => handleResetPin(user.id, user.phone)} className="text-orange-400 hover:text-orange-600 hover:bg-orange-50 p-2 rounded transition-colors" title="Resetar PIN">
+                                                <RotateCcw size={16} />
+                                            </button>
+                                            
+                                            {/* BOTÃO PARA VER ANOTAÇÕES */}
+                                            <button onClick={() => handleViewLogs(user)} className="text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 p-2 rounded transition-colors" title="Ver Anotações">
+                                                <FileText size={16} />
+                                            </button>
                                             <button onClick={() => handleDeleteUser(user.id, user.phone)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition-colors" title="Remover"><UserMinus size={16} /></button>
                                         </td>
                                     </tr>
