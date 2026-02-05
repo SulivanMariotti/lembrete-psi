@@ -179,6 +179,7 @@ export default function App() {
     const isDeviceIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     setIsIOS(isDeviceIOS);
 
+    // Carregar do localStorage (Backup inicial)
     const savedConfig = localStorage.getItem('psi_msg_config');
     if (savedConfig) {
         setMsgConfig(prev => ({ ...prev, ...JSON.parse(savedConfig) }));
@@ -187,6 +188,13 @@ export default function App() {
     if (!db) return;
 
     try {
+      // LISTENER DE CONFIGURAÇÃO GLOBAL (Sincronização Nuvem)
+      const unsubConfig = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
+        if (docSnap.exists()) {
+            setMsgConfig(prev => ({ ...prev, ...docSnap.data() }));
+        }
+      });
+
       // Listeners principais
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -219,7 +227,7 @@ export default function App() {
         setPatientPhone(formatPhone(savedPhone));
       }
 
-      return () => { unsubscribe(); unsubscribeHist(); unsubscribeApps(); };
+      return () => { unsubscribe(); unsubscribeHist(); unsubscribeApps(); unsubConfig(); };
     } catch (e) { console.error(e); }
   }, []);
 
@@ -707,15 +715,23 @@ export default function App() {
     }
   };
 
-  // NOVO: Função para salvar e incrementar versão do contrato
-  const saveConfig = (incrementVersion = false) => {
+  // NOVO: Função para salvar configuração NA NUVEM e LOCALMENTE
+  const saveConfig = async (incrementVersion = false) => {
     const newConfig = { ...msgConfig };
     if (incrementVersion) {
         newConfig.contractVersion = (newConfig.contractVersion || 1) + 1;
     }
     setMsgConfig(newConfig);
+    // Salva local (backup)
     localStorage.setItem('psi_msg_config', JSON.stringify(newConfig));
-    showToast(incrementVersion ? "Termos atualizados (novo aceite exigido)!" : "Configurações salvas!");
+    
+    // Salva na nuvem (Firestore) para todos os dispositivos verem
+    try {
+        await setDoc(doc(db, "settings", "global"), newConfig);
+        showToast(incrementVersion ? "Termos atualizados para todos!" : "Configurações sincronizadas!");
+    } catch (error) {
+        showToast("Erro ao salvar na nuvem: " + error.message, "error");
+    }
   };
 
   const activeUsersCount = subscribers.filter(u => {
