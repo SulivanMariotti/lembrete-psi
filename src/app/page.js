@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
-// ADICIONADO: setDoc para salvar agenda com ID personalizado (evitar duplicatas)
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -99,9 +98,7 @@ const StatCard = ({ title, value, icon: Icon, colorClass }) => (
 const getDayName = (dateString) => {
     try {
         const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-        // Tenta converter DD/MM/YYYY para objeto Date
         let parts = dateString.split('/');
-        // Note: month is 0-indexed in JS
         const date = new Date(parts[2], parts[1] - 1, parts[0]);
         return days[date.getDay()];
     } catch (e) {
@@ -116,14 +113,20 @@ export default function App() {
   const [historyLogs, setHistoryLogs] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [csvInput, setCsvInput] = useState('');
+  
+  // LOGIN / AUTH
   const [patientPhone, setPatientPhone] = useState('');
+  const [authStep, setAuthStep] = useState('phone'); // 'phone' | 'pin-create' | 'pin-verify'
+  const [userPin, setUserPin] = useState('');
+  const [tempUserDoc, setTempUserDoc] = useState(null); // Guarda dados temporários durante login
+
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
   
-  // Estados do Paciente (Agenda)
+  // Estados do Paciente
   const [myAppointments, setMyAppointments] = useState([]);
   const [isLoadingAppointments, setIsLoadingAppointments] = useState(false);
-
+  
   // Admin & UI
   const [adminTab, setAdminTab] = useState('dashboard'); 
   const [searchTerm, setSearchTerm] = useState('');
@@ -156,6 +159,7 @@ export default function App() {
     if (!db) return;
 
     try {
+      // Admin Listeners
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -168,17 +172,10 @@ export default function App() {
         setHistoryLogs(logs);
       });
 
+      // Auto-Login Check (apenas para atualizar visualização, não autenticação crítica)
       const savedPhone = localStorage.getItem('psi_user_phone');
       if (savedPhone) {
-        // Se já tiver telefone salvo, tenta atualizar o acesso
-        const trackAccess = async () => {
-            const qUser = query(collection(db, "users"), where("phone", "==", savedPhone));
-            const snapshot = await getDocs(qUser);
-            snapshot.forEach(async (docRef) => {
-                await updateDoc(doc(db, "users", docRef.id), { lastSeen: new Date() });
-            });
-        };
-        trackAccess();
+        setPatientPhone(formatPhone(savedPhone));
       }
 
       return () => { unsubscribe(); unsubscribeHist(); };
@@ -186,22 +183,22 @@ export default function App() {
   }, []);
 
   // Máscara de Telefone
-  const handlePhoneChange = (e) => {
-    let val = e.target.value.replace(/\D/g, "");
+  const formatPhone = (val) => {
+    val = val.replace(/\D/g, "");
     if (val.length > 11) val = val.slice(0, 11);
     if (val.length > 2) val = `(${val.slice(0, 2)}) ${val.slice(2)}`;
     if (val.length > 7) val = `${val.slice(0, 7)}-${val.slice(7)}`;
-    setPatientPhone(val);
+    return val;
   };
 
-  // Funcao para Buscar Agenda do Paciente (App do Paciente)
+  const handlePhoneChange = (e) => {
+    setPatientPhone(formatPhone(e.target.value));
+  };
+
   const fetchPatientAppointments = async (phone) => {
     setIsLoadingAppointments(true);
     try {
-        const q = query(
-            collection(db, "appointments"), 
-            where("phone", "==", phone)
-        );
+        const q = query(collection(db, "appointments"), where("phone", "==", phone));
         const snapshot = await getDocs(q);
         const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
@@ -216,60 +213,121 @@ export default function App() {
         setMyAppointments(futureApps);
     } catch (error) {
         console.error("Erro ao buscar agenda:", error);
-        showToast("Erro ao carregar agenda. Tente novamente.", "error");
     } finally {
         setIsLoadingAppointments(false);
     }
   };
 
-  // 2. Cadastro de Paciente (Login/Entrada)
-  const handlePatientRegister = async () => {
+  // --- NOVA LÓGICA DE LOGIN COM PIN ---
+  
+  // Passo 1: Verificar Telefone
+  const handleCheckPhone = async () => {
     const rawPhone = patientPhone.replace(/\D/g, '');
     if (rawPhone.length < 10) return showToast("Por favor, digite um celular válido.", "error");
+
+    setIsSaving(true);
+    try {
+        const q = query(collection(db, "users"), where("phone", "==", rawPhone));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+            // Usuário existe
+            const userData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
+            setTempUserDoc(userData);
+            
+            if (userData.pin) {
+                setAuthStep('pin-verify'); // Tem senha, pede senha
+            } else {
+                setAuthStep('pin-create'); // Usuário antigo sem senha, cria agora
+            }
+        } else {
+            // Usuário novo
+            setAuthStep('pin-create');
+        }
+    } catch (error) {
+        showToast("Erro ao verificar: " + error.message, "error");
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+  // Passo 2: Finalizar Login/Cadastro
+  const handleAuthSubmit = async () => {
+    if (userPin.length < 4) return showToast("A senha deve ter 4 dígitos.", "error");
+    const rawPhone = patientPhone.replace(/\D/g, '');
     
     setIsSaving(true);
 
     try {
-      localStorage.setItem('psi_user_phone', rawPhone);
-      
-      // Busca a agenda dele
-      await fetchPatientAppointments(rawPhone);
+        if (authStep === 'pin-verify') {
+            // LOGIN: Verificar senha
+            if (tempUserDoc && tempUserDoc.pin === userPin) {
+                // Sucesso Login
+                await finalizeLogin(rawPhone, tempUserDoc.id);
+            } else {
+                showToast("Senha incorreta.", "error");
+                setIsSaving(false);
+            }
+        } else {
+            // CADASTRO ou ATUALIZAÇÃO DE PIN
+            let userId = tempUserDoc?.id;
+            
+            // Pega Token
+            let currentToken = null;
+            try {
+                if (messaging) {
+                    currentToken = await getToken(messaging, { 
+                        vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' 
+                    });
+                }
+            } catch (err) { console.log("Token falhou:", err); }
 
-      const q = query(collection(db, "users"), where("phone", "==", rawPhone));
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        querySnapshot.forEach(async (docRef) => {
-            await updateDoc(doc(db, "users", docRef.id), { lastSeen: new Date() });
-        });
-        setCurrentView('patient-success'); // Vai para a tela de dashboard do paciente
-        setIsSaving(false);
-        return; 
-      }
-
-      let currentToken = null;
-      try {
-        if (messaging) {
-            currentToken = await getToken(messaging, { 
-                vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' 
-            });
+            if (userId) {
+                // Atualiza usuário existente com PIN novo
+                await updateDoc(doc(db, "users", userId), {
+                    pin: userPin,
+                    pushToken: currentToken || tempUserDoc.pushToken,
+                    lastSeen: new Date()
+                });
+            } else {
+                // Cria novo usuário
+                const docRef = await addDoc(collection(db, "users"), {
+                    phone: rawPhone,
+                    pin: userPin,
+                    pushToken: currentToken,
+                    createdAt: new Date(),
+                    lastSeen: new Date(),
+                    deviceType: navigator.userAgent
+                });
+                userId = docRef.id;
+            }
+            await finalizeLogin(rawPhone, userId);
         }
-      } catch (err) { console.log("Token não gerado:", err); }
-
-      await addDoc(collection(db, "users"), {
-        phone: rawPhone,
-        pushToken: currentToken,
-        createdAt: new Date(),
-        lastSeen: new Date(),
-        deviceType: navigator.userAgent
-      });
-
-      setCurrentView('patient-success');
     } catch (error) {
-      showToast("Erro ao salvar: " + error.message, "error");
-    } finally {
-      setIsSaving(false);
+        showToast("Erro: " + error.message, "error");
+        setIsSaving(false);
     }
+  };
+
+  const finalizeLogin = async (phone, uid) => {
+      localStorage.setItem('psi_user_phone', phone);
+      // Atualiza lastSeen
+      await updateDoc(doc(db, "users", uid), { lastSeen: new Date() });
+      // Busca dados
+      await fetchPatientAppointments(phone);
+      // Limpa estados
+      setUserPin('');
+      setAuthStep('phone');
+      setIsSaving(false);
+      setCurrentView('patient-success');
+  };
+
+  const handleLogout = () => {
+      localStorage.removeItem('psi_user_phone');
+      setPatientPhone('');
+      setUserPin('');
+      setAuthStep('phone');
+      setCurrentView('landing');
   };
 
   const handleDeleteUser = async (userId, phone) => {
@@ -318,11 +376,10 @@ export default function App() {
       let timeLabel = "Data Inválida";
       let reminderType = null;
       let messageBody = "";
-      let isoDate = "";
 
       if (dataStr && hora) {
         try {
-            isoDate = dataStr.trim();
+            let isoDate = dataStr.trim();
             if (isoDate.includes('/')) {
                 const [d, m, y] = isoDate.split('/');
                 isoDate = `${y}-${m}-${d}`;
@@ -364,7 +421,6 @@ export default function App() {
     setAppointments(processed);
   };
 
-  // --- FILTROS ---
   const professionalsList = useMemo(() => {
     const profs = new Set(appointments.map(a => a.profissional));
     return ['Todos', ...Array.from(profs)];
@@ -403,35 +459,29 @@ export default function App() {
 
   const clearData = () => { setCsvInput(''); setAppointments([]); setFilterProf('Todos'); };
 
-  // --- SINCRONIZAR AGENDA (Salvar no Banco) ---
   const handleSyncSchedule = async () => {
     if (appointments.length === 0) return showToast("Não há agendamentos para salvar.", "error");
     
-    if(!confirm(`Deseja sincronizar ${appointments.length} agendamentos? Isso atualizará a agenda no aplicativo dos pacientes.`)) return;
+    if(!confirm(`Deseja sincronizar ${appointments.length} agendamentos?`)) return;
 
     setIsSaving(true);
-
     try {
         const promises = appointments.map(async (app) => {
             if (!app.isoDate || !app.hora) return;
-            
-            // Cria um ID único: Telefone + Data + Hora
             const docId = `${app.cleanPhone}_${app.isoDate}_${app.hora.replace(':','')}`;
-            
             await setDoc(doc(db, "appointments", docId), {
                 phone: app.cleanPhone,
                 patientName: app.nome,
-                date: app.data, // formato display
-                isoDate: app.isoDate, // formato ordenação
+                date: app.data, 
+                isoDate: app.isoDate, 
                 time: app.hora,
                 professional: app.profissional,
                 createdAt: new Date()
             });
             return 1;
         });
-
         await Promise.all(promises);
-        showToast("Agenda do mês sincronizada com sucesso!");
+        showToast("Agenda sincronizada!");
     } catch (error) {
         showToast("Erro ao salvar agenda: " + error.message, "error");
     } finally {
@@ -439,15 +489,11 @@ export default function App() {
     }
   };
 
-  // 4. Enviar
   const handleSendReminders = async () => {
     const targets = filteredAppointments.filter(a => a.isSubscribed && a.pushToken && a.reminderType);
     if (targets.length === 0) return showToast("Nenhum lembrete pendente para esta seleção.", "error");
     
     const summary = `Confirmar envio ${filterProf !== 'Todos' ? 'para '+filterProf : ''}?\n\n` + 
-                    `- 48h antes: ${targets.filter(t => t.reminderType === '48h').length}\n` + 
-                    `- 24h antes: ${targets.filter(t => t.reminderType === '24h').length}\n` + 
-                    `- 12h antes: ${targets.filter(t => t.reminderType === '12h').length}\n\n` + 
                     `Total: ${targets.length} lembretes`;
 
     if (!confirm(summary)) return;
@@ -510,7 +556,7 @@ export default function App() {
 
   const saveConfig = () => {
     localStorage.setItem('psi_msg_config', JSON.stringify(msgConfig));
-    showToast("Configurações de mensagem salvas!");
+    showToast("Configurações salvas!");
   };
 
   const activeUsersCount = subscribers.filter(u => {
@@ -530,69 +576,96 @@ export default function App() {
           {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({msg:'', type:''})} />}
 
           <div className="w-16 h-16 bg-violet-600 rounded-xl flex items-center justify-center mx-auto shadow-violet-200 shadow-lg">
-            <Bell className="text-white w-8 h-8" />
+             {authStep === 'phone' ? <Bell className="text-white w-8 h-8" /> : <Lock className="text-white w-8 h-8" />}
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Lembrete Psi</h1>
             <p className="text-slate-500 mt-2">Nunca mais esqueça o horário da sua terapia.</p>
           </div>
           
-          <div className="space-y-3">
-            <Button onClick={() => setCurrentView('patient-form')} className="w-full py-4 text-lg" icon={Smartphone}>
-              Ativar no meu Celular
-            </Button>
-            <p className="text-xs text-slate-400">Funciona direto no navegador.</p>
-          </div>
-
-          {isIOS && (
-            <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 text-left text-sm text-slate-600 animate-pulse">
-                <p className="font-bold flex items-center gap-2 mb-1"><Share size={16}/> Usuários iPhone:</p>
-                <p>Para receber notificações, toque no botão <strong>Compartilhar</strong> e escolha <strong>"Adicionar à Tela de Início"</strong>.</p>
-            </div>
-          )}
-
           <div className="pt-4 border-t border-slate-100">
             <button onClick={handleAdminAccess} className="text-sm text-slate-400 hover:text-violet-600 underline">
               Acesso da Clínica (Admin)
             </button>
           </div>
+          
+          <div className="mt-4">
+              <Button onClick={() => setCurrentView('patient-form')} className="w-full py-4 text-lg" icon={Smartphone}>
+                Acessar Meu Painel
+              </Button>
+          </div>
         </div>
       </div>
     );
   }
 
+  // TELA DE LOGIN/CADASTRO DO PACIENTE
   if (currentView === 'patient-form') {
     return (
       <div className="min-h-screen bg-white flex flex-col p-6">
         {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({msg:'', type:''})} />}
-        <button onClick={() => setCurrentView('landing')} className="w-fit p-2 hover:bg-slate-50 rounded-full mb-6"><X className="text-slate-400" /></button>
+        <button onClick={() => { setCurrentView('landing'); setAuthStep('phone'); setPatientPhone(''); }} className="w-fit p-2 hover:bg-slate-50 rounded-full mb-6"><X className="text-slate-400" /></button>
         <div className="flex-1 flex flex-col justify-center max-w-md mx-auto w-full space-y-6">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">Qual seu número?</h2>
-            <p className="text-slate-500 mt-1">Digite o celular cadastrado na clínica.</p>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">Celular</label>
-            <input 
-              type="tel" 
-              value={patientPhone} 
-              onChange={handlePhoneChange} 
-              placeholder="(11) 99999-9999" 
-              className="w-full text-2xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 placeholder:text-slate-300 focus:ring-2 focus:ring-violet-100 transition-all" 
-            />
-          </div>
-          <Button onClick={handlePatientRegister} disabled={isSaving} className="w-full py-4 text-lg" icon={isSaving ? Loader2 : CheckCircle}>
-            {isSaving ? "Conectar e Permitir" : "Conectar e Permitir"}
-          </Button>
-          <p className="text-xs text-center text-slate-400 mt-2">Clique em "Permitir" quando o navegador perguntar.</p>
+          
+          {authStep === 'phone' && (
+            <>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Qual seu número?</h2>
+                <p className="text-slate-500 mt-1">Digite o celular cadastrado na clínica.</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">Celular</label>
+                <input 
+                  type="tel" 
+                  value={patientPhone} 
+                  onChange={handlePhoneChange} 
+                  placeholder="(11) 99999-9999" 
+                  className="w-full text-2xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 placeholder:text-slate-300 focus:ring-2 focus:ring-violet-100 transition-all" 
+                />
+              </div>
+              <Button onClick={handleCheckPhone} disabled={isSaving} className="w-full py-4 text-lg" icon={isSaving ? Loader2 : CheckCircle}>
+                {isSaving ? "Verificando..." : "Continuar"}
+              </Button>
+            </>
+          )}
+
+          {(authStep === 'pin-create' || authStep === 'pin-verify') && (
+            <div className="animate-in fade-in slide-in-from-bottom duration-300">
+               <div className="mb-6">
+                <h2 className="text-2xl font-bold text-slate-900">
+                    {authStep === 'pin-create' ? 'Crie sua Senha' : 'Digite sua Senha'}
+                </h2>
+                <p className="text-slate-500 mt-1">
+                    {authStep === 'pin-create' 
+                        ? 'Para sua segurança, crie um PIN de 4 números.' 
+                        : 'Informe seu PIN para entrar.'}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">PIN (4 Dígitos)</label>
+                <input 
+                  type="tel" 
+                  maxLength={4}
+                  value={userPin} 
+                  onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))} 
+                  placeholder="****" 
+                  className="w-full text-center text-4xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[1em] focus:ring-2 focus:ring-violet-100 transition-all" 
+                />
+              </div>
+              <Button onClick={handleAuthSubmit} disabled={isSaving || userPin.length < 4} className="w-full py-4 text-lg mt-6" icon={isSaving ? Loader2 : KeyRound}>
+                {isSaving ? "Acessando..." : (authStep === 'pin-create' ? "Criar e Entrar" : "Entrar")}
+              </Button>
+              <button onClick={() => setAuthStep('phone')} className="w-full text-center text-sm text-slate-400 mt-4 hover:text-slate-600">Voltar</button>
+            </div>
+          )}
+
         </div>
       </div>
     );
   }
 
-  // --- TELA DO PACIENTE REFORMULADA (Recorrência + Disclaimer) ---
+  // TELA DO PACIENTE - AGORA COM AGENDA
   if (currentView === 'patient-success') {
-    // Lógica para encontrar a recorrência (Ex: "Toda Terça-feira")
     const nextAppointment = myAppointments.length > 0 ? myAppointments[0] : null;
     let recurrenceText = "Aguardando agendamento";
     if (nextAppointment) {
@@ -602,6 +675,7 @@ export default function App() {
 
     return (
       <div className="min-h-screen bg-violet-50 flex flex-col p-6 overflow-hidden">
+        {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({msg:'', type:''})} />}
         {/* Header Paciente */}
         <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
@@ -613,12 +687,12 @@ export default function App() {
                     <p className="text-xs text-slate-500">Bem-vindo de volta</p>
                 </div>
             </div>
-            <button onClick={() => setCurrentView('landing')} className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-colors">
+            <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-colors" title="Sair">
                 <LogOut size={18} />
             </button>
         </div>
 
-        {/* Card de Recorrência (Novo Destaque) */}
+        {/* Card Recorrência */}
         {nextAppointment ? (
             <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl shadow-xl p-6 mb-6 text-white relative overflow-hidden">
                 <div className="relative z-10">
@@ -629,25 +703,24 @@ export default function App() {
                         <span>{nextAppointment.professional || 'Psicoterapia'}</span>
                     </div>
                 </div>
-                {/* Efeito decorativo */}
                 <div className="absolute -right-6 -bottom-10 w-32 h-32 bg-white opacity-10 rounded-full"></div>
             </div>
         ) : (
             <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-slate-200 text-center">
-                <p className="text-slate-500">Nenhum horário fixo identificado ainda.</p>
+                <p className="text-slate-500">Nenhum horário fixo identificado.</p>
             </div>
         )}
 
-        {/* Disclaimer Importante */}
+        {/* Disclaimer */}
         <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 mb-6 flex gap-3">
             <Info className="text-amber-600 w-5 h-5 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-amber-800 leading-relaxed">
-                <strong>Atenção:</strong> Este horário é válido como uma sessão semanal recorrente até que seja solicitada alteração ou que a Clínica mude previamente com o consentimento do paciente (ou responsável, se menor).
+                Este horário é válido como sessão semanal recorrente. Alterações devem ser combinadas previamente com a clínica.
             </p>
         </div>
 
-        {/* Lista de Próximas Sessões Específicas */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Lista de Sessões */}
+        <div className="flex-1 overflow-y-auto pb-4">
             <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm uppercase text-slate-500">
                 <Calendar size={16}/> Datas Confirmadas
             </h3>
@@ -655,7 +728,7 @@ export default function App() {
             {isLoadingAppointments ? (
                 <div className="flex justify-center py-8"><Loader2 className="animate-spin text-violet-400" /></div>
             ) : myAppointments.length > 0 ? (
-                <div className="space-y-3 pb-8">
+                <div className="space-y-3">
                     {myAppointments.map(app => (
                         <div key={app.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
                             <div className="bg-slate-100 text-slate-600 w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
@@ -741,12 +814,12 @@ export default function App() {
                         {showManualForm ? (
                             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-2 text-sm animate-in fade-in zoom-in">
                                 <div className="grid grid-cols-2 gap-2 mb-2">
-                                    <input placeholder="Nome" className="p-2 rounded border" value={manualEntry.nome} onChange={e=>setManualEntry({...manualEntry, nome: e.target.value})} />
-                                    <input placeholder="Tel (com DDD)" className="p-2 rounded border" value={manualEntry.telefone} onChange={e=>setManualEntry({...manualEntry, telefone: e.target.value})} />
-                                    <input type="date" className="p-2 rounded border" value={manualEntry.data} onChange={e=>setManualEntry({...manualEntry, data: e.target.value})} />
-                                    <input type="time" className="p-2 rounded border" value={manualEntry.hora} onChange={e=>setManualEntry({...manualEntry, hora: e.target.value})} />
+                                    <input placeholder="Nome" className="p-2 rounded border text-slate-900" value={manualEntry.nome} onChange={e=>setManualEntry({...manualEntry, nome: e.target.value})} />
+                                    <input placeholder="Tel (com DDD)" className="p-2 rounded border text-slate-900" value={manualEntry.telefone} onChange={e=>setManualEntry({...manualEntry, telefone: e.target.value})} />
+                                    <input type="date" className="p-2 rounded border text-slate-900" value={manualEntry.data} onChange={e=>setManualEntry({...manualEntry, data: e.target.value})} />
+                                    <input type="time" className="p-2 rounded border text-slate-900" value={manualEntry.hora} onChange={e=>setManualEntry({...manualEntry, hora: e.target.value})} />
                                 </div>
-                                <input placeholder="Profissional (opcional)" className="p-2 rounded border w-full mb-2" value={manualEntry.profissional} onChange={e=>setManualEntry({...manualEntry, profissional: e.target.value})} />
+                                <input placeholder="Profissional (opcional)" className="p-2 rounded border w-full mb-2 text-slate-900" value={manualEntry.profissional} onChange={e=>setManualEntry({...manualEntry, profissional: e.target.value})} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddManual} variant="success" className="flex-1 text-xs py-1">Adicionar</Button>
                                     <Button onClick={()=>setShowManualForm(false)} variant="secondary" className="text-xs py-1">Cancelar</Button>
@@ -764,7 +837,7 @@ export default function App() {
                         <textarea 
                             value={csvInput} 
                             onChange={(e) => setCsvInput(e.target.value)} 
-                            placeholder="Cole aqui a planilha MENSAL ou SEMANAL:&#10;Nome, Telefone, Data, Hora, Profissional" 
+                            placeholder="Cole aqui a planilha CSV:&#10;Nome, Telefone, Data, Hora, Profissional" 
                             className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-violet-500 outline-none resize-none flex-1 text-slate-900" 
                         />
                         <div className="flex gap-2">
@@ -846,7 +919,7 @@ export default function App() {
 
         {/* ABA PACIENTES */}
         {adminTab === 'users' && (
-            <Card title="Base de Pacientes" className="h-[600px]">
+            <Card title="Base de Pacientes Cadastrados" className="h-[600px]">
                 <div className="flex flex-col h-full">
                     <div className="flex gap-2 mb-4">
                         <div className="relative flex-1">
@@ -880,7 +953,7 @@ export default function App() {
                                                 </span>
                                             ) : <span className="text-xs text-slate-300">Nunca</span>}
                                         </td>
-                                        <td className="px-4 py-3 text-right">
+                                        <td className="px-4 py-3 text-right flex justify-end gap-2">
                                             <button onClick={() => handleDeleteUser(user.id, user.phone)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition-colors" title="Remover"><UserMinus size={16} /></button>
                                         </td>
                                     </tr>
