@@ -247,7 +247,6 @@ export default function App() {
   // --- Função de Segurança para Admin ---
   const handleAdminAccess = () => {
     const password = prompt("Digite a senha de administrador:");
-    // Agora compara com a variável de ambiente, não com texto fixo
     if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) { 
       setCurrentView('admin-dashboard');
     } else if (password !== null) {
@@ -295,7 +294,14 @@ export default function App() {
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">Celular (DDD + Número)</label>
-            <input type="tel" value={patientPhone} onChange={(e) => setPatientPhone(e.target.value)} placeholder="(11) 99999-9999" className="w-full text-2xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-indigo-500" />
+            {/* CORREÇÃO AQUI: text-slate-900 adicionado */}
+            <input 
+              type="tel" 
+              value={patientPhone} 
+              onChange={(e) => setPatientPhone(e.target.value)} 
+              placeholder="(11) 99999-9999" 
+              className="w-full text-2xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-indigo-500 text-slate-900 placeholder:text-slate-300 focus:ring-2 focus:ring-indigo-100 transition-all" 
+            />
           </div>
           <Button onClick={handlePatientRegister} disabled={isSaving} className="w-full py-4 text-lg" icon={isSaving ? Loader2 : CheckCircle}>
             {isSaving ? "Conectar e Permitir" : "Conectar e Permitir"}
@@ -336,12 +342,12 @@ export default function App() {
           
           <Card title="1. Carregar Agenda da Semana">
             <div className="flex flex-col h-full gap-4">
-              
+              {/* CORREÇÃO AQUI: text-slate-900 adicionado */}
               <textarea 
                 value={csvInput} 
                 onChange={(e) => setCsvInput(e.target.value)} 
                 placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora" 
-                className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1" 
+                className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1 text-slate-900" 
               />
               
               <div className="flex gap-2">
