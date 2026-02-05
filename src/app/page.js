@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, MessageCircle } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2 } from 'lucide-react';
 
 // --- Componentes UI ---
 const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: Icon, as = 'button', ...props }) => {
@@ -61,10 +61,6 @@ export default function App() {
   const [appointments, setAppointments] = useState([]);
   const [csvInput, setCsvInput] = useState('');
   const [patientPhone, setPatientPhone] = useState('');
-  
-  // CORREÇÃO 1: Número padrão atualizado
-  const [whatsappNumber, setWhatsappNumber] = useState('551141163129'); 
-  
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
@@ -121,8 +117,8 @@ export default function App() {
     }
   };
 
-  // 3. Processar Planilha (Agora aceita numero atual do zap para recalcular)
-  const processCsv = (inputText = csvInput, currentWhatsapp = whatsappNumber) => {
+  // 3. Processar Planilha
+  const processCsv = (inputText = csvInput) => {
     if (!inputText) return;
     const lines = inputText.split('\n');
     
@@ -138,13 +134,9 @@ export default function App() {
       const cleanPhone = tel.trim().replace(/\D/g, '');
       const subscriber = subscribers.find(s => s.phone === cleanPhone);
       
-      // Lógica de Datas
       let timeLabel = "Data Inválida";
       let reminderType = null;
       let messageBody = "";
-      
-      // Link do WhatsApp usando o número atualizado
-      const linkZap = `https://wa.me/${currentWhatsapp.replace(/\D/g, '')}`;
 
       if (dataStr && hora) {
         try {
@@ -163,15 +155,15 @@ export default function App() {
             } else if (diffHours <= 12) {
                 timeLabel = "Faltam < 12h (Hoje)";
                 reminderType = "12h";
-                messageBody = `Olá ${nome.split(' ')[0]}! Sua sessão é hoje às ${hora.trim()}. Dúvidas? ${linkZap}`;
+                messageBody = `Olá ${nome.split(' ')[0]}! Sua sessão é hoje às ${hora.trim()}. Até logo!`;
             } else if (diffHours <= 30) { 
                 timeLabel = "Faltam ~24h (Amanhã)";
                 reminderType = "24h";
-                messageBody = `Olá ${nome.split(' ')[0]}, lembrete: Sua sessão é amanhã às ${hora.trim()}. Confirmar: ${linkZap}`;
+                messageBody = `Olá ${nome.split(' ')[0]}, lembrete: Sua sessão é amanhã às ${hora.trim()}.`;
             } else if (diffHours <= 54) {
                 timeLabel = "Faltam ~48h";
                 reminderType = "48h";
-                messageBody = `Olá ${nome.split(' ')[0]}, lembrete: Sessão em ${dataStr} às ${hora.trim()}. Contato: ${linkZap}`;
+                messageBody = `Olá ${nome.split(' ')[0]}, lembrete: Sessão em ${dataStr} às ${hora.trim()}.`;
             } else {
                 timeLabel = `Faltam ${Math.round(diffHours / 24)} dias`;
             }
@@ -186,8 +178,7 @@ export default function App() {
         pushToken: subscriber?.pushToken,
         timeLabel,
         reminderType, 
-        messageBody,
-        linkZap 
+        messageBody
       };
     }).filter(Boolean);
     
@@ -217,18 +208,10 @@ export default function App() {
     
     if (targets.length === 0) return alert("Nenhum lembrete pendente para agora.");
     
-    // CORREÇÃO 2: Resumo detalhado restaurado
-    const counts = { '48h': 0, '24h': 0, '12h': 0 };
-    targets.forEach(t => {
-        if (counts[t.reminderType] !== undefined) {
-            counts[t.reminderType]++;
-        }
-    });
-    
-    const summary = `Confirmar envio com link WhatsApp (${whatsappNumber})?\n\n` + 
-                    `- 48h antes: ${counts['48h']}\n` + 
-                    `- 24h antes: ${counts['24h']}\n` + 
-                    `- 12h antes: ${counts['12h']}\n\n` + 
+    const summary = `Confirmar envio?\n\n` + 
+                    `- 48h antes: ${targets.filter(t => t.reminderType === '48h').length}\n` + 
+                    `- 24h antes: ${targets.filter(t => t.reminderType === '24h').length}\n` + 
+                    `- 12h antes: ${targets.filter(t => t.reminderType === '12h').length}\n\n` + 
                     `Total: ${targets.length} lembretes`;
 
     if (!confirm(summary)) return;
@@ -244,8 +227,7 @@ export default function App() {
                 body: JSON.stringify({
                     tokens: [target.pushToken], 
                     title: 'Lembrete Psi 🧠',
-                    body: target.messageBody,
-                    link: target.linkZap
+                    body: target.messageBody
                 })
             }).then(res => res.json().then(data => data.success ? 1 : 0));
         });
@@ -259,6 +241,17 @@ export default function App() {
       alert("Erro no envio: " + error.message);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  // --- Função de Segurança para Admin ---
+  const handleAdminAccess = () => {
+    const password = prompt("Digite a senha de administrador:");
+    // Agora compara com a variável de ambiente, não com texto fixo
+    if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) { 
+      setCurrentView('admin-dashboard');
+    } else if (password !== null) {
+      alert("Senha incorreta.");
     }
   };
 
@@ -282,7 +275,7 @@ export default function App() {
             <p className="text-xs text-slate-400">Funciona direto no navegador.</p>
           </div>
           <div className="pt-4 border-t border-slate-100">
-            <button onClick={() => setCurrentView('admin-dashboard')} className="text-sm text-slate-400 hover:text-indigo-600 underline">
+            <button onClick={handleAdminAccess} className="text-sm text-slate-400 hover:text-indigo-600 underline">
               Acesso da Clínica (Admin)
             </button>
           </div>
@@ -341,30 +334,13 @@ export default function App() {
         </div>
         <div className="grid md:grid-cols-2 gap-6 h-[600px]">
           
-          <Card title="1. Configuração e Agenda">
+          <Card title="1. Carregar Agenda da Semana">
             <div className="flex flex-col h-full gap-4">
               
-              {/* CAMPO DE WHATSAPP NOVO */}
-              <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                <label className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-1 mb-1">
-                  <MessageCircle size={14} /> WhatsApp da Clínica (Para Links)
-                </label>
-                <input 
-                  type="text" 
-                  value={whatsappNumber}
-                  onChange={(e) => {
-                      setWhatsappNumber(e.target.value);
-                      processCsv(csvInput, e.target.value); // Atualiza os links em tempo real
-                  }}
-                  className="w-full bg-white p-2 text-sm rounded border border-indigo-200 focus:outline-indigo-500"
-                  placeholder="5511999999999"
-                />
-              </div>
-
               <textarea 
                 value={csvInput} 
                 onChange={(e) => setCsvInput(e.target.value)} 
-                placeholder="Cole aqui a lista: Nome, Telefone, Data, Hora" 
+                placeholder="Cole aqui ou digite manualmente:&#10;Nome, Telefone, Data(DD/MM/YYYY), Hora" 
                 className="w-full h-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 outline-none resize-none flex-1" 
               />
               
