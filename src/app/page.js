@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -415,7 +415,8 @@ export default function App() {
         const joined = u.createdAt?.seconds ? new Date(u.createdAt.seconds * 1000).toLocaleDateString() : '';
         const seen = u.lastSeen?.seconds ? new Date(u.lastSeen.seconds * 1000).toLocaleDateString() : '';
         const safeName = u.name ? `"${u.name}"` : 'Sem nome';
-        return `${safeName},${u.phone},${joined},${seen}`;
+        const safePhone = u.phone || 'Sem telefone'; // Correção de segurança
+        return `${safeName},${safePhone},${joined},${seen}`;
     }).join("\n");
     
     const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -1075,7 +1076,7 @@ export default function App() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {subscribers.filter(u => u.phone.includes(searchTerm)).map(user => (
+                                {subscribers.filter(u => (u.phone || '').includes(searchTerm)).map(user => (
                                     <tr key={user.id} className="hover:bg-slate-50">
                                         <td className="px-4 py-3 font-medium text-slate-800">
                                             {user.name || 'Sem nome'}
@@ -1103,7 +1104,7 @@ export default function App() {
                                         </td>
                                     </tr>
                                 ))}
-                                {subscribers.filter(u => u.phone.includes(searchTerm)).length === 0 && (
+                                {subscribers.filter(u => (u.phone || '').includes(searchTerm)).length === 0 && (
                                     <tr><td colSpan="4" className="text-center py-8 text-slate-400">Nenhum paciente encontrado.</td></tr>
                                 )}
                             </tbody>
