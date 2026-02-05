@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, messaging } from './firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, HeartPulse } from 'lucide-react';
+import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, MessageCircle } from 'lucide-react';
 
 // --- Componente TOAST ---
 const Toast = ({ message, type, onClose }) => {
@@ -148,10 +148,12 @@ export default function App() {
   const [manualEntry, setManualEntry] = useState({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
   const [showManualForm, setShowManualForm] = useState(false);
 
+  // Configuração de Mensagens E WhatsApp
   const [msgConfig, setMsgConfig] = useState({
     msg48h: "Olá {nome}, lembrete antecipado: Sessão com {profissional} confirmada para {data} às {hora}.",
     msg24h: "Olá {nome}, lembrete: Sua sessão com {profissional} é amanhã às {hora}.",
-    msg12h: "Olá {nome}! Sua sessão com {profissional} é hoje às {hora}. Até logo!"
+    msg12h: "Olá {nome}! Sua sessão com {profissional} é hoje às {hora}. Até logo!",
+    whatsapp: "551141163129" // Número padrão
   });
 
   const showToast = (msg, type = 'success') => setToast({ msg, type });
@@ -162,7 +164,10 @@ export default function App() {
     setIsIOS(isDeviceIOS);
 
     const savedConfig = localStorage.getItem('psi_msg_config');
-    if (savedConfig) setMsgConfig(JSON.parse(savedConfig));
+    if (savedConfig) {
+        // Mescla configuração salva com o estado inicial para garantir que o campo whatsapp exista
+        setMsgConfig(prev => ({ ...prev, ...JSON.parse(savedConfig) }));
+    }
 
     if (!db) return;
 
@@ -535,6 +540,7 @@ export default function App() {
     if(!confirm(`Deseja sincronizar ${appointments.length} agendamentos?`)) return;
 
     setIsSaving(true);
+
     try {
         const promises = appointments.map(async (app) => {
             if (!app.isoDate || !app.hora) return;
@@ -550,6 +556,7 @@ export default function App() {
             });
             return 1;
         });
+
         await Promise.all(promises);
         showToast("Agenda sincronizada!");
     } catch (error) {
@@ -765,6 +772,17 @@ export default function App() {
     return (
       <div className="min-h-screen bg-violet-50 flex flex-col p-6 overflow-hidden">
         {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({msg:'', type:''})} />}
+        {/* BOTÃO FLUTUANTE DO WHATSAPP (NOVO) */}
+        <a 
+            href={`https://wa.me/${msgConfig.whatsapp ? msgConfig.whatsapp.replace(/\D/g, '') : '551141163129'}`} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="fixed bottom-6 right-6 z-50 bg-green-500 text-white p-3 rounded-full shadow-lg hover:bg-green-600 transition-all active:scale-95 flex items-center justify-center animate-bounce-slow"
+            title="Falar com a Clínica"
+        >
+            <MessageCircle size={28} />
+        </a>
+
         {/* Header Paciente */}
         <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
@@ -1118,7 +1136,7 @@ export default function App() {
                                             ) : <span className="text-xs text-slate-300">Nunca</span>}
                                         </td>
                                         <td className="px-4 py-3 text-right flex justify-end gap-2">
-                                            {/* Botão de Resetar PIN (NOVO) */}
+                                            {/* Botão de Resetar PIN */}
                                             <button onClick={() => handleResetPin(user.id, user.phone)} className="text-orange-400 hover:text-orange-600 hover:bg-orange-50 p-2 rounded transition-colors" title="Resetar PIN">
                                                 <RotateCcw size={16} />
                                             </button>
@@ -1181,11 +1199,22 @@ export default function App() {
                     </div>
                     
                     <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">WhatsApp da Clínica (Para botão de contato)</label>
+                        <input 
+                            type="tel"
+                            value={msgConfig.whatsapp}
+                            onChange={(e) => setMsgConfig({...msgConfig, whatsapp: e.target.value})}
+                            placeholder="Ex: 5511999999999"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none text-slate-900"
+                        />
+                    </div>
+
+                    <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">Mensagem de 48h (Antecipado)</label>
                         <textarea 
                             value={msgConfig.msg48h}
                             onChange={(e) => setMsgConfig({...msgConfig, msg48h: e.target.value})}
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24 text-slate-900"
                         />
                     </div>
                     <div>
@@ -1193,7 +1222,7 @@ export default function App() {
                         <textarea 
                             value={msgConfig.msg24h}
                             onChange={(e) => setMsgConfig({...msgConfig, msg24h: e.target.value})}
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24 text-slate-900"
                         />
                     </div>
                     <div>
@@ -1201,7 +1230,7 @@ export default function App() {
                         <textarea 
                             value={msgConfig.msg12h}
                             onChange={(e) => setMsgConfig({...msgConfig, msg12h: e.target.value})}
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24 text-slate-900"
                         />
                     </div>
                     <Button onClick={saveConfig} icon={Save} className="w-full">Salvar Configurações</Button>
