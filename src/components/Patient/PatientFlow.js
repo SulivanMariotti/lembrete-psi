@@ -23,7 +23,7 @@ const EDUCATION_CARDS = [
 ];
 
 export default function PatientFlow({ onAdminAccess, globalConfig }) {
-  const [view, setView] = useState('landing');
+  const [view, setView] = useState('landing'); // landing, form, dashboard
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [authStep, setAuthStep] = useState('phone');
@@ -49,13 +49,38 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
 
   const showToast = (msg, type) => setToast({ msg, type });
 
+  // Efeitos Iniciais
   useEffect(() => {
+    // 1. Detecção iOS (apenas para referência se necessário)
+    // const isDeviceIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+    // 2. Lógica do Card do Dia (1x por dia)
+    const today = new Date().toDateString();
+    const savedDate = localStorage.getItem('psi_daily_card_date');
+    const savedId = localStorage.getItem('psi_daily_card_id');
+
+    let cardToShow;
+
+    // Se já temos um card salvo para HOJE, usamos ele
+    if (savedDate === today && savedId) {
+        cardToShow = EDUCATION_CARDS.find(c => c.id === Number(savedId));
+    }
+
+    // Se não (novo dia ou primeiro acesso), sorteamos um novo
+    if (!cardToShow) {
+        const randomIndex = Math.floor(Math.random() * EDUCATION_CARDS.length);
+        cardToShow = EDUCATION_CARDS[randomIndex];
+        localStorage.setItem('psi_daily_card_date', today);
+        localStorage.setItem('psi_daily_card_id', cardToShow.id);
+    }
+    
+    setDailyCard(cardToShow);
+
+    // 3. Auto Login
     const savedPhone = localStorage.getItem('psi_user_phone');
     if (savedPhone) {
         setPhone(formatPhone(savedPhone));
     }
-    // Selecionar um card aleatório para destaque inicial se necessário
-    // mas vamos usar a lista completa no carrossel.
   }, []);
 
   const fetchAgenda = async (rawPhone) => {
@@ -163,30 +188,38 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
   // --- Renderização ---
   if (view === 'landing') {
       return (
-          <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-slate-50">
+          <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center bg-slate-50">
                {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
-               <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-lg space-y-6 relative">
-                   <div className="w-16 h-16 bg-violet-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-violet-200">
-                       <Bell className="text-white w-8 h-8"/>
+               <div className="w-full max-w-sm bg-white p-6 rounded-2xl shadow-lg space-y-5 relative">
+                   <div className="w-12 h-12 bg-violet-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-violet-200">
+                       <Bell className="text-white w-6 h-6"/>
                    </div>
                    
                    <div>
-                        <h1 className="text-2xl font-bold text-slate-900">Lembrete Psi</h1>
-                        <p className="text-slate-500 mt-2">Nunca mais esqueça o horário da sua terapia.</p>
+                        <h1 className="text-xl font-bold text-slate-900">Lembrete Psi</h1>
+                        <p className="text-slate-500 text-sm mt-1">Seu espaço de terapia.</p>
                    </div>
                    
-                   <div className="bg-violet-50 p-4 rounded-lg border border-violet-100 text-xs text-violet-800 leading-relaxed text-left">
-                        <p className="font-bold flex items-center gap-2 mb-2 justify-center text-sm"><HeartPulse size={16}/> Importante</p>
-                        A constância é o segredo da evolução. Faltas frequentes podem prejudicar seu progresso terapêutico.
-                   </div>
+                   {/* Card de Boas-vindas Compacto */}
+                   {dailyCard && (
+                    <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 text-left relative overflow-hidden">
+                          <div className="flex items-center gap-2 mb-1 text-indigo-700">
+                              <Lightbulb size={14} />
+                              <h4 className="font-bold text-xs uppercase tracking-wider">Reflexão</h4>
+                          </div>
+                          <p className="text-xs text-slate-700 italic leading-snug">
+                              "{dailyCard.content.split('\n')[0]}"
+                          </p>
+                    </div>
+                   )}
                    
-                   <div className="space-y-3">
-                        <Button onClick={() => setView('form')} icon={Smartphone} className="w-full">Acessar Meu Painel</Button>
-                        <p className="text-xs text-slate-400">Funciona direto no navegador.</p>
+                   <div className="space-y-2">
+                        <Button onClick={() => setView('form')} icon={Smartphone} className="w-full py-3 text-sm">Acessar Meu Painel</Button>
+                        <p className="text-[10px] text-slate-400">Funciona direto no navegador.</p>
                    </div>
 
-                   <div className="pt-4 border-t border-slate-100">
-                       <button onClick={onAdminAccess} className="text-sm text-slate-400 hover:text-violet-600 underline block mx-auto">Acesso da Clínica (Admin)</button>
+                   <div className="pt-3 border-t border-slate-100">
+                       <button onClick={onAdminAccess} className="text-xs text-slate-400 hover:text-violet-600 underline block mx-auto">Acesso da Clínica</button>
                    </div>
                </div>
           </div>
@@ -195,21 +228,21 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
 
   if (view === 'form') {
       return (
-          <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-white">
+          <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-white">
               {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
-              <div className="w-full max-w-md space-y-6">
+              <div className="w-full max-w-sm space-y-5">
                   {authStep === 'phone' ? (
                       <>
-                        <h2 className="text-2xl font-bold text-slate-900">Qual seu número?</h2>
-                        <input value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} className="w-full text-2xl p-4 border rounded-xl outline-violet-600 text-slate-900" placeholder="(11) 99999-9999" />
-                        <Button onClick={handleCheckPhone} disabled={loading} className="w-full">{loading ? "Verificando..." : "Continuar"}</Button>
+                        <h2 className="text-xl font-bold text-slate-900">Qual seu número?</h2>
+                        <input value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} className="w-full text-xl p-3 border rounded-xl outline-violet-600 text-slate-900" placeholder="(11) 99999-9999" />
+                        <Button onClick={handleCheckPhone} disabled={loading} className="w-full py-3">{loading ? "Verificando..." : "Continuar"}</Button>
                       </>
                   ) : (
                       <>
-                        <h2 className="text-2xl font-bold text-slate-900">{authStep === 'create' ? 'Crie sua Senha' : 'Digite sua Senha'}</h2>
-                        <input type="tel" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value)} className="w-full text-center text-4xl p-4 border rounded-xl tracking-[0.5em] text-slate-900 outline-violet-600" placeholder="****" />
-                        <Button onClick={handleAuth} disabled={loading} className="w-full">{loading ? "Entrando..." : "Entrar"}</Button>
-                        <button onClick={() => setAuthStep('phone')} className="text-sm text-slate-400 block mx-auto mt-4">Voltar</button>
+                        <h2 className="text-xl font-bold text-slate-900">{authStep === 'create' ? 'Crie sua Senha' : 'Digite sua Senha'}</h2>
+                        <input type="tel" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value)} className="w-full text-center text-3xl p-3 border rounded-xl tracking-[0.5em] text-slate-900 outline-violet-600" placeholder="****" />
+                        <Button onClick={handleAuth} disabled={loading} className="w-full py-3">{loading ? "Entrando..." : "Entrar"}</Button>
+                        <button onClick={() => setAuthStep('phone')} className="text-xs text-slate-400 block mx-auto mt-4">Voltar</button>
                       </>
                   )}
               </div>
@@ -222,92 +255,91 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
   const recurrenceText = nextApp ? `Toda ${getDayName(nextApp.date)} às ${nextApp.time}` : "Aguardando agendamento";
 
   return (
-      <div className="min-h-screen bg-violet-50 p-6 flex flex-col">
+      <div className="min-h-screen bg-violet-50 p-4 flex flex-col">
           {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
           
-          {/* HEADER */}
-          <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-3">
-                  <div className="bg-white p-2 rounded-full shadow-sm"><User className="text-violet-600"/></div>
-                  <div><h2 className="font-bold text-slate-800">Meu Espaço</h2><p className="text-xs text-slate-500">Bem-vindo</p></div>
+          {/* HEADER COMPACTO */}
+          <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                  <div className="bg-white p-1.5 rounded-full shadow-sm"><User className="text-violet-600 w-5 h-5"/></div>
+                  <div><h2 className="font-bold text-slate-800 text-sm">Meu Espaço</h2></div>
               </div>
               <div className="flex gap-2">
-                 <button onClick={() => setShowLibrary(true)} className="bg-indigo-500 p-2 rounded-full text-white shadow hover:bg-indigo-600 transition" title="Biblioteca"><BookOpen size={18}/></button>
-                 <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 shadow hover:bg-violet-200 transition"><ScrollText size={18}/></button>
-                 <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow hover:bg-rose-600 transition"><LifeBuoy size={18}/></button>
-                 <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition"><LogOut size={18}/></button>
+                 <button onClick={() => setShowLibrary(true)} className="bg-indigo-500 p-2 rounded-full text-white shadow hover:bg-indigo-600 transition" title="Biblioteca"><BookOpen size={16}/></button>
+                 <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 shadow hover:bg-violet-200 transition"><ScrollText size={16}/></button>
+                 <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow hover:bg-rose-600 transition"><LifeBuoy size={16}/></button>
+                 <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition"><LogOut size={16}/></button>
               </div>
           </div>
 
-          {/* CARROSSEL DE EDUCAÇÃO + CONSTÂNCIA (Estilo Instagram) */}
-          <div className="mb-6 overflow-x-auto pb-4 -mx-6 px-6 snap-x snap-mandatory flex gap-4 hide-scrollbar">
-               
-               {/* Card 1: Constância (Fixo) */}
-               <div className="min-w-[85%] bg-white p-5 rounded-2xl shadow-sm border-l-4 border-violet-500 snap-center flex flex-col justify-center relative overflow-hidden">
-                    <div className="flex items-center gap-3 mb-2 relative z-10">
-                        <div className="bg-violet-100 p-2 rounded-full"><Activity size={20} className="text-violet-600" /></div>
-                        <h4 className="font-bold text-slate-800 text-sm">O segredo é a constância</h4>
-                    </div>
-                    <p className="text-xs text-slate-500 leading-relaxed relative z-10">
-                        Lembre-se: cada sessão é um passo importante. Faltas podem interromper seu progresso. Priorize seu horário!
-                    </p>
-                    <div className="absolute right-0 top-0 opacity-5 text-violet-500"><HeartPulse size={100}/></div>
-               </div>
-
-               {/* Cards Educativos */}
-               {EDUCATION_CARDS.map(card => (
-                   <div key={card.id} className="min-w-[85%] bg-indigo-50 p-5 rounded-2xl border border-indigo-100 snap-center flex flex-col justify-between relative overflow-hidden">
-                        <div className="relative z-10">
-                            <div className="flex items-center gap-2 mb-2 text-indigo-700">
-                                <Lightbulb size={18} />
-                                <h4 className="font-bold text-sm truncate pr-4">{card.title}</h4>
-                            </div>
-                            <p className="text-xs text-slate-600 leading-relaxed line-clamp-4 whitespace-pre-wrap">
-                                {card.content}
-                            </p>
-                        </div>
-                        <div className="absolute right-[-10px] bottom-[-10px] opacity-10 text-indigo-600"><BookOpen size={80}/></div>
-                   </div>
-               ))}
+          {/* 1. MANTRA (Compacto) */}
+          <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-violet-500 mb-4 flex gap-3 items-center">
+             <div className="bg-violet-100 p-1.5 rounded-full flex-shrink-0"><Activity size={16} className="text-violet-600" /></div>
+             <div>
+                <h4 className="font-bold text-slate-800 text-xs">O segredo é a constância</h4>
+                <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">
+                    Faltas podem interromper seu progresso. Priorize seu horário!
+                </p>
+             </div>
           </div>
+
+          {/* 2. CARD REFLEXÃO DO DIA (Compacto) */}
+          {dailyCard && (
+              <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 mb-4 relative overflow-hidden shadow-sm">
+                  <div className="relative z-10">
+                      <div className="flex items-center gap-1.5 mb-1.5 text-indigo-700">
+                          <Lightbulb size={14} />
+                          <h4 className="font-bold text-xs uppercase tracking-wider">Reflexão do Dia</h4>
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-800 mb-1 leading-snug">{dailyCard.title}</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap mb-2 line-clamp-3">
+                          {dailyCard.content}
+                      </p>
+                      
+                      <button onClick={() => setShowLibrary(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1 group">
+                          Ler mais <ChevronRight size={10} className="group-hover:translate-x-1 transition-transform"/>
+                      </button>
+                  </div>
+                  <div className="absolute -right-3 -bottom-3 opacity-5 text-indigo-600"><BookOpen size={80}/></div>
+              </div>
+          )}
 
           {/* Card Recorrência */}
           {nextApp ? (
-            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl shadow-xl p-6 mb-6 text-white relative overflow-hidden">
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl shadow-md p-4 mb-4 text-white relative overflow-hidden">
                 <div className="relative z-10">
-                    <p className="text-violet-100 text-xs font-medium uppercase tracking-wider mb-1">Seu Horário Fixo</p>
-                    <h3 className="text-2xl font-bold mb-2">{recurrenceText}</h3>
-                    <div className="flex items-center gap-2 text-sm opacity-90"><User size={16}/> <span>{nextApp.professional || 'Psicoterapia'}</span></div>
+                    <p className="text-violet-100 text-[10px] font-medium uppercase tracking-wider mb-0.5">Seu Horário Fixo</p>
+                    <h3 className="text-lg font-bold mb-1">{recurrenceText}</h3>
+                    <div className="flex items-center gap-1.5 text-xs opacity-90"><User size={12}/> <span>{nextApp.professional || 'Psicoterapia'}</span></div>
                 </div>
-                <div className="absolute -right-6 -bottom-10 w-32 h-32 bg-white opacity-10 rounded-full"></div>
+                <div className="absolute -right-6 -bottom-10 w-24 h-24 bg-white opacity-10 rounded-full"></div>
             </div>
           ) : (
-             <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 text-center text-slate-500 border border-slate-200">
-                <Calendar className="mx-auto mb-2 opacity-20" size={32}/>
+             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 text-center text-slate-500 border border-slate-200 text-xs">
+                <Calendar className="mx-auto mb-1 opacity-20" size={24}/>
                 Nenhum horário fixo identificado.
              </div>
           )}
 
-          {/* Disclaimer */}
-          <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 mb-6 flex gap-3">
-              <Info className="text-amber-600 w-5 h-5 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-800 leading-relaxed">
+          {/* Disclaimer (Texto Menor) */}
+          <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 mb-4 flex gap-2">
+              <Info className="text-amber-600 w-4 h-4 flex-shrink-0 mt-0.5" />
+              <p className="text-[10px] text-amber-800 leading-relaxed">
                   Este horário é válido como sessão semanal recorrente. Alterações devem ser combinadas previamente com a clínica.
               </p>
           </div>
 
           {/* ANOTAÇÕES */}
-          <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-slate-200">
-             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><StickyNote className="text-violet-600"/> Anotações para a Terapia</h3>
-             <p className="text-xs text-slate-500 mb-4">Lembrete de algo para falar ou para o responsável informar ao profissional.</p>
-             <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-3 border rounded-lg text-sm mb-3 h-20 resize-none text-slate-900 focus:ring-2 focus:ring-violet-200 outline-none" placeholder="Escreva aqui..." />
-             <Button onClick={handleSaveNote} className="w-full text-sm">Salvar Anotação</Button>
+          <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-slate-200">
+             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações</h3>
+             <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-2 border rounded-lg text-xs mb-2 h-16 resize-none text-slate-900 focus:ring-1 focus:ring-violet-200 outline-none" placeholder="Lembrete para a sessão..." />
+             <Button onClick={handleSaveNote} className="w-full text-xs py-2">Salvar</Button>
              {myNotes.length > 0 && (
-                 <div className="mt-4 space-y-2">
-                     {myNotes.map(n => (
-                         <div key={n.id} className="bg-slate-50 p-3 rounded border border-slate-100 text-sm text-slate-700 flex justify-between relative group hover:bg-white hover:shadow-sm transition-all">
-                             <span className="whitespace-pre-wrap">{n.content}</span>
-                             <button onClick={() => handleDeleteNote(n.id)} className="text-slate-300 hover:text-red-500 pl-2"><Trash2 size={14}/></button>
+                 <div className="mt-3 space-y-2">
+                     {myNotes.slice(0, 3).map(n => (
+                         <div key={n.id} className="bg-slate-50 p-2 rounded border border-slate-100 text-xs text-slate-700 flex justify-between relative group">
+                             <span className="whitespace-pre-wrap line-clamp-2">{n.content}</span>
+                             <button onClick={() => handleDeleteNote(n.id)} className="text-slate-300 hover:text-red-500 pl-2"><Trash2 size={12}/></button>
                          </div>
                      ))}
                  </div>
@@ -316,26 +348,26 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
 
           {/* Lista de Sessões */}
           <div className="flex-1 overflow-y-auto pb-4">
-              <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm uppercase text-slate-500">
-                  <Calendar size={16}/> Datas Confirmadas
+              <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-xs uppercase text-slate-500">
+                  <Calendar size={14}/> Datas Confirmadas
               </h3>
               {myApps.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                       {myApps.map(app => (
-                          <div key={app.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                              <div className="bg-slate-100 text-slate-600 w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                                  <span className="font-bold text-sm">{app.date.split('/')[0]}</span>
-                                  <span className="text-[9px] uppercase">{new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','')}</span>
+                          <div key={app.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
+                              <div className="bg-slate-100 text-slate-600 w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+                                  <span className="font-bold text-xs">{app.date.split('/')[0]}</span>
+                                  <span className="text-[8px] uppercase">{new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','')}</span>
                               </div>
                               <div>
-                                  <p className="font-bold text-slate-700 text-sm">Sessão Agendada</p>
-                                  <p className="text-xs text-slate-500">{app.date} às {app.time}</p>
+                                  <p className="font-bold text-slate-700 text-xs">Sessão Agendada</p>
+                                  <p className="text-[10px] text-slate-500">{app.date} às {app.time}</p>
                               </div>
                           </div>
                       ))}
                   </div>
               ) : (
-                  <div className="text-center py-4 text-slate-400 text-xs">
+                  <div className="text-center py-2 text-slate-400 text-[10px]">
                       Nenhuma data específica carregada.
                   </div>
               )}
@@ -343,19 +375,19 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
 
           {/* --- MODAIS --- */}
           
-          {/* 1. BIBLIOTECA (Grade Completa) */}
+          {/* 1. BIBLIOTECA - ZEBRADA */}
           {showLibrary && (
               <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                  <div className="bg-white rounded-xl w-full max-w-md h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-                      <div className="bg-indigo-600 p-4 text-white flex justify-between items-center">
-                          <h3 className="font-bold flex items-center gap-2"><BookOpen size={20}/> Biblioteca Terapêutica</h3>
-                          <button onClick={() => setShowLibrary(false)}><X size={20} className="hover:text-indigo-200"/></button>
+                  <div className="bg-white rounded-xl w-full max-w-md h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+                      <div className="bg-indigo-600 p-3 text-white flex justify-between items-center">
+                          <h3 className="font-bold flex items-center gap-2 text-sm"><BookOpen size={18}/> Biblioteca Terapêutica</h3>
+                          <button onClick={() => setShowLibrary(false)}><X size={18} className="hover:text-indigo-200"/></button>
                       </div>
-                      <div className="p-4 overflow-y-auto space-y-4 bg-slate-50 flex-1">
-                          {EDUCATION_CARDS.map(card => (
-                              <div key={card.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                                  <h4 className="font-bold text-indigo-700 mb-2">{card.title}</h4>
-                                  <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{card.content}</p>
+                      <div className="p-3 overflow-y-auto space-y-3 bg-slate-50 flex-1">
+                          {EDUCATION_CARDS.map((card, index) => (
+                              <div key={card.id} className={`p-4 rounded-xl border shadow-sm ${index % 2 === 0 ? 'bg-white border-slate-200' : 'bg-indigo-50 border-indigo-100'}`}>
+                                  <h4 className="font-bold text-indigo-700 mb-1 text-sm">{card.title}</h4>
+                                  <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed">{card.content}</p>
                               </div>
                           ))}
                       </div>
@@ -367,29 +399,19 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
           {showSOS && (
               <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                   <div className="bg-white rounded-xl w-full max-w-sm overflow-hidden shadow-2xl">
-                      <div className="bg-rose-500 p-4 text-white flex justify-between items-center">
-                          <h3 className="font-bold flex items-center gap-2"><LifeBuoy size={20}/> Apoio Emocional</h3>
-                          <button onClick={() => setShowSOS(false)}><X size={20} className="hover:text-rose-100"/></button>
+                      <div className="bg-rose-500 p-3 text-white flex justify-between items-center">
+                          <h3 className="font-bold flex items-center gap-2 text-sm"><LifeBuoy size={18}/> Apoio Emocional</h3>
+                          <button onClick={() => setShowSOS(false)}><X size={18} className="hover:text-rose-100"/></button>
                       </div>
-                      <div className="p-6 space-y-4">
-                          <p className="text-sm text-slate-600 text-center mb-2">Se você está passando por um momento difícil, não hesite em pedir ajuda.</p>
-                          
-                          <a href="tel:188" className="flex items-center justify-between p-4 bg-rose-50 border border-rose-100 rounded-xl hover:bg-rose-100 transition-colors">
-                              <div className="flex flex-col">
-                                  <span className="font-bold text-rose-700 text-lg">Ligar 188</span>
-                                  <span className="text-xs text-rose-500">CVV - Centro de Valorização da Vida</span>
-                              </div>
-                              <Smartphone size={24} className="text-rose-500" />
+                      <div className="p-5 space-y-3">
+                          <p className="text-xs text-slate-600 text-center mb-2">Se você está passando por um momento difícil, não hesite em pedir ajuda.</p>
+                          <a href="tel:188" className="flex items-center justify-between p-3 bg-rose-50 border border-rose-100 rounded-xl hover:bg-rose-100 transition-colors">
+                              <div className="flex flex-col"><span className="font-bold text-rose-700 text-sm">Ligar 188</span><span className="text-[10px] text-rose-500">CVV - Centro de Valorização da Vida</span></div><Smartphone size={20} className="text-rose-500" />
                           </a>
-                          
-                          <div className="border-t border-slate-100 pt-4 mt-2">
-                               <p className="text-xs text-slate-500 text-center mb-3">Contato da Clínica</p>
-                               <a 
-                                  href={`https://wa.me/${config.whatsapp || '551141163129'}`}
-                                  target="_blank"
-                                  className="w-full bg-green-500 text-white py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-green-600 transition-colors font-medium"
-                               >
-                                   <MessageCircle size={18} /> Chamar no WhatsApp
+                          <div className="border-t border-slate-100 pt-3 mt-1">
+                               <p className="text-[10px] text-slate-500 text-center mb-2">Contato da Clínica</p>
+                               <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="w-full bg-green-500 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-green-600 transition-colors text-sm font-medium">
+                                   <MessageCircle size={16} /> Chamar no WhatsApp
                                </a>
                           </div>
                       </div>
@@ -398,10 +420,10 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
           )}
           
           {/* 3. CONTRATO */}
-          {showContract && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl w-full max-w-sm overflow-hidden h-[80vh] flex flex-col"><div className="bg-violet-600 p-4 text-white"><h3 className="font-bold">Termos e Combinados</h3></div><div className="p-6 overflow-y-auto flex-1 whitespace-pre-wrap text-sm text-slate-700">{config.contractText || "Carregando termos..."}</div><div className="p-4 border-t"><Button onClick={handleAcceptContract} variant="success">Li e Aceito</Button></div></div></div>}
+          {showContract && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl w-full max-w-sm overflow-hidden h-[80vh] flex flex-col"><div className="bg-violet-600 p-3 text-white"><h3 className="font-bold text-sm">Termos e Combinados</h3></div><div className="p-5 overflow-y-auto flex-1 whitespace-pre-wrap text-xs text-slate-700 leading-relaxed">{config.contractText || "Carregando termos..."}</div><div className="p-3 border-t"><Button onClick={handleAcceptContract} variant="success" className="text-sm py-2">Li e Aceito</Button></div></div></div>}
 
           {/* 4. PERFIL */}
-          {showProfile && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white p-6 rounded-xl w-full max-w-sm"><h3 className="font-bold mb-4 text-slate-800">Alterar Senha</h3><input placeholder="Novo PIN" value={newPin} onChange={e=>setNewPin(e.target.value)} className="w-full p-3 border rounded mb-4 text-slate-900"/><Button onClick={handleChangePin}>Confirmar</Button><button onClick={()=>setShowProfile(false)} className="block w-full text-center mt-3 text-sm text-slate-400">Cancelar</button></div></div>}
+          {showProfile && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white p-5 rounded-xl w-full max-w-sm"><h3 className="font-bold mb-3 text-slate-800 text-sm">Alterar Senha</h3><input placeholder="Novo PIN" value={newPin} onChange={e=>setNewPin(e.target.value)} className="w-full p-2.5 border rounded mb-3 text-slate-900 text-sm"/><Button onClick={handleChangePin} className="text-sm py-2">Confirmar</Button><button onClick={()=>setShowProfile(false)} className="block w-full text-center mt-2 text-xs text-slate-400">Cancelar</button></div></div>}
 
           <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="fixed bottom-6 right-6 bg-green-500 text-white p-3 rounded-full shadow-lg z-40"><MessageCircle size={28}/></a>
       </div>
