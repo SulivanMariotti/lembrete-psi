@@ -2,12 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { db, messaging } from '../../app/firebase';
 import { collection, addDoc, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Lock, KeyRound, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Share } from 'lucide-react';
+import { Smartphone, Bell, Lock, KeyRound, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight } from 'lucide-react';
 import { Button, Toast } from '../DesignSystem';
 import { hashPin, formatPhone, getDayName } from '../../services/dataService';
 
+// --- BASE DE CONHECIMENTO (CARDS) ---
+const EDUCATION_CARDS = [
+  { id: 1, title: "O que é constância terapêutica?", content: "A terapia é um processo contínuo.\n\nA presença regular ajuda a manter o vínculo, o ritmo e a profundidade do trabalho terapêutico.\n\nConstância não é perfeição. É continuidade." },
+  { id: 2, title: "Por que a constância é tão importante?", content: "Cada sessão se conecta com a anterior.\n\nQuando há constância, o processo avança com mais clareza e segurança.\n\nA evolução acontece no conjunto, não em encontros isolados." },
+  { id: 3, title: "O que acontece quando falto?", content: "Uma ausência pode interromper o fluxo do processo terapêutico.\n\nRetomar é possível, mas exige um tempo de readaptação.\n\nPor isso, estar presente faz toda a diferença." },
+  { id: 4, title: "Estar presente em dias difíceis", content: "Nem todos os dias são bons — e tudo bem.\n\nA sessão não precisa ser perfeita para ser importante.\n\nMuitas vezes, é justamente nos dias difíceis que a terapia mais ajuda." },
+  { id: 5, title: "Terapia não é só falar", content: "Às vezes a sessão é silenciosa. Às vezes é confusa. Às vezes parece não render.\n\nAinda assim, ela faz parte do processo.\n\nNem todo avanço é visível no momento." },
+  { id: 6, title: "Como aproveitar melhor a sessão", content: "Você pode:\n• Observar pensamentos ao longo da semana\n• Anotar algo que queira lembrar\n• Chegar como estiver, sem preparo especial\n\nNão existe “jeito certo” de fazer terapia." },
+  { id: 7, title: "O compromisso com a sessão", content: "A sessão é um compromisso com você mesmo.\n\nEla reserva um tempo para cuidado, reflexão e presença.\n\nManter esse compromisso ajuda a fortalecer o processo terapêutico." },
+  { id: 8, title: "Quando parece que nada acontece", content: "É comum sentir que a terapia está “parada”.\n\nIsso não significa que ela não esteja funcionando.\n\nAlguns processos acontecem de forma silenciosa e gradual, como uma semente germinando." },
+  { id: 9, title: "A importância da regularidade", content: "A regularidade cria segurança.\n\nEla permite que o processo se desenvolva com mais profundidade e continuidade.\n\nPequenos encontros frequentes constroem grandes mudanças ao longo do tempo." },
+  { id: 10, title: "A terapia é um processo", content: "A terapia não é um evento pontual.\n\nEla é um caminho construído passo a passo.\n\nCada sessão é uma parte fundamental desse percurso." },
+  { id: 11, title: "Presença como forma de cuidado", content: "Estar presente é uma forma de cuidado consigo mesmo.\n\nMesmo quando não há vontade, a presença mantém o espaço aberto para o processo.\n\nCuidar também é continuar." },
+  { id: 12, title: "Constância não é cobrança", content: "Constância não é rigidez. Não é culpa. Não é punição.\n\nÉ um convite contínuo ao cuidado e ao compromisso com o próprio processo de cura." }
+];
+
 export default function PatientFlow({ onAdminAccess, globalConfig }) {
-  const [view, setView] = useState('landing'); // landing, form, dashboard
+  const [view, setView] = useState('landing');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [authStep, setAuthStep] = useState('phone');
@@ -15,32 +31,31 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ msg: '', type: '' });
-  const [isIOS, setIsIOS] = useState(false);
   
   const [myApps, setMyAppointments] = useState([]);
   const [myNotes, setMyNotes] = useState([]);
   const [showContract, setShowContract] = useState(false);
   const [showSOS, setShowSOS] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false); 
+  
   const [newPin, setNewPin] = useState('');
   const [noteContent, setNoteContent] = useState('');
+  
+  // Card do Dia (Aleatório)
+  const [dailyCard, setDailyCard] = useState(null);
 
-  // Garante que globalConfig existe para evitar erros
   const config = globalConfig || {};
 
   const showToast = (msg, type) => setToast({ msg, type });
 
-  // Efeitos Iniciais
   useEffect(() => {
-    // Detecção iOS
-    const isDeviceIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    setIsIOS(isDeviceIOS);
-
-    // Auto Login
     const savedPhone = localStorage.getItem('psi_user_phone');
     if (savedPhone) {
         setPhone(formatPhone(savedPhone));
     }
+    // Selecionar um card aleatório para destaque inicial se necessário
+    // mas vamos usar a lista completa no carrossel.
   }, []);
 
   const fetchAgenda = async (rawPhone) => {
@@ -157,11 +172,9 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                    
                    <div>
                         <h1 className="text-2xl font-bold text-slate-900">Lembrete Psi</h1>
-                        {/* TEXTO RESTAURADO */}
                         <p className="text-slate-500 mt-2">Nunca mais esqueça o horário da sua terapia.</p>
                    </div>
                    
-                   {/* TEXTO RESTAURADO COMPLETO */}
                    <div className="bg-violet-50 p-4 rounded-lg border border-violet-100 text-xs text-violet-800 leading-relaxed text-left">
                         <p className="font-bold flex items-center gap-2 mb-2 justify-center text-sm"><HeartPulse size={16}/> Importante</p>
                         A constância é o segredo da evolução. Faltas frequentes podem prejudicar seu progresso terapêutico.
@@ -171,14 +184,6 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                         <Button onClick={() => setView('form')} icon={Smartphone} className="w-full">Acessar Meu Painel</Button>
                         <p className="text-xs text-slate-400">Funciona direto no navegador.</p>
                    </div>
-
-                   {/* Aviso iPhone */}
-                   {isIOS && (
-                        <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 text-left text-sm text-slate-600 animate-pulse">
-                            <p className="font-bold flex items-center gap-2 mb-1"><Share size={16}/> Usuários iPhone:</p>
-                            <p>Para receber notificações, toque no botão <strong>Compartilhar</strong> e escolha <strong>"Adicionar à Tela de Início"</strong>.</p>
-                        </div>
-                   )}
 
                    <div className="pt-4 border-t border-slate-100">
                        <button onClick={onAdminAccess} className="text-sm text-slate-400 hover:text-violet-600 underline block mx-auto">Acesso da Clínica (Admin)</button>
@@ -220,28 +225,53 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
       <div className="min-h-screen bg-violet-50 p-6 flex flex-col">
           {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
           
+          {/* HEADER */}
           <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><User className="text-violet-600"/></div><div><h2 className="font-bold text-slate-800">Meu Espaço</h2><p className="text-xs text-slate-500">Bem-vindo</p></div></div>
+              <div className="flex items-center gap-3">
+                  <div className="bg-white p-2 rounded-full shadow-sm"><User className="text-violet-600"/></div>
+                  <div><h2 className="font-bold text-slate-800">Meu Espaço</h2><p className="text-xs text-slate-500">Bem-vindo</p></div>
+              </div>
               <div className="flex gap-2">
-                 <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 shadow"><ScrollText size={18}/></button>
-                 <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow"><LifeBuoy size={18}/></button>
-                 <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 shadow"><LogOut size={18}/></button>
+                 <button onClick={() => setShowLibrary(true)} className="bg-indigo-500 p-2 rounded-full text-white shadow hover:bg-indigo-600 transition" title="Biblioteca"><BookOpen size={18}/></button>
+                 <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 shadow hover:bg-violet-200 transition"><ScrollText size={18}/></button>
+                 <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow hover:bg-rose-600 transition"><LifeBuoy size={18}/></button>
+                 <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition"><LogOut size={18}/></button>
               </div>
           </div>
 
-          {/* 1. AVISO DE CONSTÂNCIA */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-violet-500 mb-6 flex gap-3 items-start">
-             <div className="bg-violet-100 p-2 rounded-full flex-shrink-0"><Activity size={20} className="text-violet-600" /></div>
-             <div>
-                <h4 className="font-bold text-slate-800 text-sm">O segredo é a constância</h4>
-                {/* TEXTO RESTAURADO */}
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    Lembre-se: cada sessão é um passo importante. Faltas podem interromper seu progresso. Priorize seu horário!
-                </p>
-             </div>
+          {/* CARROSSEL DE EDUCAÇÃO + CONSTÂNCIA (Estilo Instagram) */}
+          <div className="mb-6 overflow-x-auto pb-4 -mx-6 px-6 snap-x snap-mandatory flex gap-4 hide-scrollbar">
+               
+               {/* Card 1: Constância (Fixo) */}
+               <div className="min-w-[85%] bg-white p-5 rounded-2xl shadow-sm border-l-4 border-violet-500 snap-center flex flex-col justify-center relative overflow-hidden">
+                    <div className="flex items-center gap-3 mb-2 relative z-10">
+                        <div className="bg-violet-100 p-2 rounded-full"><Activity size={20} className="text-violet-600" /></div>
+                        <h4 className="font-bold text-slate-800 text-sm">O segredo é a constância</h4>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed relative z-10">
+                        Lembre-se: cada sessão é um passo importante. Faltas podem interromper seu progresso. Priorize seu horário!
+                    </p>
+                    <div className="absolute right-0 top-0 opacity-5 text-violet-500"><HeartPulse size={100}/></div>
+               </div>
+
+               {/* Cards Educativos */}
+               {EDUCATION_CARDS.map(card => (
+                   <div key={card.id} className="min-w-[85%] bg-indigo-50 p-5 rounded-2xl border border-indigo-100 snap-center flex flex-col justify-between relative overflow-hidden">
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-2 mb-2 text-indigo-700">
+                                <Lightbulb size={18} />
+                                <h4 className="font-bold text-sm truncate pr-4">{card.title}</h4>
+                            </div>
+                            <p className="text-xs text-slate-600 leading-relaxed line-clamp-4 whitespace-pre-wrap">
+                                {card.content}
+                            </p>
+                        </div>
+                        <div className="absolute right-[-10px] bottom-[-10px] opacity-10 text-indigo-600"><BookOpen size={80}/></div>
+                   </div>
+               ))}
           </div>
 
-          {/* 2. CARD DE RECORRÊNCIA */}
+          {/* Card Recorrência */}
           {nextApp ? (
             <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl shadow-xl p-6 mb-6 text-white relative overflow-hidden">
                 <div className="relative z-10">
@@ -249,41 +279,42 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                     <h3 className="text-2xl font-bold mb-2">{recurrenceText}</h3>
                     <div className="flex items-center gap-2 text-sm opacity-90"><User size={16}/> <span>{nextApp.professional || 'Psicoterapia'}</span></div>
                 </div>
+                <div className="absolute -right-6 -bottom-10 w-32 h-32 bg-white opacity-10 rounded-full"></div>
             </div>
           ) : (
-             <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 text-center text-slate-500">Nenhum horário fixo identificado.</div>
+             <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 text-center text-slate-500 border border-slate-200">
+                <Calendar className="mx-auto mb-2 opacity-20" size={32}/>
+                Nenhum horário fixo identificado.
+             </div>
           )}
 
-          {/* 3. DISCLAIMER */}
+          {/* Disclaimer */}
           <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 mb-6 flex gap-3">
               <Info className="text-amber-600 w-5 h-5 flex-shrink-0 mt-0.5" />
-              {/* TEXTO RESTAURADO */}
               <p className="text-xs text-amber-800 leading-relaxed">
                   Este horário é válido como sessão semanal recorrente. Alterações devem ser combinadas previamente com a clínica.
               </p>
           </div>
 
-          {/* 4. ANOTAÇÕES PARA TERAPIA */}
+          {/* ANOTAÇÕES */}
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-slate-200">
-             {/* TÍTULO E SUBTÍTULO RESTAURADOS */}
-             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2"><StickyNote className="text-violet-600"/> Anotações para a Terapia</h3>
+             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><StickyNote className="text-violet-600"/> Anotações para a Terapia</h3>
              <p className="text-xs text-slate-500 mb-4">Lembrete de algo para falar ou para o responsável informar ao profissional.</p>
-             
-             <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-3 border rounded-lg text-sm mb-3 h-20 resize-none text-slate-900" placeholder="Escreva aqui..." />
+             <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-3 border rounded-lg text-sm mb-3 h-20 resize-none text-slate-900 focus:ring-2 focus:ring-violet-200 outline-none" placeholder="Escreva aqui..." />
              <Button onClick={handleSaveNote} className="w-full text-sm">Salvar Anotação</Button>
              {myNotes.length > 0 && (
                  <div className="mt-4 space-y-2">
                      {myNotes.map(n => (
-                         <div key={n.id} className="bg-slate-50 p-3 rounded border text-sm text-slate-700 flex justify-between">
-                             <span>{n.content}</span>
-                             <button onClick={() => handleDeleteNote(n.id)} className="text-red-300"><Trash2 size={14}/></button>
+                         <div key={n.id} className="bg-slate-50 p-3 rounded border border-slate-100 text-sm text-slate-700 flex justify-between relative group hover:bg-white hover:shadow-sm transition-all">
+                             <span className="whitespace-pre-wrap">{n.content}</span>
+                             <button onClick={() => handleDeleteNote(n.id)} className="text-slate-300 hover:text-red-500 pl-2"><Trash2 size={14}/></button>
                          </div>
                      ))}
                  </div>
              )}
           </div>
 
-          {/* 5. LISTA DE DATAS CONFIRMADAS */}
+          {/* Lista de Sessões */}
           <div className="flex-1 overflow-y-auto pb-4">
               <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm uppercase text-slate-500">
                   <Calendar size={16}/> Datas Confirmadas
@@ -310,15 +341,69 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
               )}
           </div>
 
-          {/* Modais */}
-          {showSOS && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl w-full max-w-sm overflow-hidden"><div className="bg-rose-500 p-4 text-white flex justify-between"><h3 className="font-bold flex gap-2"><LifeBuoy/> Apoio</h3><button onClick={() => setShowSOS(false)}><X/></button></div><div className="p-6 space-y-4"><a href="tel:188" className="flex justify-between p-4 bg-rose-50 border border-rose-100 rounded-xl"><span className="font-bold text-rose-700">Ligar 188 (CVV)</span><Smartphone className="text-rose-500"/></a><a href={`https://wa.me/${config.whatsapp}`} target="_blank" className="w-full bg-green-500 text-white py-3 rounded-lg flex justify-center gap-2 font-medium"><MessageCircle/> Falar com Clínica</a></div></div></div>}
+          {/* --- MODAIS --- */}
           
+          {/* 1. BIBLIOTECA (Grade Completa) */}
+          {showLibrary && (
+              <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                  <div className="bg-white rounded-xl w-full max-w-md h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+                      <div className="bg-indigo-600 p-4 text-white flex justify-between items-center">
+                          <h3 className="font-bold flex items-center gap-2"><BookOpen size={20}/> Biblioteca Terapêutica</h3>
+                          <button onClick={() => setShowLibrary(false)}><X size={20} className="hover:text-indigo-200"/></button>
+                      </div>
+                      <div className="p-4 overflow-y-auto space-y-4 bg-slate-50 flex-1">
+                          {EDUCATION_CARDS.map(card => (
+                              <div key={card.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                                  <h4 className="font-bold text-indigo-700 mb-2">{card.title}</h4>
+                                  <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{card.content}</p>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+          )}
+
+          {/* 2. SOS */}
+          {showSOS && (
+              <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                  <div className="bg-white rounded-xl w-full max-w-sm overflow-hidden shadow-2xl">
+                      <div className="bg-rose-500 p-4 text-white flex justify-between items-center">
+                          <h3 className="font-bold flex items-center gap-2"><LifeBuoy size={20}/> Apoio Emocional</h3>
+                          <button onClick={() => setShowSOS(false)}><X size={20} className="hover:text-rose-100"/></button>
+                      </div>
+                      <div className="p-6 space-y-4">
+                          <p className="text-sm text-slate-600 text-center mb-2">Se você está passando por um momento difícil, não hesite em pedir ajuda.</p>
+                          
+                          <a href="tel:188" className="flex items-center justify-between p-4 bg-rose-50 border border-rose-100 rounded-xl hover:bg-rose-100 transition-colors">
+                              <div className="flex flex-col">
+                                  <span className="font-bold text-rose-700 text-lg">Ligar 188</span>
+                                  <span className="text-xs text-rose-500">CVV - Centro de Valorização da Vida</span>
+                              </div>
+                              <Smartphone size={24} className="text-rose-500" />
+                          </a>
+                          
+                          <div className="border-t border-slate-100 pt-4 mt-2">
+                               <p className="text-xs text-slate-500 text-center mb-3">Contato da Clínica</p>
+                               <a 
+                                  href={`https://wa.me/${config.whatsapp || '551141163129'}`}
+                                  target="_blank"
+                                  className="w-full bg-green-500 text-white py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-green-600 transition-colors font-medium"
+                               >
+                                   <MessageCircle size={18} /> Chamar no WhatsApp
+                               </a>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          )}
+          
+          {/* 3. CONTRATO */}
           {showContract && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl w-full max-w-sm overflow-hidden h-[80vh] flex flex-col"><div className="bg-violet-600 p-4 text-white"><h3 className="font-bold">Termos e Combinados</h3></div><div className="p-6 overflow-y-auto flex-1 whitespace-pre-wrap text-sm text-slate-700">{config.contractText || "Carregando termos..."}</div><div className="p-4 border-t"><Button onClick={handleAcceptContract} variant="success">Li e Aceito</Button></div></div></div>}
 
-          {/* Perfil */}
+          {/* 4. PERFIL */}
           {showProfile && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white p-6 rounded-xl w-full max-w-sm"><h3 className="font-bold mb-4 text-slate-800">Alterar Senha</h3><input placeholder="Novo PIN" value={newPin} onChange={e=>setNewPin(e.target.value)} className="w-full p-3 border rounded mb-4 text-slate-900"/><Button onClick={handleChangePin}>Confirmar</Button><button onClick={()=>setShowProfile(false)} className="block w-full text-center mt-3 text-sm text-slate-400">Cancelar</button></div></div>}
 
-          <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="fixed bottom-6 right-6 bg-green-500 text-white p-3 rounded-full shadow-lg"><MessageCircle size={28}/></a>
+          <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="fixed bottom-6 right-6 bg-green-500 text-white p-3 rounded-full shadow-lg z-40"><MessageCircle size={28}/></a>
       </div>
   );
 }
