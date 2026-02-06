@@ -6,7 +6,7 @@ import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, quer
 import { getToken } from 'firebase/messaging';
 import { Smartphone, Bell, Send, Users, CheckCircle, AlertTriangle, X, LogOut, Loader2, Upload, FileSpreadsheet, Clock, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, XCircle, Share, User, LayoutDashboard, Download, Activity, PlusCircle, Filter, Calendar, CloudUpload, Info, Lock, KeyRound, RotateCcw, StickyNote, FileText, MessageCircle, HeartPulse, LifeBuoy, Shield, CalendarCheck, BarChart3, ScrollText, FileSignature } from 'lucide-react';
 
-// --- Função de Segurança (HASH) ---
+// --- Função de Segurança (HASH) para o PIN do Paciente ---
 // Transforma "1234" em "03ac674216f3e15c..." irreversível
 const hashPin = async (pin) => {
   if (!pin) return null;
@@ -461,6 +461,23 @@ export default function App() {
     }
   };
 
+  // NOVO: Aceitar Contrato
+  const handleAcceptContract = async () => {
+      if (!currentUser) return;
+      try {
+          await updateDoc(doc(db, "users", currentUser.id), {
+              acceptedTerms: true,
+              acceptedTermsVersion: msgConfig.contractVersion || 1,
+              acceptedTermsAt: new Date(),
+              acceptedTermsContent: msgConfig.contractText
+          });
+          setShowContract(false);
+          showToast("Termos aceites com sucesso!");
+      } catch (error) {
+          showToast("Erro ao aceitar termos: " + error.message, "error");
+      }
+  };
+
   // --- FUNÇÕES ADMIN ---
   const handleViewLogs = async (user) => {
     setSelectedUserLogs(user);
@@ -704,12 +721,27 @@ export default function App() {
     }
   };
 
-  const handleAdminAccess = () => {
+  // --- Função de Segurança para Admin (COM API ROUTE) ---
+  const handleAdminAccess = async () => {
     const password = prompt("Digite a senha de administrador:");
-    if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) { 
-      setCurrentView('admin-dashboard');
-    } else if (password !== null) {
-      showToast("Senha incorreta.", "error");
+    if (!password) return;
+
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setCurrentView('admin-dashboard');
+      } else {
+        showToast("Senha incorreta.", "error");
+      }
+    } catch (error) {
+      showToast("Erro na verificação: " + error.message, "error");
     }
   };
 
@@ -834,7 +866,7 @@ export default function App() {
                   value={userPin} 
                   onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))} 
                   placeholder="****" 
-                  className="w-full text-center text-4xl p-4 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[0.5em] mt-1" 
+                  className="w-full text-center text-3xl p-3 bg-slate-50 border border-slate-200 rounded-xl outline-violet-500 text-slate-900 tracking-[0.5em] mt-1" 
                 />
               </div>
               <Button onClick={handleAuthSubmit} disabled={isSaving || userPin.length < 4} className="w-full py-4 text-lg mt-6" icon={isSaving ? Loader2 : KeyRound}>
@@ -1471,7 +1503,7 @@ export default function App() {
                             className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none h-24 text-slate-900"
                         />
                     </div>
-                    <Button onClick={() => saveConfig(false)} icon={Save} className="w-full">Salvar Configurações</Button>
+                    <Button onClick={saveConfig} icon={Save} className="w-full">Salvar Configurações</Button>
                 </div>
             </Card>
         )}
