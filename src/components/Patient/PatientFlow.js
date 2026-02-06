@@ -2,11 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { db, messaging } from '../../app/firebase';
 import { collection, addDoc, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Lock, KeyRound, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight } from 'lucide-react';
+import { Smartphone, Bell, Lock, KeyRound, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles } from 'lucide-react';
 import { Button, Toast } from '../DesignSystem';
 import { hashPin, formatPhone, getDayName } from '../../services/dataService';
 
-// --- BASE DE CONHECIMENTO (CARDS) ---
+// --- CAMADA 1: MENSAGENS (MANTRAS) ---
+const MANTRAS = [
+  "A constância é um dos principais fatores de evolução terapêutica.",
+  "Cada sessão conta.",
+  "Estar presente também é uma forma de cuidado.",
+  "Mesmo em dias difíceis, a presença importa.",
+  "Seu processo merece seu tempo.",
+  "A continuidade constrói resultados.",
+  "Terapia é um compromisso com você mesmo."
+];
+
+// --- CAMADA 2 & 3: EDUCAÇÃO E BIBLIOTECA ---
 const EDUCATION_CARDS = [
   { id: 1, title: "O que é constância terapêutica?", content: "A terapia é um processo contínuo.\n\nA presença regular ajuda a manter o vínculo, o ritmo e a profundidade do trabalho terapêutico.\n\nConstância não é perfeição. É continuidade." },
   { id: 2, title: "Por que a constância é tão importante?", content: "Cada sessão se conecta com a anterior.\n\nQuando há constância, o processo avança com mais clareza e segurança.\n\nA evolução acontece no conjunto, não em encontros isolados." },
@@ -23,7 +34,7 @@ const EDUCATION_CARDS = [
 ];
 
 export default function PatientFlow({ onAdminAccess, globalConfig }) {
-  const [view, setView] = useState('landing'); // landing, form, dashboard
+  const [view, setView] = useState('landing'); 
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [authStep, setAuthStep] = useState('phone');
@@ -42,38 +53,44 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
   const [newPin, setNewPin] = useState('');
   const [noteContent, setNoteContent] = useState('');
   
-  // Card do Dia (Aleatório)
+  // Conteúdos Rotativos
   const [dailyCard, setDailyCard] = useState(null);
+  const [dailyMantra, setDailyMantra] = useState("");
 
   const config = globalConfig || {};
-
   const showToast = (msg, type) => setToast({ msg, type });
 
   // Efeitos Iniciais
   useEffect(() => {
-    // 1. Detecção iOS (apenas para referência se necessário)
-    // const isDeviceIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-    // 2. Lógica do Card do Dia (1x por dia)
+    // Lógica do Dia (Mantra + Card)
     const today = new Date().toDateString();
-    const savedDate = localStorage.getItem('psi_daily_card_date');
-    const savedId = localStorage.getItem('psi_daily_card_id');
+    
+    // 1. Mantra
+    let mantraToShow = localStorage.getItem('psi_mantra_text');
+    const savedMantraDate = localStorage.getItem('psi_mantra_date');
+    
+    if (savedMantraDate !== today || !mantraToShow) {
+        mantraToShow = MANTRAS[Math.floor(Math.random() * MANTRAS.length)];
+        localStorage.setItem('psi_mantra_date', today);
+        localStorage.setItem('psi_mantra_text', mantraToShow);
+    }
+    setDailyMantra(mantraToShow);
 
+    // 2. Card Educativo
+    const savedCardDate = localStorage.getItem('psi_daily_card_date');
+    const savedCardId = localStorage.getItem('psi_daily_card_id');
     let cardToShow;
 
-    // Se já temos um card salvo para HOJE, usamos ele
-    if (savedDate === today && savedId) {
-        cardToShow = EDUCATION_CARDS.find(c => c.id === Number(savedId));
+    if (savedCardDate === today && savedCardId) {
+        cardToShow = EDUCATION_CARDS.find(c => c.id === Number(savedCardId));
     }
 
-    // Se não (novo dia ou primeiro acesso), sorteamos um novo
     if (!cardToShow) {
         const randomIndex = Math.floor(Math.random() * EDUCATION_CARDS.length);
         cardToShow = EDUCATION_CARDS[randomIndex];
         localStorage.setItem('psi_daily_card_date', today);
         localStorage.setItem('psi_daily_card_id', cardToShow.id);
     }
-    
     setDailyCard(cardToShow);
 
     // 3. Auto Login
@@ -200,18 +217,16 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                         <p className="text-slate-500 text-sm mt-1">Seu espaço de terapia.</p>
                    </div>
                    
-                   {/* Card de Boas-vindas Compacto */}
-                   {dailyCard && (
-                    <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 text-left relative overflow-hidden">
-                          <div className="flex items-center gap-2 mb-1 text-indigo-700">
-                              <Lightbulb size={14} />
-                              <h4 className="font-bold text-xs uppercase tracking-wider">Reflexão</h4>
+                   {/* Card de Boas-vindas (Mantra Diário) */}
+                   <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 text-left relative overflow-hidden">
+                          <div className="flex items-center gap-2 mb-2 text-indigo-700">
+                              <Sparkles size={16} />
+                              <h4 className="font-bold text-xs uppercase tracking-wider">Para hoje</h4>
                           </div>
-                          <p className="text-xs text-slate-700 italic leading-snug">
-                              "{dailyCard.content.split('\n')[0]}"
+                          <p className="text-sm text-slate-700 font-medium italic leading-relaxed">
+                              "{dailyMantra}"
                           </p>
                     </div>
-                   )}
                    
                    <div className="space-y-2">
                         <Button onClick={() => setView('form')} icon={Smartphone} className="w-full py-3 text-sm">Acessar Meu Painel</Button>
@@ -258,8 +273,8 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
       <div className="min-h-screen bg-violet-50 p-4 flex flex-col">
           {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
           
-          {/* HEADER COMPACTO */}
-          <div className="flex justify-between items-center mb-4">
+          {/* HEADER */}
+          <div className="flex justify-between items-center mb-6">
               <div className="flex items-center gap-2">
                   <div className="bg-white p-1.5 rounded-full shadow-sm"><User className="text-violet-600 w-5 h-5"/></div>
                   <div><h2 className="font-bold text-slate-800 text-sm">Meu Espaço</h2></div>
@@ -272,41 +287,20 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
               </div>
           </div>
 
-          {/* 1. MANTRA (Compacto) */}
-          <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-violet-500 mb-4 flex gap-3 items-center">
-             <div className="bg-violet-100 p-1.5 rounded-full flex-shrink-0"><Activity size={16} className="text-violet-600" /></div>
-             <div>
-                <h4 className="font-bold text-slate-800 text-xs">O segredo é a constância</h4>
-                <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">
-                    Faltas podem interromper seu progresso. Priorize seu horário!
+          {/* CAMADA 1: MENSAGEM (Mantra Fixo do Dia) */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-violet-500 mb-6 flex gap-3 items-center relative overflow-hidden">
+             <div className="bg-violet-100 p-2 rounded-full flex-shrink-0 relative z-10"><Activity size={20} className="text-violet-600" /></div>
+             <div className="relative z-10">
+                <p className="text-xs font-semibold text-slate-600 leading-snug">
+                    "{dailyMantra}"
                 </p>
              </div>
+             <div className="absolute right-0 top-0 opacity-5 text-violet-500"><HeartPulse size={80}/></div>
           </div>
 
-          {/* 2. CARD REFLEXÃO DO DIA (Compacto) */}
-          {dailyCard && (
-              <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 mb-4 relative overflow-hidden shadow-sm">
-                  <div className="relative z-10">
-                      <div className="flex items-center gap-1.5 mb-1.5 text-indigo-700">
-                          <Lightbulb size={14} />
-                          <h4 className="font-bold text-xs uppercase tracking-wider">Reflexão do Dia</h4>
-                      </div>
-                      <h3 className="text-sm font-bold text-slate-800 mb-1 leading-snug">{dailyCard.title}</h3>
-                      <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap mb-2 line-clamp-3">
-                          {dailyCard.content}
-                      </p>
-                      
-                      <button onClick={() => setShowLibrary(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1 group">
-                          Ler mais <ChevronRight size={10} className="group-hover:translate-x-1 transition-transform"/>
-                      </button>
-                  </div>
-                  <div className="absolute -right-3 -bottom-3 opacity-5 text-indigo-600"><BookOpen size={80}/></div>
-              </div>
-          )}
-
-          {/* Card Recorrência */}
+          {/* Card Recorrência (Contexto funcional obrigatório) */}
           {nextApp ? (
-            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl shadow-md p-4 mb-4 text-white relative overflow-hidden">
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl shadow-md p-4 mb-6 text-white relative overflow-hidden">
                 <div className="relative z-10">
                     <p className="text-violet-100 text-[10px] font-medium uppercase tracking-wider mb-0.5">Seu Horário Fixo</p>
                     <h3 className="text-lg font-bold mb-1">{recurrenceText}</h3>
@@ -315,25 +309,48 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                 <div className="absolute -right-6 -bottom-10 w-24 h-24 bg-white opacity-10 rounded-full"></div>
             </div>
           ) : (
-             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 text-center text-slate-500 border border-slate-200 text-xs">
+             <div className="bg-white rounded-xl shadow-sm p-4 mb-6 text-center text-slate-500 border border-slate-200 text-xs">
                 <Calendar className="mx-auto mb-1 opacity-20" size={24}/>
                 Nenhum horário fixo identificado.
              </div>
           )}
 
-          {/* Disclaimer (Texto Menor) */}
-          <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 mb-4 flex gap-2">
-              <Info className="text-amber-600 w-4 h-4 flex-shrink-0 mt-0.5" />
-              <p className="text-[10px] text-amber-800 leading-relaxed">
-                  Este horário é válido como sessão semanal recorrente. Alterações devem ser combinadas previamente com a clínica.
-              </p>
-          </div>
+          {/* CAMADA 2: EDUCAÇÃO (Card do Dia - Único e Rotativo) */}
+          {dailyCard && (
+              <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                      <Lightbulb size={16} className="text-amber-500" />
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Para refletir hoje</span>
+                  </div>
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+                      <h3 className="text-sm font-bold text-slate-800 mb-2">{dailyCard.title}</h3>
+                      <p className="text-xs text-slate-600 leading-5 whitespace-pre-wrap">
+                          {dailyCard.content}
+                      </p>
+                  </div>
+              </div>
+          )}
 
-          {/* ANOTAÇÕES */}
+          {/* CAMADA 3: BIBLIOTECA (Botão de Acesso) */}
+          <button 
+            onClick={() => setShowLibrary(true)} 
+            className="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 p-4 rounded-xl flex items-center justify-between group transition-all mb-6"
+          >
+            <div className="flex items-center gap-4">
+                <div className="bg-white p-2.5 rounded-lg shadow-sm text-indigo-600"><BookOpen size={20}/></div>
+                <div className="text-left">
+                    <span className="block font-bold text-indigo-900 text-sm">Biblioteca de Apoio</span>
+                    <span className="block text-xs text-indigo-600/80">Explore conteúdos sobre sua jornada</span>
+                </div>
+            </div>
+            <ChevronRight className="text-indigo-400 group-hover:translate-x-1 transition-transform" size={20}/>
+          </button>
+
+          {/* ANOTAÇÕES (Funcional) */}
           <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-slate-200">
-             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações</h3>
+             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações para a Terapia</h3>
              <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-2 border rounded-lg text-xs mb-2 h-16 resize-none text-slate-900 focus:ring-1 focus:ring-violet-200 outline-none" placeholder="Lembrete para a sessão..." />
-             <Button onClick={handleSaveNote} className="w-full text-xs py-2">Salvar</Button>
+             <Button onClick={handleSaveNote} className="w-full text-xs py-2">Salvar Anotação</Button>
              {myNotes.length > 0 && (
                  <div className="mt-3 space-y-2">
                      {myNotes.slice(0, 3).map(n => (
