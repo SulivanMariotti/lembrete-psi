@@ -1,8 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { db } from '../../app/firebase'; 
 import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc } from 'firebase/firestore';
-// CORREÇÃO: Adicionado 'Smartphone' nas importações
-import { Send, Users, Upload, FileSpreadsheet, Mail, Trash2, Search, UserMinus, Eye, Settings, History, Save, LayoutDashboard, Download, Activity, PlusCircle, Filter, CalendarCheck, LogOut, RotateCcw, FileText, Bell, Loader2, CloudUpload, Smartphone } from 'lucide-react';
+// CORREÇÃO: Lista completa de ícones para evitar erros de "not defined"
+import { 
+  Send, Users, Upload, FileSpreadsheet, Mail, Trash2, Search, UserMinus, Eye, 
+  Settings, History, Save, LayoutDashboard, Download, Activity, PlusCircle, 
+  Filter, CalendarCheck, LogOut, RotateCcw, FileText, Bell, Loader2, CloudUpload, 
+  Smartphone, User, UserPlus, Info, X, CheckCircle 
+} from 'lucide-react';
 import { Button, Card, Badge, StatCard } from '../DesignSystem';
 import { parseCSV } from '../../services/dataService';
 
@@ -13,21 +18,28 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Estado para cadastro manual na agenda
   const [manualEntry, setManualEntry] = useState({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
   const [showManualForm, setShowManualForm] = useState(false);
+  
+  // Estado para cadastro de Novo Paciente (Whitelist)
+  const [newPatient, setNewPatient] = useState({ name: '', email: '', phone: '' });
+  const [showUserModal, setShowUserModal] = useState(false); // Modal de Novo Paciente
+  
   const [filterProf, setFilterProf] = useState('Todos');
   
-  // Estado local para config
+  // Configuração Local
   const [localConfig, setLocalConfig] = useState({
       msg48h: '', msg24h: '', msg12h: '', whatsapp: '', contractText: '', contractVersion: 1
   });
 
-  // Atualiza config local quando a global carrega
+  // Carrega configuração global
   useEffect(() => {
     if (globalConfig) setLocalConfig(prev => ({ ...prev, ...globalConfig }));
   }, [globalConfig]);
 
-  // --- LÓGICA DE DADOS ---
+  // --- CÁLCULOS ---
   const activeUsersCount = subscribers.filter(u => {
     if (!u.lastSeen?.seconds) return false;
     const diffDays = (new Date() - new Date(u.lastSeen.seconds * 1000)) / (1000 * 60 * 60 * 24);
@@ -36,7 +48,29 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
 
   const totalMessagesSent = historyLogs.reduce((acc, curr) => acc + (curr.count || 0), 0);
 
-  // CSV
+  // --- FUNÇÕES DE AÇÃO ---
+
+  // 1. Cadastrar Paciente (Whitelist)
+  const handleRegisterPatient = async () => {
+    if (!newPatient.email || !newPatient.name || !newPatient.phone) return showToast("Preencha todos os campos.", "error");
+
+    try {
+        await setDoc(doc(db, "whitelisted_patients", newPatient.email.trim().toLowerCase()), {
+            email: newPatient.email.trim().toLowerCase(),
+            fullName: newPatient.name,
+            phone: newPatient.phone.replace(/\D/g, ''), 
+            createdAt: new Date(),
+            createdBy: 'admin'
+        });
+        showToast("Paciente cadastrado e autorizado!");
+        setNewPatient({ name: '', email: '', phone: '' });
+        setShowUserModal(false);
+    } catch (e) {
+        showToast("Erro ao cadastrar: " + e.message, "error");
+    }
+  };
+
+  // 2. Processar CSV
   const processCsv = (inputText = csvInput) => {
      const processed = parseCSV(inputText, subscribers, localConfig);
      setAppointments(processed);
@@ -55,7 +89,8 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
 
   const handleAddManual = () => {
     const { nome, telefone, data, hora, profissional } = manualEntry;
-    if (!nome || !telefone || !data || !hora) return showToast("Preencha os campos obrigatórios.", "error");
+    if (!nome || !telefone || !data || !hora) return showToast("Campos obrigatórios vazios.", "error");
+    
     const newLine = `${nome},${telefone},${data},${hora},${profissional || ''}`;
     const newInput = csvInput ? (csvInput + '\n' + newLine) : newLine;
     setCsvInput(newInput);
@@ -71,7 +106,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
     setFilterProf('Todos');
   };
 
-  // ENVIO
+  // 3. Enviar Lembretes
   const handleSendReminders = async () => {
     const targets = filteredAppointments.filter(a => a.isSubscribed && a.pushToken && a.reminderType);
     if (targets.length === 0) return showToast("Nenhum lembrete pendente.", "error");
@@ -93,6 +128,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
             });
             const data = await response.json();
             if (data.success) {
+                // Atualiza nome se necessário
                 const subscriber = subscribers.find(s => s.phone === target.cleanPhone);
                 if (subscriber && (!subscriber.name || subscriber.name !== target.nome)) {
                      updateDoc(doc(db, "users", subscriber.id), { name: target.nome }).catch(console.error);
@@ -101,6 +137,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
             }
             return 0;
         });
+
         const results = await Promise.all(promises);
         successCount = results.reduce((a, b) => a + b, 0);
         
@@ -109,7 +146,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
                 sentAt: new Date(), count: successCount, types: [...new Set(targets.map(t => t.reminderType))], summary: `${successCount} mensagens enviadas.`
             });
         }
-        showToast(`Sucesso! ${successCount} mensagens enviadas.`);
+        showToast(`Sucesso! ${successCount} mensagens.`);
     } catch (error) {
       showToast("Erro no envio: " + error.message, "error");
     } finally {
@@ -117,36 +154,51 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
     }
   };
 
-  // SYNC
+  // 4. Sincronizar Agenda
   const handleSyncSchedule = async () => {
     if (appointments.length === 0) return showToast("Lista vazia.", "error");
     if(!confirm("Deseja sincronizar esta agenda com o banco de dados?")) return;
+    
     setIsSaving(true);
     try {
         const promises = appointments.map(async (app) => {
             if (!app.isoDate || !app.hora) return;
             const docId = `${app.cleanPhone}_${app.isoDate}_${app.hora.replace(':','')}`;
             await setDoc(doc(db, "appointments", docId), {
-                phone: app.cleanPhone, patientName: app.nome, date: app.data, isoDate: app.isoDate, time: app.hora, professional: app.profissional, createdAt: new Date()
+                phone: app.cleanPhone, 
+                patientName: app.nome, 
+                date: app.data, 
+                isoDate: app.isoDate, 
+                time: app.hora, 
+                professional: app.profissional, 
+                createdAt: new Date()
             });
         });
         await Promise.all(promises);
         showToast("Agenda sincronizada com sucesso!");
-    } catch (error) { showToast("Erro ao salvar: " + error.message, "error"); } 
-    finally { setIsSaving(false); }
+    } catch (error) { 
+        showToast("Erro ao salvar: " + error.message, "error"); 
+    } finally { 
+        setIsSaving(false); 
+    }
   };
 
-  // CONFIG
+  // 5. Salvar Configurações
   const saveConfig = async (incrementVersion = false) => {
     const newConfig = { ...localConfig };
-    if (incrementVersion) newConfig.contractVersion = (Number(newConfig.contractVersion) || 1) + 1;
+    if (incrementVersion) {
+        newConfig.contractVersion = (Number(newConfig.contractVersion) || 1) + 1;
+    }
     
     try {
         await setDoc(doc(db, "settings", "global"), newConfig);
-        showToast(incrementVersion ? "Termos atualizados (novo aceite exigido)!" : "Configurações salvas!");
-    } catch (error) { showToast("Erro ao salvar: " + error.message, "error"); }
+        showToast(incrementVersion ? "Termos atualizados!" : "Configurações salvas!");
+    } catch (error) { 
+        showToast("Erro ao salvar: " + error.message, "error"); 
+    }
   };
 
+  // Exportar CSV
   const handleExportCSV = () => {
     const headers = "Nome,Telefone,Data Cadastro,Ultimo Acesso\n";
     const rows = subscribers.map(u => {
@@ -154,6 +206,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
         const seen = u.lastSeen?.seconds ? new Date(u.lastSeen.seconds * 1000).toLocaleDateString() : '';
         return `${u.name || ''},${u.phone},${joined},${seen}`;
     }).join("\n");
+    
     const blob = new Blob([headers + rows], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -162,6 +215,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
     a.click();
   };
 
+  // Ações de Usuário
   const handleDeleteUser = async (uid, phone) => { 
       if(confirm(`Tem certeza que deseja apagar o paciente ${phone}?`)) {
         try {
@@ -182,7 +236,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
   const professionalsList = useMemo(() => ['Todos', ...new Set(appointments.map(a => a.profissional))], [appointments]);
   const filteredAppointments = useMemo(() => filterProf === 'Todos' ? appointments : appointments.filter(a => a.profissional === filterProf), [appointments, filterProf]);
 
-  // Definição das Abas com Ícones
+  // Navegação
   const tabs = [
     { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
     { id: 'uploads', label: 'Disparos', icon: Send },
@@ -193,14 +247,15 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-10">
-        {/* HEADER & NAV */}
+        
+        {/* HEADER & MENU */}
         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 tracking-tight">
             <LayoutDashboard className="text-violet-600"/> 
             <span>Painel Permittá</span>
           </h1>
           
-          <div className="flex gap-1 bg-slate-100 p-1.5 rounded-xl overflow-x-auto shadow-inner">
+          <div className="flex gap-1 bg-slate-100 p-1.5 rounded-xl overflow-x-auto shadow-inner no-scrollbar">
             {tabs.map(tab => {
                 const Icon = tab.icon;
                 const isActive = adminTab === tab.id;
@@ -357,6 +412,7 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
         {adminTab === 'users' && (
             <Card title="Base de Pacientes Cadastrados" className="h-[650px] animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex flex-col h-full">
+                    {/* Botões de Topo */}
                     <div className="flex gap-3 mb-6">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
@@ -368,13 +424,63 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
+                        {/* BOTÃO NOVO PACIENTE (Reintegrado na aba Pacientes) */}
+                        <Button onClick={() => setShowUserModal(true)} variant="success" icon={UserPlus}>Novo</Button>
                         <Button onClick={handleExportCSV} variant="secondary" icon={Download}>CSV</Button>
                     </div>
+
+                    {/* Modal de Novo Paciente (Whitelist) */}
+                    {showUserModal && (
+                        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                            <div className="bg-white rounded-xl w-full max-w-md shadow-2xl overflow-hidden">
+                                <div className="bg-violet-600 p-4 text-white flex justify-between items-center">
+                                    <h3 className="font-bold flex items-center gap-2"><UserPlus size={20}/> Novo Paciente</h3>
+                                    <button onClick={() => setShowUserModal(false)}><X size={20} className="hover:text-violet-200"/></button>
+                                </div>
+                                <div className="p-6 space-y-4">
+                                    <div className="bg-violet-50 p-4 rounded-lg text-sm text-violet-800 border border-violet-100 flex items-start gap-2">
+                                        <Info size={16} className="mt-0.5 flex-shrink-0"/>
+                                        <span>Este cadastro autoriza o paciente a entrar no App usando o e-mail abaixo.</span>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Nome Completo</label>
+                                        <input 
+                                            className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700" 
+                                            value={newPatient.name} 
+                                            onChange={e => setNewPatient({...newPatient, name: e.target.value})} 
+                                            placeholder="Ex: João Silva" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">E-mail (Login)</label>
+                                        <input 
+                                            className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700" 
+                                            value={newPatient.email} 
+                                            onChange={e => setNewPatient({...newPatient, email: e.target.value})} 
+                                            placeholder="paciente@email.com" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Celular (WhatsApp)</label>
+                                        <input 
+                                            className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700" 
+                                            value={newPatient.phone} 
+                                            onChange={e => setNewPatient({...newPatient, phone: e.target.value})} 
+                                            placeholder="11999998888" 
+                                        />
+                                    </div>
+                                    <Button onClick={handleRegisterPatient} icon={UserPlus} className="w-full mt-4 py-3 shadow-lg">Cadastrar e Autorizar</Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex-1 overflow-y-auto border border-slate-100 rounded-xl">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-50 text-slate-500 font-medium sticky top-0 z-10">
                                 <tr>
                                     <th className="px-4 py-3 border-b border-slate-100">Paciente</th>
+                                    <th className="px-4 py-3 border-b border-slate-100">E-mail</th>
                                     <th className="px-4 py-3 border-b border-slate-100">Telefone</th>
                                     <th className="px-4 py-3 border-b border-slate-100">Contrato</th>
                                     <th className="px-4 py-3 border-b border-slate-100">Último Acesso</th>
@@ -385,11 +491,12 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
                                 {subscribers.filter(u => (u.phone || '').includes(searchTerm) || (u.name || '').toLowerCase().includes(searchTerm.toLowerCase())).map(user => (
                                     <tr key={user.id} className="hover:bg-violet-50/50 transition-colors">
                                         <td className="px-4 py-3 font-medium text-slate-800">{user.name || <span className="text-slate-400 italic">Sem nome</span>}</td>
+                                        <td className="px-4 py-3 text-slate-500">{user.email || '-'}</td>
                                         <td className="px-4 py-3 font-mono text-slate-500">{user.phone}</td>
                                         <td className="px-4 py-3">
                                             {Number(user.acceptedTermsVersion) === Number(localConfig.contractVersion) 
                                                 ? <Badge status="confirmed" text={`v${user.acceptedTermsVersion}`} />
-                                                : <Badge status="unsigned" text="Pendente" />
+                                                : <Badge status="missing" text="Pendente" />
                                             }
                                         </td>
                                         <td className="px-4 py-3 text-slate-500">{user.lastSeen?.seconds ? new Date(user.lastSeen.seconds * 1000).toLocaleDateString() : '-'}</td>

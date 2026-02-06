@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { db, messaging } from '../../app/firebase';
-import { collection, addDoc, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapshot, getDoc, addDoc } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, Lock, KeyRound, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles } from 'lucide-react';
+import { Smartphone, Bell, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles } from 'lucide-react';
 import { Button, Toast } from '../DesignSystem';
-import { hashPin, formatPhone, getDayName } from '../../services/dataService';
+import { getDayName } from '../../services/dataService';
 
-// --- CAMADA 1: MENSAGENS (MANTRAS) ---
+// --- CONTEÚDO ESTÁTICO (Mantras e Cards) ---
 const MANTRAS = [
   "A constância é um dos principais fatores de evolução terapêutica.",
   "Cada sessão conta.",
@@ -17,7 +17,6 @@ const MANTRAS = [
   "Terapia é um compromisso com você mesmo."
 ];
 
-// --- CAMADA 2 & 3: EDUCAÇÃO E BIBLIOTECA ---
 const EDUCATION_CARDS = [
   { id: 1, title: "O que é constância terapêutica?", content: "A terapia é um processo contínuo.\n\nA presença regular ajuda a manter o vínculo, o ritmo e a profundidade do trabalho terapêutico.\n\nConstância não é perfeição. É continuidade." },
   { id: 2, title: "Por que a constância é tão importante?", content: "Cada sessão se conecta com a anterior.\n\nQuando há constância, o processo avança com mais clareza e segurança.\n\nA evolução acontece no conjunto, não em encontros isolados." },
@@ -33,24 +32,20 @@ const EDUCATION_CARDS = [
   { id: 12, title: "Constância não é cobrança", content: "Constância não é rigidez. Não é culpa. Não é punição.\n\nÉ um convite contínuo ao cuidado e ao compromisso com o próprio processo de cura." }
 ];
 
-export default function PatientFlow({ onAdminAccess, globalConfig }) {
-  const [view, setView] = useState('landing'); 
+// Recebe 'user' (autenticado) e 'onLogout' (função de sair)
+export default function PatientFlow({ user, onLogout, globalConfig }) {
+  const [view, setView] = useState('landing'); // Começa na Landing (Tela Inicial)
   const [phone, setPhone] = useState('');
-  const [pin, setPin] = useState('');
-  const [authStep, setAuthStep] = useState('phone');
-  const [tempUser, setTempUser] = useState(null);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ msg: '', type: '' });
+  const [notificationPermission, setNotificationPermission] = useState('default');
   
   const [myApps, setMyAppointments] = useState([]);
   const [myNotes, setMyNotes] = useState([]);
   const [showContract, setShowContract] = useState(false);
   const [showSOS, setShowSOS] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false); 
   
-  const [newPin, setNewPin] = useState('');
   const [noteContent, setNoteContent] = useState('');
   
   // Conteúdos Rotativos
@@ -60,15 +55,17 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
   const config = globalConfig || {};
   const showToast = (msg, type) => setToast({ msg, type });
 
-  // Efeitos Iniciais
+  // 1. Inicialização e Carregamento de Dados do Usuário
   useEffect(() => {
-    // Lógica do Dia (Mantra + Card)
+    // Verificar permissão de notificação atual
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+
+    // Mantra e Card
     const today = new Date().toDateString();
-    
-    // 1. Mantra
     let mantraToShow = localStorage.getItem('psi_mantra_text');
     const savedMantraDate = localStorage.getItem('psi_mantra_date');
-    
     if (savedMantraDate !== today || !mantraToShow) {
         mantraToShow = MANTRAS[Math.floor(Math.random() * MANTRAS.length)];
         localStorage.setItem('psi_mantra_date', today);
@@ -76,15 +73,12 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
     }
     setDailyMantra(mantraToShow);
 
-    // 2. Card Educativo
+    let cardToShow;
     const savedCardDate = localStorage.getItem('psi_daily_card_date');
     const savedCardId = localStorage.getItem('psi_daily_card_id');
-    let cardToShow;
-
     if (savedCardDate === today && savedCardId) {
         cardToShow = EDUCATION_CARDS.find(c => c.id === Number(savedCardId));
     }
-
     if (!cardToShow) {
         const randomIndex = Math.floor(Math.random() * EDUCATION_CARDS.length);
         cardToShow = EDUCATION_CARDS[randomIndex];
@@ -93,14 +87,50 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
     }
     setDailyCard(cardToShow);
 
-    // 3. Auto Login
-    const savedPhone = localStorage.getItem('psi_user_phone');
-    if (savedPhone) {
-        setPhone(formatPhone(savedPhone));
-    }
-  }, []);
+    // Carregar Perfil do Firestore
+    const loadUserProfile = async () => {
+      if (!user) return;
+      
+      try {
+        const userDocRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userDocRef);
+
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          const userPhone = userData.phone; 
+          setPhone(userPhone);
+
+          // Inicia listeners
+          fetchAgenda(userPhone);
+          const unsubNotes = subscribeNotes(userPhone);
+          
+          // Verifica Contrato
+          if (!userData.acceptedTermsVersion || userData.acceptedTermsVersion < (config.contractVersion || 1)) {
+              setShowContract(true);
+          }
+
+          // Atualiza último acesso
+          updateDoc(userDocRef, { lastSeen: new Date() }).catch(console.error);
+          
+          setLoading(false);
+          // CORREÇÃO: Não redireciona automaticamente para 'dashboard'. 
+          // Mantém 'landing' para mostrar os avisos iniciais.
+          return () => unsubNotes();
+        } else {
+          showToast("Perfil não encontrado. Contate o suporte.", "error");
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar perfil:", error);
+        setLoading(false);
+      }
+    };
+
+    loadUserProfile();
+  }, [user, config.contractVersion]);
 
   const fetchAgenda = async (rawPhone) => {
+      if (!rawPhone) return;
       const q = query(collection(db, "appointments"), where("phone", "==", rawPhone));
       const snap = await getDocs(q);
       const apps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -109,79 +139,21 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
   };
 
   const subscribeNotes = (rawPhone) => {
+      if (!rawPhone) return () => {};
       const q = query(collection(db, "patient_notes"), where("phone", "==", rawPhone));
       return onSnapshot(q, (snap) => setMyNotes(snap.docs.map(d => ({id: d.id, ...d.data()}))));
   };
 
-  const handleCheckPhone = async () => {
-      const raw = phone.replace(/\D/g, '');
-      if (raw.length < 10) return showToast("Telefone inválido", "error");
-      setLoading(true);
-      const q = query(collection(db, "users"), where("phone", "==", raw));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-          const user = { id: snap.docs[0].id, ...snap.docs[0].data() };
-          setTempUser(user);
-          setAuthStep(user.pin ? 'verify' : 'create');
-      } else {
-          setAuthStep('create');
-      }
-      setLoading(false);
-  };
-
-  const handleAuth = async () => {
-      if (pin.length < 4) return;
-      setLoading(true);
-      const raw = phone.replace(/\D/g, '');
-      try {
-        const hashed = await hashPin(pin);
-        if (authStep === 'verify') {
-             const isValid = tempUser.pin === hashed || tempUser.pin === pin;
-             if (!isValid) throw new Error("Senha incorreta");
-             if (tempUser.pin === pin && tempUser.pin !== hashed) updateDoc(doc(db, "users", tempUser.id), { pin: hashed });
-             await finalizeLogin(raw, tempUser.id, tempUser);
-        } else {
-             let token = null;
-             try { if(messaging) token = await getToken(messaging, { vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' }); } catch(e){}
-             let uid = tempUser?.id;
-             if(uid) {
-                 await updateDoc(doc(db, "users", uid), { pin: hashed, pushToken: token, lastSeen: new Date() });
-             } else {
-                 const ref = await addDoc(collection(db, "users"), { phone: raw, pin: hashed, pushToken: token, createdAt: new Date(), lastSeen: new Date() });
-                 uid = ref.id;
-             }
-             await finalizeLogin(raw, uid, { acceptedTermsVersion: 0 });
-        }
-      } catch (e) {
-          showToast(e.message, "error");
-          setLoading(false);
-      }
-  };
-
-  const finalizeLogin = async (raw, uid, userData) => {
-      localStorage.setItem('psi_user_phone', raw);
-      await fetchAgenda(raw);
-      subscribeNotes(raw);
-      setCurrentUser(userData);
-      
-      if (!userData.acceptedTermsVersion || userData.acceptedTermsVersion < (config.contractVersion || 1)) {
-          setShowContract(true);
-      }
-      setView('dashboard');
-      setLoading(false);
-  };
-
   const handleAcceptContract = async () => {
-      if(currentUser) {
-          await updateDoc(doc(db, "users", currentUser.id), { acceptedTermsVersion: config.contractVersion || 1 });
+      if(user) {
+          await updateDoc(doc(db, "users", user.uid), { acceptedTermsVersion: config.contractVersion || 1 });
           setShowContract(false);
       }
   };
   
   const handleSaveNote = async () => {
       if(!noteContent.trim()) return;
-      const raw = phone.replace(/\D/g, '');
-      await addDoc(collection(db, "patient_notes"), { phone: raw, content: noteContent, createdAt: new Date() });
+      await addDoc(collection(db, "patient_notes"), { phone: phone, content: noteContent, createdAt: new Date() });
       setNoteContent('');
       showToast("Nota salva!");
   };
@@ -191,33 +163,60 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
   const handleLogout = () => { 
     localStorage.removeItem('psi_user_phone'); 
     setPhone(''); 
-    setPin(''); 
-    setAuthStep('phone'); 
-    setView('landing'); 
+    if (onLogout) onLogout();
   };
 
-  const handleChangePin = async () => {
-      if(newPin.length < 4) return showToast("Mínimo 4 dígitos", "error");
-      showToast("Funcionalidade requer re-login para segurança.", "error"); 
-      setShowProfile(false);
+  const handleRequestNotification = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      
+      if (permission === 'granted') {
+         if (messaging && user) {
+            // Usa a VAPID Key que você já configurou
+            const token = await getToken(messaging, { 
+                vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' 
+            });
+            if (token) {
+                await updateDoc(doc(db, "users", user.uid), { pushToken: token });
+                showToast("Lembretes ativados com sucesso!");
+            }
+         }
+      }
+    } catch (error) {
+      console.error("Erro ao ativar notificações:", error);
+      showToast("Não foi possível ativar. Verifique as configurações do navegador.", "error");
+    }
   };
 
   // --- Renderização ---
+
+  if (loading) {
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
+              <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+      );
+  }
+
+  // TELA INICIAL (LANDING - Sempre visível primeiro)
   if (view === 'landing') {
       return (
-          <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center bg-slate-50">
+          <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-slate-50">
                {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
-               <div className="w-full max-w-sm bg-white p-6 rounded-2xl shadow-lg space-y-5 relative">
-                   <div className="w-12 h-12 bg-violet-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-violet-200">
-                       <Bell className="text-white w-6 h-6"/>
+               <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-lg space-y-6 relative">
+                   <div className="w-16 h-16 bg-violet-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-violet-200">
+                       <Bell className="text-white w-8 h-8"/>
                    </div>
                    
                    <div>
-                        <h1 className="text-xl font-bold text-slate-900">Lembrete Psi</h1>
-                        <p className="text-slate-500 text-sm mt-1">Seu espaço de terapia.</p>
+                        <h1 className="text-2xl font-bold text-slate-900">Lembrete Psi</h1>
+                        <p className="text-slate-500 mt-2">Nunca mais esqueça o horário da sua terapia.</p>
                    </div>
                    
-                   {/* Card de Boas-vindas (Mantra Diário) */}
+                   {/* Card de Boas-vindas (Mantra Diário) com Estrelinha */}
                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 text-left relative overflow-hidden">
                           <div className="flex items-center gap-2 mb-2 text-indigo-700">
                               <Sparkles size={16} />
@@ -229,38 +228,18 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                     </div>
                    
                    <div className="space-y-2">
-                        <Button onClick={() => setView('form')} icon={Smartphone} className="w-full py-3 text-sm">Acessar Meu Painel</Button>
+                        {/* Botão que leva ao Dashboard */}
+                        <Button onClick={() => setView('dashboard')} icon={Smartphone} className="w-full py-4 text-lg">Acessar Meu Painel</Button>
                         <p className="text-[10px] text-slate-400">Funciona direto no navegador.</p>
                    </div>
-
+                   
+                   {/* Sair / Logout */}
                    <div className="pt-3 border-t border-slate-100">
-                       <button onClick={onAdminAccess} className="text-xs text-slate-400 hover:text-violet-600 underline block mx-auto">Acesso da Clínica</button>
+                        <button onClick={onLogout} className="text-xs text-slate-400 hover:text-red-500 underline flex items-center justify-center gap-1 mx-auto">
+                            <LogOut size={12}/> Sair
+                        </button>
                    </div>
                </div>
-          </div>
-      );
-  }
-
-  if (view === 'form') {
-      return (
-          <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-white">
-              {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
-              <div className="w-full max-w-sm space-y-5">
-                  {authStep === 'phone' ? (
-                      <>
-                        <h2 className="text-xl font-bold text-slate-900">Qual seu número?</h2>
-                        <input value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} className="w-full text-xl p-3 border rounded-xl outline-violet-600 text-slate-900" placeholder="(11) 99999-9999" />
-                        <Button onClick={handleCheckPhone} disabled={loading} className="w-full py-3">{loading ? "Verificando..." : "Continuar"}</Button>
-                      </>
-                  ) : (
-                      <>
-                        <h2 className="text-xl font-bold text-slate-900">{authStep === 'create' ? 'Crie sua Senha' : 'Digite sua Senha'}</h2>
-                        <input type="tel" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value)} className="w-full text-center text-3xl p-3 border rounded-xl tracking-[0.5em] text-slate-900 outline-violet-600" placeholder="****" />
-                        <Button onClick={handleAuth} disabled={loading} className="w-full py-3">{loading ? "Entrando..." : "Entrar"}</Button>
-                        <button onClick={() => setAuthStep('phone')} className="text-xs text-slate-400 block mx-auto mt-4">Voltar</button>
-                      </>
-                  )}
-              </div>
           </div>
       );
   }
@@ -283,24 +262,63 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                  <button onClick={() => setShowLibrary(true)} className="bg-indigo-500 p-2 rounded-full text-white shadow hover:bg-indigo-600 transition" title="Biblioteca"><BookOpen size={16}/></button>
                  <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 shadow hover:bg-violet-200 transition"><ScrollText size={16}/></button>
                  <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow hover:bg-rose-600 transition"><LifeBuoy size={16}/></button>
-                 <button onClick={handleLogout} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition"><LogOut size={16}/></button>
+                 <button onClick={onLogout} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition" title="Sair"><LogOut size={16}/></button>
               </div>
           </div>
 
-          {/* CAMADA 1: MENSAGEM (Mantra Fixo do Dia) */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-violet-500 mb-6 flex gap-3 items-center relative overflow-hidden">
-             <div className="bg-violet-100 p-2 rounded-full flex-shrink-0 relative z-10"><Activity size={20} className="text-violet-600" /></div>
-             <div className="relative z-10">
-                <p className="text-xs font-semibold text-slate-600 leading-snug">
-                    "{dailyMantra}"
+          {/* AVISO DE NOTIFICAÇÃO (Se não permitido) */}
+          {notificationPermission === 'default' && (
+             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-6 flex flex-col gap-3">
+                <div className="flex items-start gap-3">
+                   <div className="bg-blue-100 p-1.5 rounded-full flex-shrink-0"><Bell size={16} className="text-blue-600" /></div>
+                   <div>
+                      <h4 className="font-bold text-blue-800 text-sm">Ativar Lembretes</h4>
+                      <p className="text-xs text-blue-600 mt-1 leading-tight">
+                          Para receber os avisos das sessões, precisamos da sua permissão.
+                      </p>
+                   </div>
+                </div>
+                <Button onClick={handleRequestNotification} variant="primary" className="w-full text-xs py-2">
+                    Ativar Agora
+                </Button>
+             </div>
+          )}
+
+          {/* 1. MANTRA (Compacto) */}
+          <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-violet-500 mb-4 flex gap-3 items-center">
+             <div className="bg-violet-100 p-1.5 rounded-full flex-shrink-0"><Activity size={16} className="text-violet-600" /></div>
+             <div>
+                <h4 className="font-bold text-slate-800 text-xs">O segredo é a constância</h4>
+                <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">
+                    Faltas podem interromper seu progresso. Priorize seu horário!
                 </p>
              </div>
-             <div className="absolute right-0 top-0 opacity-5 text-violet-500"><HeartPulse size={80}/></div>
           </div>
 
-          {/* Card Recorrência (Contexto funcional obrigatório) */}
+          {/* 2. CARD REFLEXÃO DO DIA (Compacto) */}
+          {dailyCard && (
+              <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 mb-4 relative overflow-hidden shadow-sm">
+                  <div className="relative z-10">
+                      <div className="flex items-center gap-1.5 mb-1.5 text-indigo-700">
+                          <Lightbulb size={14} />
+                          <h4 className="font-bold text-xs uppercase tracking-wider">Reflexão do Dia</h4>
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-800 mb-1 leading-snug">{dailyCard.title}</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap mb-2 line-clamp-3">
+                          {dailyCard.content}
+                      </p>
+                      
+                      <button onClick={() => setShowLibrary(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1 group">
+                          Ler mais <ChevronRight size={10} className="group-hover:translate-x-1 transition-transform"/>
+                      </button>
+                  </div>
+                  <div className="absolute -right-3 -bottom-3 opacity-5 text-indigo-600"><BookOpen size={80}/></div>
+              </div>
+          )}
+
+          {/* Card Recorrência */}
           {nextApp ? (
-            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl shadow-md p-4 mb-6 text-white relative overflow-hidden">
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl shadow-md p-4 mb-4 text-white relative overflow-hidden">
                 <div className="relative z-10">
                     <p className="text-violet-100 text-[10px] font-medium uppercase tracking-wider mb-0.5">Seu Horário Fixo</p>
                     <h3 className="text-lg font-bold mb-1">{recurrenceText}</h3>
@@ -309,48 +327,25 @@ export default function PatientFlow({ onAdminAccess, globalConfig }) {
                 <div className="absolute -right-6 -bottom-10 w-24 h-24 bg-white opacity-10 rounded-full"></div>
             </div>
           ) : (
-             <div className="bg-white rounded-xl shadow-sm p-4 mb-6 text-center text-slate-500 border border-slate-200 text-xs">
+             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 text-center text-slate-500 border border-slate-200 text-xs">
                 <Calendar className="mx-auto mb-1 opacity-20" size={24}/>
                 Nenhum horário fixo identificado.
              </div>
           )}
 
-          {/* CAMADA 2: EDUCAÇÃO (Card do Dia - Único e Rotativo) */}
-          {dailyCard && (
-              <div className="mb-6">
-                  <div className="flex items-center gap-2 mb-2 px-1">
-                      <Lightbulb size={16} className="text-amber-500" />
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Para refletir hoje</span>
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
-                      <h3 className="text-sm font-bold text-slate-800 mb-2">{dailyCard.title}</h3>
-                      <p className="text-xs text-slate-600 leading-5 whitespace-pre-wrap">
-                          {dailyCard.content}
-                      </p>
-                  </div>
-              </div>
-          )}
+          {/* Disclaimer (Texto Menor) */}
+          <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 mb-4 flex gap-2">
+              <Info className="text-amber-600 w-4 h-4 flex-shrink-0 mt-0.5" />
+              <p className="text-[10px] text-amber-800 leading-relaxed">
+                  Este horário é válido como sessão semanal recorrente. Alterações devem ser combinadas previamente com a clínica.
+              </p>
+          </div>
 
-          {/* CAMADA 3: BIBLIOTECA (Botão de Acesso) */}
-          <button 
-            onClick={() => setShowLibrary(true)} 
-            className="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 p-4 rounded-xl flex items-center justify-between group transition-all mb-6"
-          >
-            <div className="flex items-center gap-4">
-                <div className="bg-white p-2.5 rounded-lg shadow-sm text-indigo-600"><BookOpen size={20}/></div>
-                <div className="text-left">
-                    <span className="block font-bold text-indigo-900 text-sm">Biblioteca de Apoio</span>
-                    <span className="block text-xs text-indigo-600/80">Explore conteúdos sobre sua jornada</span>
-                </div>
-            </div>
-            <ChevronRight className="text-indigo-400 group-hover:translate-x-1 transition-transform" size={20}/>
-          </button>
-
-          {/* ANOTAÇÕES (Funcional) */}
+          {/* ANOTAÇÕES */}
           <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-slate-200">
-             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações para a Terapia</h3>
+             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações</h3>
              <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-2 border rounded-lg text-xs mb-2 h-16 resize-none text-slate-900 focus:ring-1 focus:ring-violet-200 outline-none" placeholder="Lembrete para a sessão..." />
-             <Button onClick={handleSaveNote} className="w-full text-xs py-2">Salvar Anotação</Button>
+             <Button onClick={handleSaveNote} className="w-full text-xs py-2">Salvar</Button>
              {myNotes.length > 0 && (
                  <div className="mt-3 space-y-2">
                      {myNotes.slice(0, 3).map(n => (
