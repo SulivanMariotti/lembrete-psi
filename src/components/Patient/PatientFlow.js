@@ -4,7 +4,7 @@ import { collection, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapsho
 import { getToken } from 'firebase/messaging';
 import { Smartphone, Bell, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles } from 'lucide-react';
 import { Button, Toast } from '../DesignSystem';
-import { getDayName } from '../../services/dataService';
+import { hashPin, formatPhone, getDayName } from '../../services/dataService';
 
 // --- CONTEÚDO ESTÁTICO (Mantras e Cards) ---
 const MANTRAS = [
@@ -32,9 +32,8 @@ const EDUCATION_CARDS = [
   { id: 12, title: "Constância não é cobrança", content: "Constância não é rigidez. Não é culpa. Não é punição.\n\nÉ um convite contínuo ao cuidado e ao compromisso com o próprio processo de cura." }
 ];
 
-// Recebe 'user' (autenticado) e 'onLogout' (função de sair)
 export default function PatientFlow({ user, onLogout, globalConfig }) {
-  const [view, setView] = useState('landing'); // Começa na Landing (Tela Inicial)
+  const [view, setView] = useState('landing'); // Garante que começa na Landing Page
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ msg: '', type: '' });
@@ -55,14 +54,11 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   const config = globalConfig || {};
   const showToast = (msg, type) => setToast({ msg, type });
 
-  // 1. Inicialização e Carregamento de Dados do Usuário
   useEffect(() => {
-    // Verificar permissão de notificação atual
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
 
-    // Mantra e Card
     const today = new Date().toDateString();
     let mantraToShow = localStorage.getItem('psi_mantra_text');
     const savedMantraDate = localStorage.getItem('psi_mantra_date');
@@ -87,7 +83,6 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
     }
     setDailyCard(cardToShow);
 
-    // Carregar Perfil do Firestore
     const loadUserProfile = async () => {
       if (!user) return;
       
@@ -100,21 +95,17 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           const userPhone = userData.phone; 
           setPhone(userPhone);
 
-          // Inicia listeners
           fetchAgenda(userPhone);
           const unsubNotes = subscribeNotes(userPhone);
           
-          // Verifica Contrato
           if (!userData.acceptedTermsVersion || userData.acceptedTermsVersion < (config.contractVersion || 1)) {
               setShowContract(true);
           }
 
-          // Atualiza último acesso
           updateDoc(userDocRef, { lastSeen: new Date() }).catch(console.error);
           
           setLoading(false);
-          // CORREÇÃO: Não redireciona automaticamente para 'dashboard'. 
-          // Mantém 'landing' para mostrar os avisos iniciais.
+          // IMPORTANTE: Mantém view 'landing' para mostrar os avisos primeiro
           return () => unsubNotes();
         } else {
           showToast("Perfil não encontrado. Contate o suporte.", "error");
@@ -135,7 +126,11 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       const snap = await getDocs(q);
       const apps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const today = new Date().toISOString().split('T')[0];
-      setMyAppointments(apps.filter(a => a.isoDate >= today).sort((a,b) => a.isoDate.localeCompare(b.isoDate)));
+      
+      // CORREÇÃO CRÍTICA: Filtrar itens com data inválida para evitar crash no .sort
+      const validApps = apps.filter(a => a.isoDate && a.isoDate >= today);
+      
+      setMyAppointments(validApps.sort((a,b) => a.isoDate.localeCompare(b.isoDate)));
   };
 
   const subscribeNotes = (rawPhone) => {
@@ -163,35 +158,24 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   const handleLogout = () => { 
     localStorage.removeItem('psi_user_phone'); 
     setPhone(''); 
+    setView('landing'); // Volta para a tela inicial
     if (onLogout) onLogout();
   };
 
   const handleRequestNotification = async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
-    
     try {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
-      
-      if (permission === 'granted') {
-         if (messaging && user) {
-            // Usa a VAPID Key que você já configurou
-            const token = await getToken(messaging, { 
-                vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' 
-            });
-            if (token) {
-                await updateDoc(doc(db, "users", user.uid), { pushToken: token });
-                showToast("Lembretes ativados com sucesso!");
-            }
-         }
+      if (permission === 'granted' && messaging && user) {
+        const token = await getToken(messaging, { vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' });
+        if (token) {
+            await updateDoc(doc(db, "users", user.uid), { pushToken: token });
+            showToast("Lembretes ativados!");
+        }
       }
-    } catch (error) {
-      console.error("Erro ao ativar notificações:", error);
-      showToast("Não foi possível ativar. Verifique as configurações do navegador.", "error");
-    }
+    } catch (error) { console.error(error); }
   };
-
-  // --- Renderização ---
 
   if (loading) {
       return (
@@ -233,7 +217,6 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                         <p className="text-[10px] text-slate-400">Funciona direto no navegador.</p>
                    </div>
                    
-                   {/* Sair / Logout */}
                    <div className="pt-3 border-t border-slate-100">
                         <button onClick={onLogout} className="text-xs text-slate-400 hover:text-red-500 underline flex items-center justify-center gap-1 mx-auto">
                             <LogOut size={12}/> Sair
@@ -246,7 +229,8 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
 
   // Dashboard do Paciente
   const nextApp = myApps[0];
-  const recurrenceText = nextApp ? `Toda ${getDayName(nextApp.date)} às ${nextApp.time}` : "Aguardando agendamento";
+  // CORREÇÃO CRÍTICA: Proteção contra data inválida/indefinida
+  const recurrenceText = nextApp && nextApp.date ? `Toda ${getDayName(nextApp.date)} às ${nextApp.time}` : "Aguardando agendamento";
 
   return (
       <div className="min-h-screen bg-violet-50 p-4 flex flex-col">
@@ -262,7 +246,8 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                  <button onClick={() => setShowLibrary(true)} className="bg-indigo-500 p-2 rounded-full text-white shadow hover:bg-indigo-600 transition" title="Biblioteca"><BookOpen size={16}/></button>
                  <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 shadow hover:bg-violet-200 transition"><ScrollText size={16}/></button>
                  <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow hover:bg-rose-600 transition"><LifeBuoy size={16}/></button>
-                 <button onClick={onLogout} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition" title="Sair"><LogOut size={16}/></button>
+                 {/* Botão VOLTAR para Landing em vez de Sair direto */}
+                 <button onClick={() => setView('landing')} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition" title="Voltar"><X size={16}/></button>
               </div>
           </div>
 
@@ -368,8 +353,9 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                       {myApps.map(app => (
                           <div key={app.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
                               <div className="bg-slate-100 text-slate-600 w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                                  <span className="font-bold text-xs">{app.date.split('/')[0]}</span>
-                                  <span className="text-[8px] uppercase">{new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','')}</span>
+                                  {/* CORREÇÃO: Proteção contra data indefinida */}
+                                  <span className="font-bold text-xs">{app.date ? app.date.split('/')[0] : '--'}</span>
+                                  <span className="text-[8px] uppercase">{app.isoDate ? new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','') : ''}</span>
                               </div>
                               <div>
                                   <p className="font-bold text-slate-700 text-xs">Sessão Agendada</p>
