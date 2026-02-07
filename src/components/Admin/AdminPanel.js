@@ -363,7 +363,25 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
                         </div>
                     </div>
                 </Card>
+
                 <Card title="2. Envios Pendentes">
+                    {/* ✅ BOTÃO MOVIDO PARA LOGO ABAIXO DO TÍTULO */}
+                    <div className="mb-4">
+                         {filteredAppointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
+                            <Button
+                            onClick={handleSendReminders}
+                            variant="success"
+                            disabled={isSending}
+                            className="w-full shadow-none ring-0 focus:ring-0 focus:ring-offset-0"
+                            icon={isSending ? Loader2 : Bell}
+                            >
+                            {isSending ? "Enviando..." : "Disparar Lembretes"}
+                            </Button>
+                                ) : (
+                                    <p className="text-center text-xs text-slate-400">Nenhum disparo disponível para a seleção.</p>
+                                )}
+                                </div>
+
                     <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b border-slate-50">
                         <Filter size={14} className="text-slate-400 mt-1.5 ml-2"/> 
                         {professionalsList.map(prof => (
@@ -394,16 +412,8 @@ export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppoi
                             ))}
                         </div>
                     )}
-                    
-                    <div className="mt-4 pt-4 border-t border-slate-50">
-                        {filteredAppointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
-                            <Button onClick={handleSendReminders} variant="success" disabled={isSending} className="w-full" icon={isSending ? Loader2 : Bell}>
-                                {isSending ? "Enviando..." : "Disparar Lembretes"}
-                            </Button>
-                        ) : (
-                             <p className="text-center text-xs text-slate-400">Nenhum disparo disponível para a seleção.</p>
-                        )}
-                    </div>
+
+                    {/* ❌ REMOVIDO O RODAPÉ ANTIGO DO BOTÃO (agora fica no topo) */}
                 </Card>
             </div>
         )}
