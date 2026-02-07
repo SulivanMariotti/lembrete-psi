@@ -4,25 +4,7 @@ import { collection, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapsho
 import { getToken } from 'firebase/messaging';
 import { Smartphone, Bell, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles } from 'lucide-react';
 import { Button, Toast } from '../DesignSystem';
-import { hashPin, formatPhone, getDayName } from '../../services/dataService';
-
-// --- HELPER SEGURANÇA VISUAL (Evita Crash de Data) ---
-const safeFormatDay = (dateString) => {
-    if (!dateString || typeof dateString !== 'string') return '--';
-    const parts = dateString.split('/');
-    return parts[0] || '--';
-};
-
-const safeFormatMonth = (isoDate) => {
-    if (!isoDate) return '';
-    try {
-        const date = new Date(isoDate);
-        if (isNaN(date.getTime())) return '';
-        return date.toLocaleString('pt-BR', { month: 'short' }).replace('.', '');
-    } catch (e) {
-        return '';
-    }
-};
+import { getDayName } from '../../services/dataService';
 
 // --- CONTEÚDO ESTÁTICO (Mantras e Cards) ---
 const MANTRAS = [
@@ -63,7 +45,10 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   const [showSOS, setShowSOS] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false); 
   const [showProfile, setShowProfile] = useState(false);
-  const [newPin, setNewPin] = useState('');
+  
+  // Estado para edição do perfil (quando falta telefone)
+  const [profileName, setProfileName] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
   
   const [noteContent, setNoteContent] = useState('');
   const [dailyCard, setDailyCard] = useState(null);
@@ -108,7 +93,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
         console.error("Erro localStorage:", e);
     }
 
-    // Carregar Perfil
+    // Carregar Perfil do Firestore
     const loadUserProfile = async () => {
       if (!user) return;
       try {
@@ -118,20 +103,42 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
         if (userSnap.exists()) {
           const userData = userSnap.data();
           const userPhone = userData.phone; 
-          setPhone(userPhone);
-
-          fetchAgenda(userPhone);
-          const unsubNotes = subscribeNotes(userPhone);
           
-          if (!userData.acceptedTermsVersion || userData.acceptedTermsVersion < (config.contractVersion || 1)) {
-              setShowContract(true);
+          // Preenche estados de perfil
+          setProfileName(userData.name || '');
+          setProfilePhone(userPhone || '');
+          setPhone(userPhone || '');
+
+          if (userPhone) {
+              // Se tem telefone, carrega tudo normal
+              fetchAgenda(userPhone);
+              const unsubNotes = subscribeNotes(userPhone);
+              
+              if (!userData.acceptedTermsVersion || userData.acceptedTermsVersion < (config.contractVersion || 1)) {
+                  setShowContract(true);
+              }
+              // Atualiza último acesso
+              updateDoc(userDocRef, { lastSeen: new Date() }).catch(console.error);
+
+              setLoading(false);
+              return () => unsubNotes();
+          } else {
+              // Se NÃO tem telefone (não estava na whitelist), força abrir modal de perfil
+              setShowProfile(true);
+              showToast("Por favor, complete seu cadastro para ver a agenda.", "info");
+              setLoading(false);
           }
 
-          updateDoc(userDocRef, { lastSeen: new Date() }).catch(console.error);
-          setLoading(false);
-          return () => unsubNotes();
         } else {
-          showToast("Perfil não encontrado.", "error");
+          // Se o documento não existe (caso raro ou primeira criação manual falhou), cria agora
+          await addDoc(collection(db, "users"), { 
+              uid: user.uid, 
+              email: user.email, 
+              role: 'patient', 
+              createdAt: new Date() 
+          });
+          setShowProfile(true);
+          showToast("Bem-vindo! Preencha seus dados.", "info");
           setLoading(false);
         }
       } catch (error) {
@@ -152,17 +159,13 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           
           const today = new Date().toISOString().split('T')[0];
           
-          // BLINDAGEM: Filtra dados inválidos
           const validApps = apps.filter(a => {
-              // Garante que isoDate e date existam e sejam strings válidas
               return a.isoDate && typeof a.isoDate === 'string' && a.date && a.isoDate >= today;
           });
           
-          console.log("Agendamentos carregados:", validApps.length); // DEBUG
           setMyAppointments(validApps.sort((a,b) => a.isoDate.localeCompare(b.isoDate)));
       } catch (error) {
-          console.error("Erro ao buscar agenda:", error);
-          // Não quebra a aplicação, apenas mostra lista vazia
+          console.error("Erro agenda:", error);
           setMyAppointments([]);
       }
   };
@@ -181,7 +184,10 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   };
   
   const handleSaveNote = async () => {
-      if(!noteContent.trim()) return;
+      if(!noteContent.trim() || !phone) {
+          if(!phone) showToast("Complete seu perfil primeiro.", "error");
+          return;
+      }
       await addDoc(collection(db, "patient_notes"), { phone: phone, content: noteContent, createdAt: new Date() });
       setNoteContent('');
       showToast("Nota salva!");
@@ -196,9 +202,28 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
     if (onLogout) onLogout();
   };
 
-  const handleChangePin = async () => {
-      showToast("Função em manutenção.", "error"); 
-      setShowProfile(false);
+  // Salvar perfil manualmente (nome/telefone)
+  const handleSaveProfile = async () => {
+      if(!profilePhone || profilePhone.length < 10) return showToast("Telefone inválido (DDD+Número)", "error");
+      const cleanPhone = profilePhone.replace(/\D/g, '');
+      
+      try {
+          // Atualiza ou cria se não existir (setDoc com merge)
+          await updateDoc(doc(db, "users", user.uid), { 
+              name: profileName,
+              phone: cleanPhone 
+          });
+          
+          setPhone(cleanPhone);
+          fetchAgenda(cleanPhone);
+          subscribeNotes(cleanPhone); // Reconecta notas com novo numero
+          
+          showToast("Dados atualizados!");
+          setShowProfile(false);
+      } catch(e) {
+          console.error(e);
+          showToast("Erro ao salvar dados.", "error");
+      }
   };
 
   const handleRequestNotification = async () => {
@@ -216,6 +241,8 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
     } catch (error) { console.error(error); }
   };
 
+  // --- Renderização ---
+
   if (loading) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
@@ -224,7 +251,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       );
   }
 
-  // --- TELA INICIAL ---
+  // TELA INICIAL (LANDING)
   if (view === 'landing') {
       return (
           <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-slate-50">
@@ -264,7 +291,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       );
   }
 
-  // --- DASHBOARD ---
+  // Dashboard do Paciente
   const nextApp = myApps[0];
   const recurrenceText = nextApp && nextApp.date ? `Toda ${getDayName(nextApp.date)} às ${nextApp.time}` : "Aguardando agendamento";
 
@@ -272,6 +299,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       <div className="min-h-screen bg-violet-50 p-4 flex flex-col">
           {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
           
+          {/* HEADER */}
           <div className="flex justify-between items-center mb-6">
               <div className="flex items-center gap-2">
                   <div className="bg-white p-1.5 rounded-full shadow-sm"><User className="text-violet-600 w-5 h-5"/></div>
@@ -340,7 +368,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-slate-200">
-             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações para a Terapia</h3>
+             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações</h3>
              <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-2 border rounded-lg text-xs mb-2 h-16 resize-none text-slate-900 focus:ring-1 focus:ring-violet-200 outline-none" placeholder="Lembrete para a sessão..." />
              <Button onClick={handleSaveNote} className="w-full text-xs py-2">Salvar</Button>
              {myNotes.length > 0 && (
@@ -362,8 +390,9 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                       {myApps.map(app => (
                           <div key={app.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
                               <div className="bg-slate-100 text-slate-600 w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                                  <span className="font-bold text-xs">{safeFormatDay(app.date)}</span>
-                                  <span className="text-[8px] uppercase">{safeFormatMonth(app.isoDate)}</span>
+                                  <span className="font-bold text-xs">{app.date ? app.date.split('/')[0] : '--'}</span>
+                                  {/* Helper getDayName não é getShortMonth, ajuste aqui inline se precisar ou use o importado */}
+                                  <span className="text-[8px] uppercase">{app.isoDate ? new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','') : ''}</span>
                               </div>
                               <div>
                                   <p className="font-bold text-slate-700 text-xs">Sessão Agendada</p>
@@ -377,6 +406,8 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
               )}
           </div>
 
+          {/* --- MODAIS --- */}
+          
           {showLibrary && (
               <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                   <div className="bg-white rounded-xl w-full max-w-md h-[80vh] flex flex-col shadow-2xl overflow-hidden">
@@ -421,7 +452,33 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           
           {showContract && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl w-full max-w-sm overflow-hidden h-[80vh] flex flex-col"><div className="bg-violet-600 p-3 text-white"><h3 className="font-bold text-sm">Termos e Combinados</h3></div><div className="p-5 overflow-y-auto flex-1 whitespace-pre-wrap text-xs text-slate-700 leading-relaxed">{config.contractText || "Carregando termos..."}</div><div className="p-3 border-t"><Button onClick={handleAcceptContract} variant="success" className="text-sm py-2">Li e Aceito</Button></div></div></div>}
 
-          {showProfile && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white p-5 rounded-xl w-full max-w-sm"><h3 className="font-bold mb-3 text-slate-800 text-sm">Alterar Senha</h3><input placeholder="Novo PIN" value={newPin} onChange={e=>setNewPin(e.target.value)} className="w-full p-2.5 border rounded mb-3 text-slate-900 text-sm"/><Button onClick={handleChangePin} className="text-sm py-2">Confirmar</Button><button onClick={()=>setShowProfile(false)} className="block w-full text-center mt-2 text-xs text-slate-400">Cancelar</button></div></div>}
+          {/* Modal de Perfil (Usado para completar cadastro se não tiver telefone) */}
+          {showProfile && (
+            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                    <h3 className="font-bold mb-4 text-slate-800 text-sm flex items-center gap-2"><User size={18}/> Meus Dados</h3>
+                    <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700 mb-4 border border-blue-100">
+                        Por favor, confirme seu nome e WhatsApp para sincronizarmos sua agenda.
+                    </div>
+                    
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">Nome Completo</label>
+                            <input value={profileName} onChange={e=>setProfileName(e.target.value)} className="w-full p-2.5 border rounded text-slate-900 text-sm"/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">WhatsApp (DDD + Número)</label>
+                            <input value={profilePhone} onChange={e=>setProfilePhone(e.target.value)} className="w-full p-2.5 border rounded text-slate-900 text-sm" placeholder="11999998888"/>
+                        </div>
+                    </div>
+                    
+                    <div className="mt-6 flex gap-2">
+                        <Button onClick={handleSaveProfile} className="flex-1 text-sm py-2">Salvar e Continuar</Button>
+                        <button onClick={()=>setShowProfile(false)} className="flex-1 text-xs text-slate-400 hover:text-slate-600">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+          )}
 
           <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="fixed bottom-6 right-6 bg-green-500 text-white p-3 rounded-full shadow-lg z-40"><MessageCircle size={28}/></a>
       </div>
