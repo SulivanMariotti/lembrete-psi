@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { app } from './firebase'; // Certifique-se que o firebase.js exporta { app }
+import { app } from './firebase'; 
 import { Toast } from '../components/DesignSystem';
 import { useData } from '../hooks/useData';
 import AdminPanel from '../components/Admin/AdminPanel';
@@ -17,12 +17,11 @@ export default function App() {
   const [toast, setToast] = useState({ msg: '', type: '' });
 
   // Hook de dados (Só busca dados sensíveis se for Admin)
-  // Isso evita o erro de "insufficient permissions" quando o paciente tenta carregar dados de admin
   const { subscribers, historyLogs, dbAppointments, globalConfig } = useData(isAdminMode);
 
   const showToast = (msg, type = 'success') => setToast({ msg, type });
 
-  // Observa o estado de autenticação do Firebase (se o paciente clicou no link de e-mail)
+  // Observa autenticação
   useEffect(() => {
     const auth = getAuth(app);
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -32,14 +31,12 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Lógica de Login do Admin (Chamada pelo botão discreto na tela de Login)
+  // Login Admin (Senha simples)
   const handleAdminAccess = async () => {
     const password = prompt("Senha de Administrador:");
     if (!password) return;
 
     try {
-      // Chama a API segura para validar a senha do servidor
-      // Isso protege a senha de ser vista no código do navegador
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,7 +57,7 @@ export default function App() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">Carregando...</div>;
 
-  // 1. MODO ADMIN (Prioridade se a senha for digitada)
+  // 1. MODO ADMIN
   if (isAdminMode) {
       return (
         <>
@@ -79,7 +76,7 @@ export default function App() {
       );
   }
 
-  // 2. MODO PACIENTE LOGADO (Autenticado via E-mail)
+  // 2. MODO PACIENTE LOGADO
   if (user) {
       return (
         <>
@@ -87,13 +84,14 @@ export default function App() {
             <PatientFlow 
                 user={user} 
                 onLogout={logoutUser} 
+                onAdminAccess={handleAdminAccess} // <--- ADICIONADO AQUI
                 globalConfig={globalConfig} 
             />
         </>
       );
   }
 
-  // 3. TELA DE LOGIN (Padrão para visitantes)
+  // 3. TELA DE LOGIN
   return (
     <>
         {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}

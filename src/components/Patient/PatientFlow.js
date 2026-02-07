@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db, messaging } from '../../app/firebase';
 import { collection, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapshot, getDoc, addDoc } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles } from 'lucide-react';
+import { Smartphone, Bell, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles, Lock } from 'lucide-react';
 import { Button, Toast } from '../DesignSystem';
 import { getDayName } from '../../services/dataService';
 
@@ -32,8 +32,8 @@ const EDUCATION_CARDS = [
   { id: 12, title: "Constância não é cobrança", content: "Constância não é rigidez. Não é culpa. Não é punição.\n\nÉ um convite contínuo ao cuidado e ao compromisso com o próprio processo de cura." }
 ];
 
-export default function PatientFlow({ user, onLogout, globalConfig }) {
-  const [view, setView] = useState('landing');
+export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig }) {
+  const [view, setView] = useState('landing'); // Começa na Landing (Tela Inicial)
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ msg: '', type: '' });
@@ -49,15 +49,18 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   // Estado para edição do perfil (quando falta telefone)
   const [profileName, setProfileName] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
+  const [newPin, setNewPin] = useState(''); // Mantido para compatibilidade visual
   
   const [noteContent, setNoteContent] = useState('');
+  
+  // Conteúdos Rotativos
   const [dailyCard, setDailyCard] = useState(null);
   const [dailyMantra, setDailyMantra] = useState("");
 
   const config = globalConfig || {};
   const showToast = (msg, type) => setToast({ msg, type });
 
-  // 1. Inicialização
+  // 1. Inicialização e Carregamento de Dados do Usuário
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotificationPermission(Notification.permission);
@@ -117,10 +120,12 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
               if (!userData.acceptedTermsVersion || userData.acceptedTermsVersion < (config.contractVersion || 1)) {
                   setShowContract(true);
               }
+
               // Atualiza último acesso
               updateDoc(userDocRef, { lastSeen: new Date() }).catch(console.error);
 
               setLoading(false);
+              // IMPORTANTE: Mantém view 'landing' para mostrar os avisos primeiro
               return () => unsubNotes();
           } else {
               // Se NÃO tem telefone (não estava na whitelist), força abrir modal de perfil
@@ -128,21 +133,20 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
               showToast("Por favor, complete seu cadastro para ver a agenda.", "info");
               setLoading(false);
           }
-
         } else {
-          // Se o documento não existe (caso raro ou primeira criação manual falhou), cria agora
-          await addDoc(collection(db, "users"), { 
-              uid: user.uid, 
-              email: user.email, 
-              role: 'patient', 
-              createdAt: new Date() 
-          });
-          setShowProfile(true);
-          showToast("Bem-vindo! Preencha seus dados.", "info");
-          setLoading(false);
+           // Se documento não existir, cria um básico
+           await addDoc(collection(db, "users"), { 
+               uid: user.uid, 
+               email: user.email, 
+               role: 'patient', 
+               createdAt: new Date() 
+           });
+           setShowProfile(true);
+           showToast("Bem-vindo! Preencha seus dados.", "info");
+           setLoading(false);
         }
       } catch (error) {
-        console.error("Erro perfil:", error);
+        console.error("Erro ao carregar perfil:", error);
         setLoading(false);
       }
     };
@@ -159,6 +163,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           
           const today = new Date().toISOString().split('T')[0];
           
+          // BLINDAGEM: Filtra dados inválidos
           const validApps = apps.filter(a => {
               return a.isoDate && typeof a.isoDate === 'string' && a.date && a.isoDate >= today;
           });
@@ -184,8 +189,9 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   };
   
   const handleSaveNote = async () => {
-      if(!noteContent.trim() || !phone) {
-          if(!phone) showToast("Complete seu perfil primeiro.", "error");
+      if(!noteContent.trim()) return;
+      if(!phone) {
+          showToast("Complete seu perfil primeiro.", "error");
           return;
       }
       await addDoc(collection(db, "patient_notes"), { phone: phone, content: noteContent, createdAt: new Date() });
@@ -208,7 +214,6 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       const cleanPhone = profilePhone.replace(/\D/g, '');
       
       try {
-          // Atualiza ou cria se não existir (setDoc com merge)
           await updateDoc(doc(db, "users", user.uid), { 
               name: profileName,
               phone: cleanPhone 
@@ -216,7 +221,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           
           setPhone(cleanPhone);
           fetchAgenda(cleanPhone);
-          subscribeNotes(cleanPhone); // Reconecta notas com novo numero
+          subscribeNotes(cleanPhone); 
           
           showToast("Dados atualizados!");
           setShowProfile(false);
@@ -224,6 +229,11 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           console.error(e);
           showToast("Erro ao salvar dados.", "error");
       }
+  };
+
+  const handleChangePin = async () => {
+      showToast("Função desativada temporariamente.", "info");
+      setShowProfile(false);
   };
 
   const handleRequestNotification = async () => {
@@ -281,7 +291,10 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                         <p className="text-[10px] text-slate-400">Funciona direto no navegador.</p>
                    </div>
                    
-                   <div className="pt-3 border-t border-slate-100">
+                   <div className="pt-3 border-t border-slate-100 space-y-2">
+                        <button onClick={onAdminAccess} className="text-xs text-slate-400 hover:text-violet-600 underline flex items-center justify-center gap-1 mx-auto">
+                            <Lock size={12}/> Acesso da Clínica (Admin)
+                        </button>
                         <button onClick={onLogout} className="text-xs text-slate-400 hover:text-red-500 underline flex items-center justify-center gap-1 mx-auto">
                             <LogOut size={12}/> Sair
                         </button>
@@ -291,7 +304,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       );
   }
 
-  // Dashboard do Paciente
+  // DASHBOARD
   const nextApp = myApps[0];
   const recurrenceText = nextApp && nextApp.date ? `Toda ${getDayName(nextApp.date)} às ${nextApp.time}` : "Aguardando agendamento";
 
@@ -391,8 +404,10 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                           <div key={app.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
                               <div className="bg-slate-100 text-slate-600 w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
                                   <span className="font-bold text-xs">{app.date ? app.date.split('/')[0] : '--'}</span>
-                                  {/* Helper getDayName não é getShortMonth, ajuste aqui inline se precisar ou use o importado */}
-                                  <span className="text-[8px] uppercase">{app.isoDate ? new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','') : ''}</span>
+                                  {/* Formata a data se for válida */}
+                                  <span className="text-[8px] uppercase">
+                                      {app.isoDate ? new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','') : ''}
+                                  </span>
                               </div>
                               <div>
                                   <p className="font-bold text-slate-700 text-xs">Sessão Agendada</p>
@@ -452,7 +467,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           
           {showContract && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl w-full max-w-sm overflow-hidden h-[80vh] flex flex-col"><div className="bg-violet-600 p-3 text-white"><h3 className="font-bold text-sm">Termos e Combinados</h3></div><div className="p-5 overflow-y-auto flex-1 whitespace-pre-wrap text-xs text-slate-700 leading-relaxed">{config.contractText || "Carregando termos..."}</div><div className="p-3 border-t"><Button onClick={handleAcceptContract} variant="success" className="text-sm py-2">Li e Aceito</Button></div></div></div>}
 
-          {/* Modal de Perfil (Usado para completar cadastro se não tiver telefone) */}
+          {/* Modal de Perfil / Meus Dados */}
           {showProfile && (
             <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                 <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
@@ -463,12 +478,12 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                     
                     <div className="space-y-3">
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 mb-1">Nome Completo</label>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">Nome</label>
                             <input value={profileName} onChange={e=>setProfileName(e.target.value)} className="w-full p-2.5 border rounded text-slate-900 text-sm"/>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-400 mb-1">WhatsApp (DDD + Número)</label>
-                            <input value={profilePhone} onChange={e=>setProfilePhone(e.target.value)} className="w-full p-2.5 border rounded text-slate-900 text-sm" placeholder="11999998888"/>
+                            <input value={profilePhone} onChange={e=>setProfilePhone(formatPhone(e.target.value))} className="w-full p-2.5 border rounded text-slate-900 text-sm" placeholder="11999998888"/>
                         </div>
                     </div>
                     

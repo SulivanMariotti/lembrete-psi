@@ -1,80 +1,62 @@
-import { 
-  getAuth, 
-  sendSignInLinkToEmail, 
-  isSignInWithEmailLink, 
-  signInWithEmailLink, 
-  signOut 
-} from "firebase/auth";
-import { app, db } from '../app/firebase'; 
+import { getAuth, signOut } from "firebase/auth";
+import { app, db } from '../app/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 const auth = getAuth(app);
 
-const actionCodeSettings = {
-  // A URL deve ser a URL onde seu site está hospedado
-  url: typeof window !== 'undefined' ? window.location.href : '', 
-  handleCodeInApp: true,
-};
-
-// 1. Enviar o Link
-export const sendMagicLink = async (email) => {
+// --- MODO DESENVOLVIMENTO: Login Direto sem E-mail ---
+export const devLogin = async (email) => {
   try {
-    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
-    window.localStorage.setItem('emailForSignIn', email);
-    return { success: true };
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // Gera um UID falso mas consistente baseado no e-mail (base64)
+    // Assim, sempre que entrar com o mesmo e-mail, terá o mesmo ID e dados
+    // btoa converte string para base64, pegamos os primeiros 20 chars para simular um UID do Firebase
+    const fakeUid = btoa(cleanEmail).substring(0, 20); 
+
+    // Verifica se está na Whitelist (Pré-cadastro) para puxar dados
+    const whitelistRef = doc(db, "whitelisted_patients", cleanEmail);
+    const whitelistSnap = await getDoc(whitelistRef);
+
+    let userData = {
+      uid: fakeUid,
+      email: cleanEmail,
+      role: 'patient',
+      lastLogin: serverTimestamp()
+    };
+
+    // Se estiver na whitelist, puxa os dados corretos
+    if (whitelistSnap.exists()) {
+      const whitelistData = whitelistSnap.data();
+      userData.name = whitelistData.fullName;
+      userData.phone = whitelistData.phone;
+    }
+
+    // Salva/Atualiza o usuário no banco de dados "users"
+    // Isso é fundamental para que o PatientFlow.js encontre o perfil
+    await setDoc(doc(db, "users", fakeUid), userData, { merge: true });
+
+    // Retorna um objeto que imita o objeto 'user' do Firebase Auth
+    return { 
+      success: true, 
+      user: { 
+        uid: fakeUid, 
+        email: cleanEmail, 
+        displayName: userData.name || '' 
+      } 
+    };
+
   } catch (error) {
-    console.error("Erro ao enviar link:", error);
+    console.error("Erro no login dev:", error);
     return { success: false, error: error.message };
   }
 };
 
-// 2. Verificar e Completar Login (SEM BLOQUEIO)
-export const completeLoginWithLink = async () => {
-  if (isSignInWithEmailLink(auth, window.location.href)) {
-    let email = window.localStorage.getItem('emailForSignIn');
-    
-    if (!email) {
-      email = window.prompt('Por favor, confirme seu e-mail para finalizar o acesso:');
-    }
-
-    try {
-      const result = await signInWithEmailLink(auth, email, window.location.href);
-      const user = result.user;
-
-      // Tenta buscar dados pré-cadastrados, mas NÃO BLOQUEIA se não achar
-      const whitelistRef = doc(db, "whitelisted_patients", user.email);
-      const whitelistSnap = await getDoc(whitelistRef);
-
-      let userData = {
-        uid: user.uid,
-        email: user.email,
-        role: 'patient',
-        lastLogin: serverTimestamp()
-      };
-
-      // Se houver pré-cadastro, puxamos os dados confiáveis
-      if (whitelistSnap.exists()) {
-        const whitelistData = whitelistSnap.data();
-        userData.name = whitelistData.fullName;
-        userData.phone = whitelistData.phone;
-      }
-
-      // Cria ou atualiza o usuário (mesmo sem whitelist)
-      await setDoc(doc(db, "users", user.uid), userData, { merge: true });
-
-      window.localStorage.removeItem('emailForSignIn');
-      
-      // Limpa a URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-      
-      return { success: true, user };
-
-    } catch (error) {
-      console.error("Erro no login:", error);
-      return { success: false, error: error.message };
-    }
-  }
-  return { success: false, error: "Link inválido ou expirado." };
+export const logoutUser = async () => {
+    // Apenas limpa localmente, já que não há sessão real do Firebase neste modo
+    return true; 
 };
 
-export const logoutUser = () => signOut(auth);
+// Funções antigas mantidas como placeholders para não quebrar outros imports, se houver
+export const sendMagicLink = async () => { return { success: false, error: "Modo DEV ativado" }; };
+export const completeLoginWithLink = async () => { return { success: false }; };
