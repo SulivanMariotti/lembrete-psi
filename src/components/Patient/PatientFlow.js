@@ -6,6 +6,24 @@ import { Smartphone, Bell, User, LogOut, CheckCircle, Info, StickyNote, Trash2, 
 import { Button, Toast } from '../DesignSystem';
 import { hashPin, formatPhone, getDayName } from '../../services/dataService';
 
+// --- HELPER SEGURANÇA VISUAL (Evita Crash de Data) ---
+const safeFormatDay = (dateString) => {
+    if (!dateString || typeof dateString !== 'string') return '--';
+    const parts = dateString.split('/');
+    return parts[0] || '--';
+};
+
+const safeFormatMonth = (isoDate) => {
+    if (!isoDate) return '';
+    try {
+        const date = new Date(isoDate);
+        if (isNaN(date.getTime())) return '';
+        return date.toLocaleString('pt-BR', { month: 'short' }).replace('.', '');
+    } catch (e) {
+        return '';
+    }
+};
+
 // --- CONTEÚDO ESTÁTICO (Mantras e Cards) ---
 const MANTRAS = [
   "A constância é um dos principais fatores de evolução terapêutica.",
@@ -54,44 +72,43 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   const config = globalConfig || {};
   const showToast = (msg, type) => setToast({ msg, type });
 
-  // Helper para formatar mês com segurança
-  const getShortMonth = (isoDate) => {
-    try {
-      const date = new Date(isoDate);
-      if (isNaN(date.getTime())) return '';
-      return date.toLocaleString('pt-BR', { month: 'short' }).replace('.', '');
-    } catch (e) { return ''; }
-  };
-
+  // 1. Inicialização
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
 
-    const today = new Date().toDateString();
-    let mantraToShow = localStorage.getItem('psi_mantra_text');
-    const savedMantraDate = localStorage.getItem('psi_mantra_date');
-    if (savedMantraDate !== today || !mantraToShow) {
-        mantraToShow = MANTRAS[Math.floor(Math.random() * MANTRAS.length)];
-        localStorage.setItem('psi_mantra_date', today);
-        localStorage.setItem('psi_mantra_text', mantraToShow);
-    }
-    setDailyMantra(mantraToShow);
+    // Mantra e Card (Protegidos)
+    try {
+        const today = new Date().toDateString();
+        let mantraToShow = localStorage.getItem('psi_mantra_text');
+        const savedMantraDate = localStorage.getItem('psi_mantra_date');
+        
+        if (savedMantraDate !== today || !mantraToShow) {
+            mantraToShow = MANTRAS[Math.floor(Math.random() * MANTRAS.length)];
+            localStorage.setItem('psi_mantra_date', today);
+            localStorage.setItem('psi_mantra_text', mantraToShow);
+        }
+        setDailyMantra(mantraToShow);
 
-    let cardToShow;
-    const savedCardDate = localStorage.getItem('psi_daily_card_date');
-    const savedCardId = localStorage.getItem('psi_daily_card_id');
-    if (savedCardDate === today && savedCardId) {
-        cardToShow = EDUCATION_CARDS.find(c => c.id === Number(savedCardId));
+        let cardToShow;
+        const savedCardDate = localStorage.getItem('psi_daily_card_date');
+        const savedCardId = localStorage.getItem('psi_daily_card_id');
+        if (savedCardDate === today && savedCardId) {
+            cardToShow = EDUCATION_CARDS.find(c => c.id === Number(savedCardId));
+        }
+        if (!cardToShow) {
+            const randomIndex = Math.floor(Math.random() * EDUCATION_CARDS.length);
+            cardToShow = EDUCATION_CARDS[randomIndex];
+            localStorage.setItem('psi_daily_card_date', today);
+            localStorage.setItem('psi_daily_card_id', cardToShow.id);
+        }
+        setDailyCard(cardToShow);
+    } catch (e) {
+        console.error("Erro localStorage:", e);
     }
-    if (!cardToShow) {
-        const randomIndex = Math.floor(Math.random() * EDUCATION_CARDS.length);
-        cardToShow = EDUCATION_CARDS[randomIndex];
-        localStorage.setItem('psi_daily_card_date', today);
-        localStorage.setItem('psi_daily_card_id', cardToShow.id);
-    }
-    setDailyCard(cardToShow);
 
+    // Carregar Perfil
     const loadUserProfile = async () => {
       if (!user) return;
       try {
@@ -118,7 +135,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
           setLoading(false);
         }
       } catch (error) {
-        console.error(error);
+        console.error("Erro perfil:", error);
         setLoading(false);
       }
     };
@@ -128,14 +145,26 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
 
   const fetchAgenda = async (rawPhone) => {
       if (!rawPhone) return;
-      const q = query(collection(db, "appointments"), where("phone", "==", rawPhone));
-      const snap = await getDocs(q);
-      const apps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Filtrar apenas agendamentos com datas válidas para evitar crash
-      const validApps = apps.filter(a => a.isoDate && a.isoDate >= today);
-      setMyAppointments(validApps.sort((a,b) => a.isoDate.localeCompare(b.isoDate)));
+      try {
+          const q = query(collection(db, "appointments"), where("phone", "==", rawPhone));
+          const snap = await getDocs(q);
+          const apps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          
+          const today = new Date().toISOString().split('T')[0];
+          
+          // BLINDAGEM: Filtra dados inválidos
+          const validApps = apps.filter(a => {
+              // Garante que isoDate e date existam e sejam strings válidas
+              return a.isoDate && typeof a.isoDate === 'string' && a.date && a.isoDate >= today;
+          });
+          
+          console.log("Agendamentos carregados:", validApps.length); // DEBUG
+          setMyAppointments(validApps.sort((a,b) => a.isoDate.localeCompare(b.isoDate)));
+      } catch (error) {
+          console.error("Erro ao buscar agenda:", error);
+          // Não quebra a aplicação, apenas mostra lista vazia
+          setMyAppointments([]);
+      }
   };
 
   const subscribeNotes = (rawPhone) => {
@@ -168,7 +197,6 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
   };
 
   const handleChangePin = async () => {
-      // Placeholder para futura implementação real
       showToast("Função em manutenção.", "error"); 
       setShowProfile(false);
   };
@@ -188,8 +216,6 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
     } catch (error) { console.error(error); }
   };
 
-  // --- RENDERIZAÇÃO ---
-
   if (loading) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
@@ -198,7 +224,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       );
   }
 
-  // TELA INICIAL (LANDING)
+  // --- TELA INICIAL ---
   if (view === 'landing') {
       return (
           <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-slate-50">
@@ -238,7 +264,7 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
       );
   }
 
-  // DASHBOARD
+  // --- DASHBOARD ---
   const nextApp = myApps[0];
   const recurrenceText = nextApp && nextApp.date ? `Toda ${getDayName(nextApp.date)} às ${nextApp.time}` : "Aguardando agendamento";
 
@@ -336,8 +362,8 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                       {myApps.map(app => (
                           <div key={app.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
                               <div className="bg-slate-100 text-slate-600 w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                                  <span className="font-bold text-xs">{app.date ? app.date.split('/')[0] : '--'}</span>
-                                  <span className="text-[8px] uppercase">{getShortMonth(app.isoDate)}</span>
+                                  <span className="font-bold text-xs">{safeFormatDay(app.date)}</span>
+                                  <span className="text-[8px] uppercase">{safeFormatMonth(app.isoDate)}</span>
                               </div>
                               <div>
                                   <p className="font-bold text-slate-700 text-xs">Sessão Agendada</p>
@@ -384,7 +410,9 @@ export default function PatientFlow({ user, onLogout, globalConfig }) {
                           </a>
                           <div className="border-t border-slate-100 pt-3 mt-1">
                                <p className="text-[10px] text-slate-500 text-center mb-2">Contato da Clínica</p>
-                               <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="w-full bg-green-500 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-green-600 transition-colors text-sm font-medium"><MessageCircle size={16} /> Chamar no WhatsApp</a>
+                               <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="w-full bg-green-500 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-green-600 transition-colors text-sm font-medium">
+                                   <MessageCircle size={16} /> Chamar no WhatsApp
+                               </a>
                           </div>
                       </div>
                   </div>
