@@ -20,7 +20,7 @@ export default function PatientLogin({ onAdminAccess }) {
     setLoading(true);
     try {
       await patientLoginByEmail(cleanEmail);
-      // ✅ onAuthStateChanged no page.js vai redirecionar automaticamente
+      // onAuthStateChanged no page.js redireciona
     } catch (e) {
       console.error(e);
       alert(e?.message || "Falha ao entrar.");
@@ -31,28 +31,27 @@ export default function PatientLogin({ onAdminAccess }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-4">
-        {/* Cabeçalho leve (psicoeducação / propósito) */}
+      <div className="w-full max-w-md space-y-3">
+        {/* Cabeçalho compacto (Lembrete Psi maior) */}
         <div className="text-center px-2">
-          <div className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-full border border-violet-100 bg-violet-50 text-violet-900 text-xs font-semibold">
-            <Sparkles size={14} /> Lembrete Psi
+          <div className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border border-violet-100 bg-violet-50 text-violet-900 font-extrabold shadow-sm">
+            <Sparkles size={16} />
+            <span className="text-sm sm:text-base tracking-wide">Lembrete Psi</span>
           </div>
 
-          <div className="mt-3 text-2xl font-extrabold text-slate-900 leading-tight">
-            Seu espaço de constância terapêutica
+          <div className="mt-2 text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
+            Constância terapêutica
           </div>
-          <div className="mt-2 text-sm text-slate-500">
-            Lembretes, organização do cuidado e reforços de psicoeducação — para você se manter presente no seu processo.
+          <div className="mt-1 text-sm text-slate-500">
+            Seu painel para lembretes, agenda e registro rápido.
           </div>
         </div>
 
         <Card title="Entrar">
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="text-sm text-slate-600">
-              Digite seu <b>e-mail cadastrado</b> para acessar seu painel.
-              <div className="text-xs text-slate-400 mt-1">
-                Se você não tiver cadastro, solicite à clínica.
-              </div>
+              Use seu <b>e-mail cadastrado</b>.
+              <span className="text-xs text-slate-400"> (Sem cadastro? solicite à clínica.)</span>
             </div>
 
             <div className="space-y-2">
@@ -71,47 +70,46 @@ export default function PatientLogin({ onAdminAccess }) {
             </div>
 
             <Button onClick={handlePatientLogin} disabled={loading} className="w-full">
-              {loading ? "Entrando..." : "Entrar no meu painel"}
+              {loading ? "Entrando..." : "Entrar"}
             </Button>
 
-            {/* O que o paciente vai encontrar (sem poluir) */}
+            {/* O que tem no painel (mais compacto) */}
             <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
               <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                 <Info size={14} className="text-slate-400" />
-                O que você encontra aqui
+                Você vai ver
               </div>
 
-              <div className="mt-2 space-y-2 text-sm text-slate-600">
+              <div className="mt-2 grid gap-2 text-sm text-slate-600">
                 <div className="flex items-start gap-2">
                   <CalendarCheck size={16} className="text-slate-400 mt-0.5" />
                   <div>
-                    <b className="text-slate-700">Próximo atendimento</b> e agenda organizada (sem reagendar/cancelar).
+                    <b className="text-slate-700">Próximo atendimento</b> + agenda (sem reagendar/cancelar)
                   </div>
                 </div>
 
                 <div className="flex items-start gap-2">
                   <Bell size={16} className="text-slate-400 mt-0.5" />
                   <div>
-                    <b className="text-slate-700">Notificações</b> para lembretes no seu celular.
+                    <b className="text-slate-700">Notificações</b> no celular
                   </div>
                 </div>
 
                 <div className="flex items-start gap-2">
                   <NotebookPen size={16} className="text-slate-400 mt-0.5" />
                   <div>
-                    <b className="text-slate-700">Diário rápido</b> para registrar pontos importantes entre sessões.
+                    <b className="text-slate-700">Diário rápido</b> entre sessões
                   </div>
                 </div>
               </div>
 
-              <div className="mt-3 text-[12px] text-slate-500 leading-snug">
-                <b>Importante:</b> este sistema existe para fortalecer a <b>constância</b>. Quando você falta, você interrompe o
-                ritmo do seu processo — e isso costuma custar mais do que “parece” no dia.
+              <div className="mt-2 text-[12px] text-slate-500 leading-snug">
+                <b>Importante:</b> este sistema existe para fortalecer a <b>constância</b>. Faltar interrompe o ritmo do seu processo.
               </div>
             </div>
 
             {/* Acesso Admin */}
-            <div className="pt-3 border-t border-slate-100">
+            <div className="pt-2 border-t border-slate-100">
               <button
                 onClick={onAdminAccess}
                 className="w-full text-sm text-slate-500 hover:text-slate-800 flex items-center justify-center gap-2"
@@ -123,12 +121,12 @@ export default function PatientLogin({ onAdminAccess }) {
           </div>
         </Card>
 
-        {/* Rodapé mínimo */}
+        {/* Rodapé mínimo (mais curto) */}
         <div className="text-center text-xs text-slate-400">
-          Ao entrar, você confirma que entende que este painel é para <b>lembretes e constância</b>.
+          Painel focado em <b>lembretes e constância</b>.
           <div className="mt-1 inline-flex items-center gap-2 justify-center">
             <CheckCircle size={14} className="text-slate-300" />
-            Dados usados apenas para apoiar seu acompanhamento (agenda, lembretes e registro pessoal).
+            Dados usados apenas para apoio do acompanhamento.
           </div>
         </div>
       </div>
