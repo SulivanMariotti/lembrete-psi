@@ -34,6 +34,7 @@ import {
   User,
   Phone,
   LogOut,
+  Shield,
 } from "lucide-react";
 
 function Skeleton({ className = "" }) {
@@ -52,29 +53,55 @@ function formatPhoneBR(raw) {
   return d;
 }
 
-function brDateParts(dateStrOrIso) {
-  const s = String(dateStrOrIso || "").trim();
-  if (!s) return { day: "--", mon: "---", label: "" };
+function parseDateFromAny(a) {
+  const s = String(a || "").trim();
+  if (!s) return null;
 
-  let dateObj = null;
-
+  // YYYY-MM-DD
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) dateObj = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
+  if (iso) return new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
 
-  if (!dateObj) {
-    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (br) dateObj = new Date(`${br[3]}-${br[2]}-${br[1]}T00:00:00`);
-  }
+  // DD/MM/YYYY
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (br) return new Date(`${br[3]}-${br[2]}-${br[1]}T00:00:00`);
 
-  if (!dateObj || Number.isNaN(dateObj.getTime())) {
-    return { day: "--", mon: "---", label: s };
-  }
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
 
-  const day = String(dateObj.getDate()).padStart(2, "0");
+function brDateParts(dateStrOrIso) {
+  const d = parseDateFromAny(dateStrOrIso);
+  if (!d) return { day: "--", mon: "---", label: String(dateStrOrIso || "") };
+  const day = String(d.getDate()).padStart(2, "0");
   const monNames = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
-  const mon = monNames[dateObj.getMonth()];
-  const label = dateObj.toLocaleDateString("pt-BR");
+  const mon = monNames[d.getMonth()];
+  const label = d.toLocaleDateString("pt-BR");
   return { day, mon, label };
+}
+
+function monthLabelFromIso(isoDate) {
+  const d = parseDateFromAny(isoDate);
+  if (!d) return "";
+  const months = [
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
+  ];
+  return `${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function addMinutes(date, minutes) {
+  return new Date(date.getTime() + minutes * 60000);
 }
 
 function makeIcsDataUrl({ title, description, startISO, endISO }) {
@@ -125,11 +152,12 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     if (typeof showToastFromProps === "function") showToastFromProps(msg, type);
   };
 
-  // UI states
+  // UI
   const [contractOpen, setContractOpen] = useState(false);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteSearch, setNoteSearch] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Notificações
   const [notifSupported, setNotifSupported] = useState(false);
@@ -155,7 +183,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
 
-  // ✅ Perfil
+  // Perfil
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -216,13 +244,13 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [user?.uid, user?.email, user?.displayName]);
 
-  // ✅ Abrir contrato automaticamente se pendente (primeira carga)
+  // Abrir contrato se pendente
   useEffect(() => {
     if (loadingProfile) return;
     if (needsContractAcceptance) setContractOpen(true);
   }, [loadingProfile, needsContractAcceptance]);
 
-  // ✅ Status de notificações
+  // Status notificações
   useEffect(() => {
     if (typeof window === "undefined") return;
     setNotifPermission(Notification?.permission || "default");
@@ -272,11 +300,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         return;
       }
 
-      const token = await getToken(messaging, {
-        vapidKey,
-        serviceWorkerRegistration: swReg,
-      });
-
+      const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg });
       if (!token) {
         showToast("Não foi possível gerar token de notificação.", "error");
         return;
@@ -288,11 +312,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         return;
       }
 
-      await updateDoc(doc(db, "subscribers", phone), {
-        pushToken: token,
-        lastSeen: new Date(),
-      });
-
+      await updateDoc(doc(db, "subscribers", phone), { pushToken: token, lastSeen: new Date() });
       setNotifHasToken(true);
       showToast("Notificações ativadas ✅", "success");
     } catch (e) {
@@ -303,20 +323,16 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     }
   }
 
-  // ✅ acompanhar pushToken do próprio subscriber
+  // Acompanhar token do próprio subscriber
   useEffect(() => {
     if (!cleanPhoneFromProfile) return;
 
     let unsub = null;
     try {
       const ref = doc(db, "subscribers", cleanPhoneFromProfile);
-      unsub = onSnapshot(
-        ref,
-        (snap) => {
-          if (snap.exists()) setNotifHasToken(Boolean(snap.data()?.pushToken));
-        },
-        () => {}
-      );
+      unsub = onSnapshot(ref, (snap) => {
+        if (snap.exists()) setNotifHasToken(Boolean(snap.data()?.pushToken));
+      });
     } catch (_) {}
 
     return () => {
@@ -324,7 +340,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [cleanPhoneFromProfile]);
 
-  // ✅ Agenda
+  // Agenda
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -335,9 +351,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     const phone = cleanPhoneFromProfile;
 
     let q = null;
-    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(50));
+    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(80));
     else if (user?.email)
-      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(50));
+      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(80));
     else {
       setAppointments([]);
       setLoadingAppointments(false);
@@ -361,7 +377,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return () => unsub();
   }, [user?.uid, user?.email, loadingProfile, cleanPhoneFromProfile]);
 
-  // ✅ Notas
+  // Notas
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -444,38 +460,82 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return (notes || []).filter((n) => String(n.content || "").toLowerCase().includes(q));
   }, [notes, noteSearch]);
 
-  // Loading inicial (skeleton)
-  if (loadingProfile) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-4">
-        <div className="max-w-5xl mx-auto space-y-4">
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-            <Skeleton className="h-4 w-28 mb-3" />
-            <Skeleton className="h-6 w-64" />
-            <div className="flex gap-2 mt-4">
-              <Skeleton className="h-10 w-28" />
-              <Skeleton className="h-10 w-24" />
-            </div>
-          </div>
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
-            <Skeleton className="h-5 w-40" />
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
-            <Skeleton className="h-5 w-32" />
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-14 w-full" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const patientName = profile?.name || user?.displayName || "Paciente";
   const patientPhone = formatPhoneBR(cleanPhoneFromProfile);
 
-  // ✅ Texto solicitado
+  // ✅ Próximo atendimento
+  const nextAppointment = useMemo(() => {
+    const now = new Date();
+    const list = (appointments || [])
+      .map((a) => {
+        const iso = a.isoDate || a.date || "";
+        const t = String(a.time || "").trim();
+        const d = parseDateFromAny(iso);
+        if (!d) return { a, ts: Number.POSITIVE_INFINITY };
+        let dt = d;
+        if (t && /^\d{2}:\d{2}$/.test(t)) {
+          dt = new Date(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`);
+        }
+        return { a, ts: dt.getTime() };
+      })
+      .filter((x) => Number.isFinite(x.ts))
+      .sort((x, y) => x.ts - y.ts);
+
+    const upcoming = list.find((x) => x.ts >= now.getTime());
+    return upcoming?.a || (list[0]?.a ?? null);
+  }, [appointments]);
+
+  // ✅ Agrupar agenda: Próximos 14 dias + Depois, com headers por mês
+  const groupedAgenda = useMemo(() => {
+    const now = new Date();
+    const in14 = addMinutes(now, 14 * 24 * 60);
+
+    const items = (appointments || []).map((a) => {
+      const iso = a.isoDate || a.date || "";
+      const t = String(a.time || "").trim();
+      const d = parseDateFromAny(iso);
+      let ts = Number.POSITIVE_INFINITY;
+      if (d) {
+        if (t && /^\d{2}:\d{2}$/.test(t)) {
+          const dt = new Date(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`);
+          ts = dt.getTime();
+        } else {
+          ts = d.getTime();
+        }
+      }
+      return { a, ts, month: monthLabelFromIso(iso) };
+    });
+
+    const sorted = items.filter((x) => Number.isFinite(x.ts)).sort((x, y) => x.ts - y.ts);
+
+    const soon = [];
+    const later = [];
+
+    for (const x of sorted) {
+      if (x.ts <= in14.getTime()) soon.push(x);
+      else later.push(x);
+    }
+
+    const splitByMonth = (arr) => {
+      const out = [];
+      let last = "";
+      for (const it of arr) {
+        const m = it.month || "";
+        if (m && m !== last) {
+          out.push({ type: "header", label: m });
+          last = m;
+        }
+        out.push({ type: "item", ...it });
+      }
+      return out;
+    };
+
+    return {
+      soon: splitByMonth(soon),
+      later: splitByMonth(later),
+    };
+  }, [appointments]);
+
   const notifInlineInfo = (() => {
     if (!notifSupported) {
       return (
@@ -483,7 +543,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           <AlertTriangle size={16} className="mt-0.5 text-slate-400" />
           <div>
             Este navegador pode não suportar notificações.
-            <div className="text-xs text-slate-400 mt-1">Você ainda receberá lembretes via WhatsApp (se habilitado).</div>
+            <div className="text-xs text-slate-400 mt-1">Você ainda pode usar WhatsApp para contato.</div>
           </div>
         </div>
       );
@@ -534,15 +594,33 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
   })();
 
-  const contractBadge = needsContractAcceptance ? (
-    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-100 text-xs font-semibold">
-      <AlertTriangle size={14} /> Contrato pendente
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100 text-xs font-semibold">
-      <CheckCircle size={14} /> Contrato OK
-    </span>
-  );
+  // Loading inicial (skeleton)
+  if (loadingProfile) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-4">
+        <div className="max-w-5xl mx-auto space-y-4">
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+            <Skeleton className="h-4 w-28 mb-3" />
+            <Skeleton className="h-6 w-64" />
+            <div className="flex gap-2 mt-4">
+              <Skeleton className="h-10 w-28" />
+              <Skeleton className="h-10 w-24" />
+            </div>
+          </div>
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -550,27 +628,57 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
       <div className={`min-h-screen bg-slate-50 ${needsContractAcceptance ? "pb-24" : "pb-10"}`}>
         <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
-          {/* Header */}
+          {/* Header (Admin/Sair ficam aqui, sem duplicar no card) */}
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
               <div className="text-2xl font-black text-slate-900 flex items-center gap-2">
                 <span>Olá, {patientName}</span> <span className="text-lg">👋</span>
               </div>
-              <div className="text-sm text-slate-500 mt-1">Tudo em um só lugar: agenda, contrato e seu diário.</div>
+              <div className="text-sm text-slate-500 mt-1">Agenda, contrato e seu diário.</div>
             </div>
 
+            {/* Desktop */}
             <div className="hidden sm:flex gap-2">
-              <Button onClick={onAdminAccess} variant="secondary">
+              <Button onClick={onAdminAccess} variant="secondary" icon={Shield}>
                 Admin
               </Button>
               <Button onClick={onLogout} variant="secondary" icon={LogOut}>
                 Sair
               </Button>
             </div>
+
+            {/* Mobile menu */}
+            <div className="sm:hidden relative">
+              <Button variant="secondary" onClick={() => setMobileMenuOpen((v) => !v)}>
+                Menu
+              </Button>
+              {mobileMenuOpen && (
+                <div className="absolute right-0 mt-2 w-44 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-30">
+                  <button
+                    className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 flex items-center gap-2"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onAdminAccess();
+                    }}
+                  >
+                    <Shield size={16} className="text-slate-500" /> Admin
+                  </button>
+                  <button
+                    className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 flex items-center gap-2"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onLogout();
+                    }}
+                  >
+                    <LogOut size={16} className="text-slate-500" /> Sair
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Cartão do paciente com info de notificações */}
+          {/* Card paciente */}
           <Card>
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between gap-3">
@@ -587,32 +695,89 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   </div>
                 </div>
 
-                <div className="shrink-0">{contractBadge}</div>
+                {/* contrato status */}
+                {needsContractAcceptance ? (
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-100 text-xs font-semibold">
+                    <AlertTriangle size={14} /> Contrato pendente
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100 text-xs font-semibold">
+                    <CheckCircle size={14} /> Contrato OK
+                  </span>
+                )}
               </div>
 
-              {/* ✅ Texto pedido aqui */}
+              {/* info notificações */}
               {notifInlineInfo}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {/* WhatsApp (única ação clínica aqui) */}
+              <div className="flex">
                 {whatsappLink ? (
-                  <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle}>
-                    WhatsApp
+                  <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle} className="w-full">
+                    Falar com a clínica no WhatsApp
                   </Button>
                 ) : (
-                  <Button disabled variant="secondary" icon={MessageCircle}>
+                  <Button disabled variant="secondary" icon={MessageCircle} className="w-full">
                     WhatsApp indisponível
                   </Button>
                 )}
-
-                <Button onClick={onAdminAccess} variant="secondary">
-                  Admin
-                </Button>
-
-                <Button onClick={onLogout} variant="secondary" icon={LogOut}>
-                  Sair
-                </Button>
               </div>
             </div>
+          </Card>
+
+          {/* Próximo atendimento em destaque */}
+          <Card title="Seu próximo atendimento">
+            {!nextAppointment ? (
+              <div className="text-sm text-slate-500">Nenhum atendimento encontrado.</div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-14 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-center shrink-0">
+                    <div className="text-xl font-black text-slate-800 leading-none">
+                      {brDateParts(nextAppointment.isoDate || nextAppointment.date).day}
+                    </div>
+                    <div className="text-[11px] font-bold text-slate-500 mt-1">
+                      {brDateParts(nextAppointment.isoDate || nextAppointment.date).mon}
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-900 truncate">
+                      {brDateParts(nextAppointment.isoDate || nextAppointment.date).label}
+                      {nextAppointment.time ? <span className="text-slate-400"> • </span> : null}
+                      {nextAppointment.time ? <span className="text-slate-700">{nextAppointment.time}</span> : null}
+                    </div>
+                    <div className="text-sm text-slate-500 truncate">
+                      Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
+                    </div>
+                  </div>
+                </div>
+
+                {/* calendário */}
+                <div className="shrink-0">
+                  {(() => {
+                    try {
+                      if (!nextAppointment.isoDate || !nextAppointment.time) return null;
+                      const start = new Date(`${nextAppointment.isoDate}T${nextAppointment.time}:00`);
+                      const end = addMinutes(start, 50);
+                      const icsUrl = makeIcsDataUrl({
+                        title: "Atendimento",
+                        description: `Atendimento com ${nextAppointment.profissional || ""}`,
+                        startISO: start.toISOString(),
+                        endISO: end.toISOString(),
+                      });
+                      return (
+                        <Button as="a" href={icsUrl} download={`proximo_atendimento.ics`} variant="secondary" icon={CalendarCheck}>
+                          Calendário
+                        </Button>
+                      );
+                    } catch (_) {
+                      return null;
+                    }
+                  })()}
+                </div>
+              </div>
+            )}
           </Card>
 
           {/* CONTRATO */}
@@ -621,113 +786,144 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               <button
                 type="button"
                 onClick={() => setContractOpen((v) => !v)}
-                className="w-full flex items-center justify-between gap-2 p-4 rounded-xl border border-slate-100 bg-white hover:bg-slate-50 transition-colors"
+                className="w-full flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-100 bg-white hover:bg-slate-50 transition-colors"
               >
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                   <FileText size={18} className="text-violet-600" />
-                  {needsContractAcceptance ? "Contrato pendente: toque para ver e aceitar" : "Ver contrato"}
+                  {needsContractAcceptance ? "Contrato pendente: toque para ver" : "Ver contrato"}
                 </div>
                 {contractOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
               </button>
 
               {contractOpen && (
-                <div className="p-4 border border-slate-100 rounded-xl bg-slate-50 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">
+                <div className="p-3 border border-slate-100 rounded-xl bg-slate-50 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">
                   {contractText}
                 </div>
               )}
             </div>
           </Card>
 
-          {/* AGENDA */}
-          <Card title="Próximos Atendimentos">
+          {/* AGENDA (menor + agrupada) */}
+          <Card title="Agenda">
             {loadingAppointments ? (
               <div className="space-y-3">
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
               </div>
             ) : appointments.length === 0 ? (
               <div className="text-sm text-slate-500">Nenhum agendamento encontrado.</div>
             ) : (
-              <div className="space-y-3">
-                {appointments.map((a) => {
-                  const dateBase = a.isoDate || a.date || "";
-                  const { day, mon, label } = brDateParts(dateBase);
-                  const time = a.time || "";
-                  const prof = a.profissional || "Profissional não informado";
-
-                  let icsUrl = null;
-                  try {
-                    if (a.isoDate && time) {
-                      const startISO = `${a.isoDate}T${time}:00`;
-                      const start = new Date(startISO);
-                      const end = new Date(start.getTime() + 50 * 60 * 1000);
-                      icsUrl = makeIcsDataUrl({
-                        title: "Atendimento",
-                        description: `Atendimento com ${prof}`,
-                        startISO: start.toISOString(),
-                        endISO: end.toISOString(),
-                      });
-                    }
-                  } catch (_) {}
-
-                  return (
-                    <div
-                      key={a.id}
-                      className="p-4 rounded-2xl border border-slate-100 bg-white flex flex-col md:flex-row md:items-center md:justify-between gap-4"
-                    >
-                      <div className="flex gap-4 items-center">
-                        <div className="w-16 shrink-0 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-center">
-                          <div className="text-2xl font-black text-slate-800 leading-none">{day}</div>
-                          <div className="text-[11px] font-bold text-slate-500 mt-1">{mon}</div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="font-bold text-slate-800 flex items-center gap-2">
-                            <CalendarCheck size={18} className="text-violet-600" />
-                            <span>{label || a.date || a.isoDate}</span>
-                            {time ? <span className="text-slate-400">•</span> : null}
-                            {time ? <span className="text-slate-700">{time}</span> : null}
-                          </div>
-
-                          <div className="text-sm text-slate-500">
-                            Profissional: <b className="text-slate-700">{prof}</b>
-                          </div>
-
-                          {a.reminderType ? (
-                            <div className="pt-1">
-                              <Badge status="time" text={`Lembrete ${String(a.reminderType).toUpperCase()}`} />
+              <div className="space-y-5">
+                {/* Próximos 14 dias */}
+                <div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Próximos 14 dias
+                  </div>
+                  <div className="space-y-2">
+                    {groupedAgenda.soon.length === 0 ? (
+                      <div className="text-sm text-slate-500">Nenhum atendimento nos próximos 14 dias.</div>
+                    ) : (
+                      groupedAgenda.soon.map((row, idx) => {
+                        if (row.type === "header") {
+                          return (
+                            <div key={`h-soon-${idx}`} className="text-xs text-slate-400 font-semibold mt-3">
+                              {row.label}
                             </div>
-                          ) : null}
-                        </div>
-                      </div>
+                          );
+                        }
 
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        {icsUrl ? (
-                          <Button
-                            as="a"
-                            href={icsUrl}
-                            download={`atendimento_${onlyDigits(a.phone || "")}_${a.isoDate || "data"}.ics`}
-                            variant="secondary"
-                            icon={CalendarCheck}
+                        const a = row.a;
+                        const dateBase = a.isoDate || a.date || "";
+                        const { day, mon, label } = brDateParts(dateBase);
+                        const time = a.time || "";
+                        const prof = a.profissional || "Profissional não informado";
+
+                        return (
+                          <div
+                            key={a.id}
+                            className="px-3 py-3 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3"
                           >
-                            Adicionar ao calendário
-                          </Button>
-                        ) : (
-                          <Button variant="secondary" disabled icon={CalendarCheck}>
-                            Calendário indisponível
-                          </Button>
-                        )}
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-12 rounded-2xl border border-slate-100 bg-slate-50 p-2 text-center shrink-0">
+                                <div className="text-lg font-black text-slate-800 leading-none">{day}</div>
+                                <div className="text-[10px] font-bold text-slate-500 mt-1">{mon}</div>
+                              </div>
 
-                        {whatsappLink ? (
-                          <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle}>
-                            Falar com a clínica
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
+                              <div className="min-w-0">
+                                <div className="text-sm font-bold text-slate-900 truncate">
+                                  {label} {time ? <span className="text-slate-500">• {time}</span> : null}
+                                </div>
+                                <div className="text-xs text-slate-500 truncate">Prof.: {prof}</div>
+                              </div>
+                            </div>
+
+                            {a.reminderType ? (
+                              <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
+                                {String(a.reminderType).toUpperCase()}
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Depois */}
+                <div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Depois
+                  </div>
+                  <div className="space-y-2">
+                    {groupedAgenda.later.length === 0 ? (
+                      <div className="text-sm text-slate-500">Sem outros atendimentos.</div>
+                    ) : (
+                      groupedAgenda.later.map((row, idx) => {
+                        if (row.type === "header") {
+                          return (
+                            <div key={`h-later-${idx}`} className="text-xs text-slate-400 font-semibold mt-3">
+                              {row.label}
+                            </div>
+                          );
+                        }
+
+                        const a = row.a;
+                        const dateBase = a.isoDate || a.date || "";
+                        const { day, mon, label } = brDateParts(dateBase);
+                        const time = a.time || "";
+                        const prof = a.profissional || "Profissional não informado";
+
+                        return (
+                          <div
+                            key={a.id}
+                            className="px-3 py-3 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-12 rounded-2xl border border-slate-100 bg-slate-50 p-2 text-center shrink-0">
+                                <div className="text-lg font-black text-slate-800 leading-none">{day}</div>
+                                <div className="text-[10px] font-bold text-slate-500 mt-1">{mon}</div>
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="text-sm font-bold text-slate-900 truncate">
+                                  {label} {time ? <span className="text-slate-500">• {time}</span> : null}
+                                </div>
+                                <div className="text-xs text-slate-500 truncate">Prof.: {prof}</div>
+                              </div>
+                            </div>
+
+                            {a.reminderType ? (
+                              <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
+                                {String(a.reminderType).toUpperCase()}
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </Card>
@@ -789,7 +985,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           </Card>
         </div>
 
-        {/* FAB */}
+        {/* FAB notas */}
         <button
           type="button"
           onClick={() => setNoteModalOpen(true)}
