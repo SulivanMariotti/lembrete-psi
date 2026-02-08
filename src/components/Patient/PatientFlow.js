@@ -647,7 +647,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return { label, wa, waDisabled, ics };
   }, [nextAppointment, clinicWhatsappPhone, patientName]);
 
-  // ✅ NOVO: Agenda agrupada por semana (até 30 dias) + depois por mês
+  // ✅ Agenda agrupada por semana (até 30 dias) + depois por mês
   const agendaGroups = useMemo(() => {
     const now = new Date();
     const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -837,9 +837,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                 <div className="min-w-0">
                   <div className="font-extrabold text-slate-900 truncate">{currentMantra.title}</div>
                   <div className="text-sm text-slate-600 mt-1">{currentMantra.text}</div>
-                  <div className="text-[11px] text-slate-400 mt-2">
-                    Lembrete Psi é tecnologia a serviço do vínculo terapêutico.
-                  </div>
+                  <div className="text-[11px] text-slate-400 mt-2">Lembrete Psi é tecnologia a serviço do vínculo terapêutico.</div>
                 </div>
               </div>
 
@@ -959,11 +957,19 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                     </Button>
                   )}
                 </div>
+
+                {/* ✅ NOVO: microcopy anti-reagendamento (sem abrir brecha) */}
+                <div className="text-[12px] text-slate-500 leading-snug">
+                  Este botão é apenas para <b>confirmar presença</b>. Reagendamentos são tratados diretamente com a clínica.
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    Manter a constância ajuda seu processo terapêutico a evoluir com mais consistência.
+                  </div>
+                </div>
               </div>
             )}
           </Card>
 
-          {/* ✅ AGENDA NOVA */}
+          {/* ✅ AGENDA */}
           <Card title="Agenda">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="text-xs text-slate-500">Visualização:</div>
