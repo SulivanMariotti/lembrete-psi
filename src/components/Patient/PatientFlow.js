@@ -39,6 +39,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  MapPin,
+  BriefcaseMedical,
 } from "lucide-react";
 
 function Skeleton({ className = "" }) {
@@ -164,10 +166,9 @@ function startDateTimeFromAppointment(a) {
 }
 
 function startOfWeek(d) {
-  // Semana começando na segunda (PT-BR)
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const day = date.getDay(); // 0 domingo
-  const diff = (day === 0 ? -6 : 1) - day;
+  const diff = (day === 0 ? -6 : 1) - day; // segunda
   date.setDate(date.getDate() + diff);
   date.setHours(0, 0, 0, 0);
   return date;
@@ -212,6 +213,17 @@ function chipClass(style) {
   return "bg-amber-50 border-amber-100 text-amber-900";
 }
 
+function prettyServiceLabel(serviceType) {
+  const s = String(serviceType || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "psicologia") return "Psicologia";
+  if (s === "fonoaudiologia") return "Fonoaudiologia";
+  if (s === "nutricao") return "Nutrição";
+  if (s === "neuropsicologia") return "Neuropsicologia";
+  // fallback: capitaliza primeira
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function AppointmentMiniRow({ a }) {
   const dateBase = a.isoDate || a.date || "";
   const { day, mon, label } = brDateParts(dateBase);
@@ -251,7 +263,7 @@ function AppointmentMiniRow({ a }) {
 
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
   const [profile, setProfile] = useState(null);
-  const [appointments, setAppointments] = useState([]);
+  const [appointmentsRaw, setAppointmentsRaw] = useState([]);
   const [notes, setNotes] = useState([]);
 
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -472,7 +484,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [cleanPhoneFromProfile]);
 
-  // Agenda
+  // Agenda (raw) — depois filtramos cancelled
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -483,11 +495,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     const phone = cleanPhoneFromProfile;
 
     let q = null;
-    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(200));
+    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(250));
     else if (user?.email)
-      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(200));
+      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(250));
     else {
-      setAppointments([]);
+      setAppointmentsRaw([]);
       setLoadingAppointments(false);
       return;
     }
@@ -495,12 +507,12 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setAppointments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setAppointmentsRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         setLoadingAppointments(false);
       },
       (err) => {
         console.error(err);
-        setAppointments([]);
+        setAppointmentsRaw([]);
         setLoadingAppointments(false);
         showToast("Erro ao carregar agenda.", "error");
       }
@@ -508,6 +520,14 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
     return () => unsub();
   }, [user?.uid, user?.email, loadingProfile, cleanPhoneFromProfile]);
+
+  // ✅ FILTRO: remove cancelled (mantém apenas scheduled / vazio)
+  const appointments = useMemo(() => {
+    return (appointmentsRaw || []).filter((a) => {
+      const st = String(a.status || "").toLowerCase();
+      return st !== "cancelled";
+    });
+  }, [appointmentsRaw]);
 
   // Notas
   useEffect(() => {
@@ -620,10 +640,12 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       const dateLabel = brDateParts(nextAppointment.isoDate || nextAppointment.date).label;
       const time = String(nextAppointment.time || "").trim();
       const prof = nextAppointment.profissional ? ` com ${nextAppointment.profissional}` : "";
+      const serviceLabel = prettyServiceLabel(nextAppointment.serviceType || "");
+      const servicePiece = serviceLabel ? ` (${serviceLabel})` : "";
 
       const msg =
         `Olá! Sou ${patientName}. ` +
-        `Confirmo minha presença no atendimento${prof} no dia ${dateLabel}${time ? ` às ${time}` : ""}. ` +
+        `Confirmo minha presença no atendimento${prof}${servicePiece} no dia ${dateLabel}${time ? ` às ${time}` : ""}. ` +
         `Estou me organizando para estar presente.`;
 
       wa = `https://wa.me/${clinicWhatsappPhone}?text=${encodeURIComponent(msg)}`;
@@ -635,8 +657,10 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       if (nextAppointment.isoDate && nextAppointment.time) {
         const start = new Date(`${nextAppointment.isoDate}T${nextAppointment.time}:00`);
         const end = addMinutes(start, 50);
+        const serviceLabel = prettyServiceLabel(nextAppointment.serviceType || "");
+
         ics = makeIcsDataUrl({
-          title: "Atendimento",
+          title: serviceLabel ? `Atendimento (${serviceLabel})` : "Atendimento",
           description: `Atendimento ${nextAppointment.profissional ? `com ${nextAppointment.profissional}` : ""}`,
           startISO: start.toISOString(),
           endISO: end.toISOString(),
@@ -647,7 +671,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return { label, wa, waDisabled, ics };
   }, [nextAppointment, clinicWhatsappPhone, patientName]);
 
-  // ✅ Agenda agrupada por semana (até 30 dias) + depois por mês
+  // Agenda agrupada (até 30 dias por semana + depois por mês)
   const agendaGroups = useMemo(() => {
     const now = new Date();
     const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -753,26 +777,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       </div>
     );
   }, [notifSupported, notifHasToken, notifPermission, notifBusy]);
-
-  if (loadingProfile) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-4">
-        <div className="max-w-5xl mx-auto space-y-4">
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-            <Skeleton className="h-6 w-64" />
-            <div className="flex gap-2 mt-4">
-              <Skeleton className="h-10 w-28" />
-              <Skeleton className="h-10 w-24" />
-            </div>
-          </div>
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <>
@@ -931,9 +935,36 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                         ) : null}
                       </div>
 
-                      <div className="text-sm text-slate-500 truncate">
-                        Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
+                      {/* ✅ sem duplicar: serviço e local em linha única e discreta */}
+                      <div className="text-sm text-slate-500 truncate flex items-center gap-2">
+                        {nextAppointment.serviceType ? (
+                          <span className="inline-flex items-center gap-1">
+                            <BriefcaseMedical size={14} className="text-slate-400" />
+                            <b className="text-slate-700">{prettyServiceLabel(nextAppointment.serviceType)}</b>
+                          </span>
+                        ) : (
+                          <span>
+                            Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
+                          </span>
+                        )}
+
+                        {nextAppointment.location ? (
+                          <>
+                            <span className="text-slate-300">•</span>
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin size={14} className="text-slate-400" />
+                              <span className="text-slate-600">{nextAppointment.location}</span>
+                            </span>
+                          </>
+                        ) : null}
                       </div>
+
+                      {/* Se não tiver serviceType, mantém profissional na linha abaixo */}
+                      {nextAppointment.serviceType ? (
+                        <div className="text-[12px] text-slate-500 truncate">
+                          Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -958,7 +989,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   )}
                 </div>
 
-                {/* ✅ NOVO: microcopy anti-reagendamento (sem abrir brecha) */}
                 <div className="text-[12px] text-slate-500 leading-snug">
                   Este botão é apenas para <b>confirmar presença</b>. Reagendamentos são tratados diretamente com a clínica.
                   <div className="text-[11px] text-slate-400 mt-1">
@@ -969,7 +999,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             )}
           </Card>
 
-          {/* ✅ AGENDA */}
+          {/* ✅ AGENDA (já sem cancelled) */}
           <Card title="Agenda">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="text-xs text-slate-500">Visualização:</div>
@@ -1017,7 +1047,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               <div className="text-sm text-slate-500">Nenhum agendamento encontrado.</div>
             ) : (
               <div className="space-y-5">
-                {/* Destaque próximos */}
                 {agendaGroups.highlights.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -1030,7 +1059,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   </div>
                 )}
 
-                {/* Por semana */}
                 <div className="space-y-2">
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Próximas semanas</div>
 
@@ -1053,7 +1081,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   )}
                 </div>
 
-                {/* Depois por mês */}
                 {agendaGroups.months.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Depois</div>

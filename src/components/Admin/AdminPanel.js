@@ -7,6 +7,10 @@ import {
   updateDoc,
   setDoc,
   doc,
+  getDocs,
+  query,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   Send,
@@ -301,54 +305,144 @@ export default function AdminPanel({
     showToast(`Planilha verificada: ${parsed.length} registros.`);
   };
 
-  // 7. Sincronizar agenda no Firestore (✅ normaliza phone + isoDate e evita duplicar)
+  // 7. Sincronizar agenda no Firestore (✅ upsert + reconciliação: cancela futuros que sumirem do upload)
   const handleSyncSchedule = async () => {
     if (!appointments.length) return showToast('Nenhuma agenda para sincronizar.', 'error');
 
     setIsSaving(true);
+
+    // uploadId ajuda auditoria e reconciliação (snapshot do estado atual)
+    const uploadId = `upload_${new Date().toISOString().replace(/[:.]/g, '-')}`;
+
     try {
-      const tasks = appointments.map(async (a) => {
+      const todayIso = new Date().toISOString().slice(0, 10);
+
+      // 1) UPSERT do estado atual (tudo que veio no upload)
+      const syncedIds = [];
+      const phonesInUpload = new Set();
+
+      const BATCH_LIMIT = 450;
+      let batch = writeBatch(db);
+      let batchCount = 0;
+
+      const flush = async () => {
+        if (batchCount === 0) return;
+        await batch.commit();
+        batch = writeBatch(db);
+        batchCount = 0;
+      };
+
+      for (const a of appointments) {
         const phone = onlyDigits(a.cleanPhone || a.phone || '');
         const date = a.data || a.date || '';
         const time = a.hora || a.time || '';
         const profissional = a.profissional || '';
         const isoDate = a.isoDate || normalizeToISODate(date);
 
+        // novos campos (CSV novo; no antigo podem vir vazios)
+        const externalId = (a.externalId || '').trim();
+        const serviceType = (a.serviceType || '').trim(); // psicologia | fonoaudiologia | ...
+        const location = (a.location || '').trim();
+
         // tenta anexar email (quando existir no subscriber)
         const sub = subscribersByPhone.get(phone);
         const email = (a.email || sub?.email || '').toLowerCase();
 
-        if (!phone || !isoDate) {
-          // não bloqueia tudo; apenas pula registros ruins
-          return null;
-        }
+        if (!phone || !isoDate) continue;
+
+        phonesInUpload.add(phone);
 
         const id = makeAppointmentId({ phone, isoDate, time, profissional });
+        syncedIds.push(id);
+
         const ref = doc(db, 'appointments', id);
 
-        await setDoc(
-          ref,
-          {
-            nome: a.nome || '',
-            email: email || '',
-            phone,
-            date: date || '',
-            isoDate,
-            time: time || '',
-            profissional: profissional || '',
-            createdAt: new Date(),
-            source: 'admin_sync',
-          },
-          { merge: true }
+        const payload = {
+          nome: a.nome || '',
+          email: email || '',
+          phone,
+          date: date || '',
+          isoDate,
+          time: time || '',
+          profissional: profissional || '',
+          externalId: externalId || '',
+          serviceType: serviceType || '',
+          location: location || '',
+          status: 'scheduled',
+          source: 'admin_sync',
+          sourceUploadId: uploadId,
+          updatedAt: new Date(),
+        };
+
+        // set + merge evita duplicar e mantém campos antigos que não enviamos
+        batch.set(ref, payload, { merge: true });
+
+        batchCount += 1;
+        if (batchCount >= BATCH_LIMIT) await flush();
+      }
+
+      await flush();
+
+      // 2) RECONCILIAÇÃO: cancela futuros que NÃO vieram no upload
+      const syncedIdSet = new Set(syncedIds);
+
+      const phoneList = Array.from(phonesInUpload);
+      const chunkSize = 30; // limite do Firestore para "in"
+      const CANCEL_BATCH_LIMIT = 450;
+
+      let cancelBatch = writeBatch(db);
+      let cancelCount = 0;
+
+      const flushCancel = async () => {
+        if (cancelCount === 0) return;
+        await cancelBatch.commit();
+        cancelBatch = writeBatch(db);
+        cancelCount = 0;
+      };
+
+      for (let i = 0; i < phoneList.length; i += chunkSize) {
+        const chunk = phoneList.slice(i, i + chunkSize);
+
+        // ⚠️ Pode pedir índice composto (phone IN + isoDate >=). Se pedir, crie pelo link do Firebase.
+        const q = query(
+          collection(db, 'appointments'),
+          where('phone', 'in', chunk),
+          where('isoDate', '>=', todayIso)
         );
 
-        return id;
-      });
+        const snap = await getDocs(q);
 
-      const results = await Promise.all(tasks);
-      const okCount = results.filter(Boolean).length;
+        for (const d of snap.docs) {
+          const data = d.data() || {};
+          const id = d.id;
 
-      showToast(`Agenda sincronizada! (${okCount} registros)`);
+          // Se NÃO veio no upload atual -> cancelar (somente se ainda estiver scheduled)
+          if (!syncedIdSet.has(id) && data.status !== 'cancelled') {
+            cancelBatch.set(
+              doc(db, 'appointments', id),
+              {
+                status: 'cancelled',
+                cancelledAt: new Date(),
+                cancelReason: 'removed_from_upload',
+                cancelledBy: 'admin_sync',
+                updatedAt: new Date(),
+              },
+              { merge: true }
+            );
+            cancelCount += 1;
+
+            if (cancelCount >= CANCEL_BATCH_LIMIT) {
+              await flushCancel();
+            }
+          }
+        }
+      }
+
+      await flushCancel();
+
+      showToast(
+        `Agenda sincronizada! (${syncedIds.length} registros) • Reconciliação aplicada (futuros removidos foram cancelados).`
+      );
     } catch (e) {
       console.error(e);
       showToast('Erro ao sincronizar agenda.', 'error');
@@ -366,7 +460,8 @@ export default function AdminPanel({
     const cleanPhone = onlyDigits(manualEntry.telefone);
     const nomeProfissional = manualEntry.profissional?.trim() || 'Psicólogo(a)';
 
-    const newLine = `${manualEntry.nome},${cleanPhone},${manualEntry.data},${manualEntry.hora},${nomeProfissional}`;
+    // Novo formato (com campos vazios de ID/serviço/local), mas continua compatível com o parser antigo
+    const newLine = `,${manualEntry.nome},${cleanPhone},${manualEntry.data},${manualEntry.hora},${nomeProfissional},,`;
 
     setCsvInput((prev) => (prev ? `${prev}\n${newLine}` : newLine));
     setManualEntry({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
@@ -628,7 +723,7 @@ export default function AdminPanel({
                 <textarea
                   value={csvInput}
                   onChange={(e) => setCsvInput(e.target.value)}
-                  placeholder={'Cole aqui a planilha CSV:\nNome, Telefone, Data, Hora, Profissional'}
+                  placeholder={'Cole aqui a planilha CSV:\nID, Nome, Telefone, Data, Hora, Profissional, Serviço, Local\n(ou no formato antigo: Nome, Telefone, Data, Hora, Profissional)'}
                   className="w-full h-full p-4 border border-slate-100 bg-slate-50 rounded-xl text-slate-800 resize-none text-xs font-mono focus:bg-white focus:border-violet-200 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
                 />
 
@@ -702,16 +797,22 @@ export default function AdminPanel({
                       <div>
                         <span className="font-bold text-slate-700 block text-sm mb-0.5">{app.nome}</span>
                         <span className="text-xs text-slate-400 flex items-center gap-1">
-                          <CalendarCheck size={10} /> {app.data} - {app.hora}
+                          <User size={12} /> {app.cleanPhone}
                         </span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+                          <CalendarCheck size={12} /> {app.data} • {app.hora}
+                        </span>
+                        {app.profissional ? (
+                          <span className="text-[11px] text-slate-400 mt-1 block">Prof.: {app.profissional}</span>
+                        ) : null}
                       </div>
-                      <div className="flex flex-col items-end gap-1.5">
-                        <Badge status={app.isSubscribed ? 'match' : 'missing'} text={app.isSubscribed ? 'App' : 'Sem App'} />
-                        {app.reminderType && (
-                          <span className="text-xs text-violet-600 font-bold flex gap-1 bg-white px-2 py-0.5 rounded-full border border-violet-100 shadow-sm">
-                            <Mail size={10} className="mt-0.5" /> {app.reminderType}
-                          </span>
-                        )}
+
+                      <div className="text-right">
+                        <div className="text-xs font-semibold text-slate-600">{app.timeLabel}</div>
+                        <Badge
+                          status={app.isSubscribed ? 'confirmed' : 'missing'}
+                          text={app.isSubscribed ? 'Autorizado' : 'Sem cadastro'}
+                        />
                       </div>
                     </div>
                   ))}
@@ -721,58 +822,56 @@ export default function AdminPanel({
           </div>
         )}
 
-        {/* USUÁRIOS */}
+        {/* PACIENTES */}
         {adminTab === 'users' && (
-          <Card title="Base de Pacientes Cadastrados" className="h-[650px] animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex flex-col h-full">
-              <div className="flex gap-3 mb-6">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+          <Card title="Pacientes" className="h-[600px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col h-full gap-4">
+              <div className="flex flex-col md:flex-row gap-3">
+                <div className="flex-1 relative">
+                  <Search size={16} className="absolute left-3 top-3 text-slate-400" />
                   <input
-                    type="text"
-                    placeholder="Pesquisar por nome ou telefone."
-                    className="w-full pl-10 p-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100 transition-all text-slate-700"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar por nome ou telefone..."
+                    className="w-full pl-10 p-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
                   />
                 </div>
-                <Button onClick={() => setShowUserModal(true)} variant="success" icon={UserPlus}>
-                  Novo
-                </Button>
+
                 <Button onClick={handleExportCSV} variant="secondary" icon={Download}>
-                  CSV
+                  Exportar
+                </Button>
+
+                <Button onClick={() => setShowUserModal(true)} icon={UserPlus}>
+                  Novo paciente
                 </Button>
               </div>
 
+              {/* Modal novo paciente */}
               {showUserModal && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                  <div className="bg-white rounded-xl w-full max-w-md shadow-2xl overflow-hidden">
-                    <div className="bg-violet-600 p-4 text-white flex justify-between items-center">
-                      <h3 className="font-bold flex items-center gap-2">
-                        <UserPlus size={20} /> Novo Paciente
-                      </h3>
-                      <button onClick={() => setShowUserModal(false)}>
-                        <X size={20} className="hover:text-violet-200" />
+                <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                      <div className="font-black text-slate-800 flex items-center gap-2">
+                        <UserPlus size={18} className="text-violet-600" /> Cadastrar paciente
+                      </div>
+                      <button onClick={() => setShowUserModal(false)} className="text-slate-400 hover:text-slate-700">
+                        <X size={18} />
                       </button>
                     </div>
-                    <div className="p-6 space-y-4">
-                      <div className="bg-violet-50 p-4 rounded-lg text-sm text-violet-800 border border-violet-100 flex items-start gap-2">
-                        <Info size={16} className="mt-0.5 flex-shrink-0" />
-                        <span>Este cadastro autoriza o paciente a entrar no App usando o e-mail abaixo.</span>
-                      </div>
 
+                    <div className="p-5 space-y-3">
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Nome Completo</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Nome</label>
                         <input
                           className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
                           value={newPatient.name}
                           onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })}
-                          placeholder="Ex: João Silva"
+                          placeholder="Nome do paciente"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">E-mail (Login)</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">E-mail</label>
                         <input
                           className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
                           value={newPatient.email}
