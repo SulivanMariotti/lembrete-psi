@@ -41,6 +41,8 @@ import {
   Calendar,
   MapPin,
   BriefcaseMedical,
+  Users,
+  X,
 } from "lucide-react";
 
 function Skeleton({ className = "" }) {
@@ -167,8 +169,8 @@ function startDateTimeFromAppointment(a) {
 
 function startOfWeek(d) {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const day = date.getDay(); // 0 domingo
-  const diff = (day === 0 ? -6 : 1) - day; // segunda
+  const day = date.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
   date.setDate(date.getDate() + diff);
   date.setHours(0, 0, 0, 0);
   return date;
@@ -220,7 +222,6 @@ function prettyServiceLabel(serviceType) {
   if (s === "fonoaudiologia") return "Fonoaudiologia";
   if (s === "nutricao") return "Nutrição";
   if (s === "neuropsicologia") return "Neuropsicologia";
-  // fallback: capitaliza primeira
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -263,6 +264,8 @@ function AppointmentMiniRow({ a }) {
 
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
   const [profile, setProfile] = useState(null);
+
+  // ✅ raw para filtrar cancelled depois
   const [appointmentsRaw, setAppointmentsRaw] = useState([]);
   const [notes, setNotes] = useState([]);
 
@@ -284,7 +287,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Agenda UX
-  const [agendaView, setAgendaView] = useState("compact"); // "compact" | "all"
+  const [agendaView, setAgendaView] = useState("compact");
   const [showAllWeeks, setShowAllWeeks] = useState(false);
   const [showAllMonths, setShowAllMonths] = useState(false);
 
@@ -297,16 +300,42 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   // Mantras
   const [mantraIndex, setMantraIndex] = useState(0);
 
+  // ✅ DEV: troca de paciente por telefone
+  const DEV_SWITCH_ENABLED = String(process.env.NEXT_PUBLIC_DEV_LOGIN || "").toLowerCase() === "true";
+  const DEV_IMP_KEY = "LP_IMPERSONATE_PHONE";
+
+  const [devPanelOpen, setDevPanelOpen] = useState(false);
+  const [impersonatePhone, setImpersonatePhone] = useState("");
+  const [impersonateInput, setImpersonateInput] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!DEV_SWITCH_ENABLED) return;
+
+    const saved = window.localStorage.getItem(DEV_IMP_KEY) || "";
+    setImpersonatePhone(onlyDigits(saved));
+    setImpersonateInput(onlyDigits(saved));
+  }, [DEV_SWITCH_ENABLED]);
+
   const cleanPhoneFromProfile = useMemo(() => {
     const p = profile?.phone || profile?.phoneNumber || "";
     return onlyDigits(p);
   }, [profile]);
 
+  // ✅ telefone efetivo para puxar agenda (DEV pode sobrescrever)
+  const effectivePhone = useMemo(() => {
+    if (DEV_SWITCH_ENABLED && impersonatePhone) return onlyDigits(impersonatePhone);
+    return onlyDigits(cleanPhoneFromProfile);
+  }, [DEV_SWITCH_ENABLED, impersonatePhone, cleanPhoneFromProfile]);
+
   const currentContractVersion = Number(globalConfig?.contractVersion || 1);
   const acceptedVersion = Number(profile?.contractAcceptedVersion || 0);
   const needsContractAcceptance = currentContractVersion > acceptedVersion;
 
-  const clinicWhatsappPhone = useMemo(() => normalizeWhatsappPhone(globalConfig?.whatsapp || ""), [globalConfig?.whatsapp]);
+  const clinicWhatsappPhone = useMemo(
+    () => normalizeWhatsappPhone(globalConfig?.whatsapp || ""),
+    [globalConfig?.whatsapp]
+  );
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
 
   const patientName = profile?.name || user?.displayName || "Paciente";
@@ -484,7 +513,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [cleanPhoneFromProfile]);
 
-  // Agenda (raw) — depois filtramos cancelled
+  // ✅ Agenda (usa effectivePhone para DEV)
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -492,7 +521,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     setLoadingAppointments(true);
 
     const colRef = collection(db, "appointments");
-    const phone = cleanPhoneFromProfile;
+    const phone = effectivePhone;
 
     let q = null;
     if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(250));
@@ -519,17 +548,14 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
 
     return () => unsub();
-  }, [user?.uid, user?.email, loadingProfile, cleanPhoneFromProfile]);
+  }, [user?.uid, user?.email, loadingProfile, effectivePhone]);
 
-  // ✅ FILTRO: remove cancelled (mantém apenas scheduled / vazio)
+  // ✅ FILTRO: remove cancelled
   const appointments = useMemo(() => {
-    return (appointmentsRaw || []).filter((a) => {
-      const st = String(a.status || "").toLowerCase();
-      return st !== "cancelled";
-    });
+    return (appointmentsRaw || []).filter((a) => String(a.status || "").toLowerCase() !== "cancelled");
   }, [appointmentsRaw]);
 
-  // Notas
+  // Notas (sempre do usuário logado — DEV troca só agenda)
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -612,7 +638,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return (notes || []).filter((n) => String(n.content || "").toLowerCase().includes(q));
   }, [notes, noteSearch]);
 
-  // Próximo atendimento (1º futuro)
+  // Próximo atendimento
   const nextAppointment = useMemo(() => {
     const now = new Date();
     const list = (appointments || [])
@@ -671,7 +697,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return { label, wa, waDisabled, ics };
   }, [nextAppointment, clinicWhatsappPhone, patientName]);
 
-  // Agenda agrupada (até 30 dias por semana + depois por mês)
+  // Agenda agrupada
   const agendaGroups = useMemo(() => {
     const now = new Date();
     const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -715,7 +741,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return { highlights, weeks, months };
   }, [appointments]);
 
-  // Notificações bloco (sem título)
+  // Notificações bloco
   const notifBlock = useMemo(() => {
     if (typeof window === "undefined") {
       return (
@@ -778,6 +804,27 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
   }, [notifSupported, notifHasToken, notifPermission, notifBusy]);
 
+  // ✅ ações DEV
+  const handleDevApply = () => {
+    const p = onlyDigits(impersonateInput);
+    if (!p) {
+      showToast("Digite um telefone válido (DDD + número).", "error");
+      return;
+    }
+    setImpersonatePhone(p);
+    if (typeof window !== "undefined") window.localStorage.setItem(DEV_IMP_KEY, p);
+    showToast("Visualização alterada para esse paciente (agenda).", "success");
+    setDevPanelOpen(false);
+  };
+
+  const handleDevClear = () => {
+    setImpersonatePhone("");
+    setImpersonateInput("");
+    if (typeof window !== "undefined") window.localStorage.removeItem(DEV_IMP_KEY);
+    showToast("Voltando para o seu painel.", "success");
+    setDevPanelOpen(false);
+  };
+
   return (
     <>
       {toast?.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />}
@@ -786,13 +833,33 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
           {/* Header */}
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
               <div className="text-lg font-extrabold text-slate-900 truncate">Olá, {patientName}</div>
-              <div className="text-sm text-slate-500 mt-1">Lembretes e organização do seu cuidado — constância terapêutica.</div>
+              <div className="text-sm text-slate-500 mt-1">
+                Lembretes e organização do seu cuidado — constância terapêutica.
+              </div>
+
+              {/* ✅ DEV: indicador sutil quando estiver “fora do próprio paciente” */}
+              {DEV_SWITCH_ENABLED && impersonatePhone ? (
+                <div className="mt-2 inline-flex items-center gap-2 text-[11px] px-2 py-1 rounded-full border border-amber-100 bg-amber-50 text-amber-900">
+                  <Users size={14} />
+                  Visualizando agenda de: <b>{formatPhoneBR(impersonatePhone)}</b>
+                </div>
+              ) : null}
             </div>
 
             <div className="hidden sm:flex gap-2">
+              {DEV_SWITCH_ENABLED ? (
+                <Button
+                  onClick={() => setDevPanelOpen((v) => !v)}
+                  variant="secondary"
+                  icon={Users}
+                >
+                  Trocar paciente
+                </Button>
+              ) : null}
+
               <Button onClick={onAdminAccess} variant="secondary" icon={Shield}>
                 Admin
               </Button>
@@ -806,7 +873,19 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                 Menu
               </Button>
               {mobileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-44 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-30">
+                <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-30">
+                  {DEV_SWITCH_ENABLED ? (
+                    <button
+                      className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 flex items-center gap-2"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setDevPanelOpen(true);
+                      }}
+                    >
+                      <Users size={16} className="text-slate-500" /> Trocar paciente
+                    </button>
+                  ) : null}
+
                   <button
                     className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 flex items-center gap-2"
                     onClick={() => {
@@ -829,6 +908,50 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               )}
             </div>
           </div>
+
+          {/* ✅ DEV: painel compacto (modal leve) */}
+          {DEV_SWITCH_ENABLED && devPanelOpen && (
+            <Card>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-bold text-slate-900 flex items-center gap-2">
+                    <Users size={18} className="text-violet-600" />
+                    Trocar paciente (DEV)
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Digite o telefone do paciente para visualizar a agenda (sem alterar login).
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDevPanelOpen(false)}
+                  className="text-slate-400 hover:text-slate-700"
+                  aria-label="Fechar"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                <input
+                  className="flex-1 p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
+                  placeholder="DDD + número (ex: 11999998888)"
+                  value={impersonateInput}
+                  onChange={(e) => setImpersonateInput(onlyDigits(e.target.value))}
+                />
+                <Button onClick={handleDevApply} className="sm:w-auto w-full">
+                  Aplicar
+                </Button>
+                <Button onClick={handleDevClear} variant="secondary" className="sm:w-auto w-full">
+                  Voltar
+                </Button>
+              </div>
+
+              <div className="mt-3 text-[11px] text-slate-400">
+                * Esse recurso aparece somente quando <b>NEXT_PUBLIC_DEV_LOGIN=true</b>.
+              </div>
+            </Card>
+          )}
 
           {/* Mantra */}
           <Card>
@@ -935,7 +1058,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                         ) : null}
                       </div>
 
-                      {/* ✅ sem duplicar: serviço e local em linha única e discreta */}
                       <div className="text-sm text-slate-500 truncate flex items-center gap-2">
                         {nextAppointment.serviceType ? (
                           <span className="inline-flex items-center gap-1">
@@ -959,7 +1081,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                         ) : null}
                       </div>
 
-                      {/* Se não tiver serviceType, mantém profissional na linha abaixo */}
                       {nextAppointment.serviceType ? (
                         <div className="text-[12px] text-slate-500 truncate">
                           Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
@@ -999,7 +1120,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             )}
           </Card>
 
-          {/* ✅ AGENDA (já sem cancelled) */}
+          {/* Agenda */}
           <Card title="Agenda">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="text-xs text-slate-500">Visualização:</div>
@@ -1108,7 +1229,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             )}
           </Card>
 
-          {/* CONTRATO */}
+          {/* Contrato */}
           <Card title="Contrato Terapêutico">
             <div className="space-y-3">
               <button
@@ -1131,7 +1252,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </Card>
 
-          {/* NOTAS */}
+          {/* Diário */}
           <Card title="Diário rápido">
             <div className="space-y-4">
               <div className="flex items-center gap-2">
