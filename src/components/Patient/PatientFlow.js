@@ -225,12 +225,32 @@ function prettyServiceLabel(serviceType) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function AppointmentMiniRow({ a }) {
+function statusChipFor(appointmentStatus, isConfirmed) {
+  const s = String(appointmentStatus || "scheduled").toLowerCase();
+
+  if (s === "done") {
+    return { text: "Realizada", cls: "bg-emerald-50 border-emerald-100 text-emerald-900" };
+  }
+  if (s === "no_show") {
+    return { text: "Faltou", cls: "bg-amber-50 border-amber-100 text-amber-900" };
+  }
+  if (s === "cancelled") {
+    return { text: "Cancelada", cls: "bg-slate-50 border-slate-200 text-slate-700" };
+  }
+  if (isConfirmed) {
+    return { text: "Confirmada", cls: "bg-violet-50 border-violet-100 text-violet-900" };
+  }
+  return { text: "Agendada", cls: "bg-slate-50 border-slate-200 text-slate-700" };
+}
+
+function AppointmentMiniRow({ a, isConfirmed }) {
   const dateBase = a.isoDate || a.date || "";
   const { day, mon, label } = brDateParts(dateBase);
   const time = a.time || "";
   const prof = a.profissional || "Profissional não informado";
   const place = a.location || a.sala || "";
+
+  const st = statusChipFor(a.status, isConfirmed);
 
   return (
     <div className="px-3 py-2.5 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3">
@@ -253,19 +273,47 @@ function AppointmentMiniRow({ a }) {
         </div>
       </div>
 
-      {a.reminderType ? (
-        <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
-          {String(a.reminderType).toUpperCase()}
-        </span>
-      ) : null}
+      <div className="shrink-0 flex flex-col items-end gap-1">
+        <span className={`text-[11px] px-2 py-1 rounded-full border font-semibold ${st.cls}`}>{st.text}</span>
+        {a.reminderType ? (
+          <span className="text-[11px] px-2 py-1 rounded-full bg-slate-50 border border-slate-200 text-slate-600 font-semibold">
+            {String(a.reminderType).toUpperCase()}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
+}
+
+// 🔹 Normaliza Timestamp/Date/string → millis
+function toMillis(v) {
+  if (!v) return null;
+  // Firestore Timestamp
+  if (typeof v === "object" && typeof v.seconds === "number") return v.seconds * 1000;
+  // Date
+  if (v instanceof Date) return v.getTime();
+  // number
+  if (typeof v === "number") return v;
+  // string date
+  const d = new Date(String(v));
+  if (!Number.isNaN(d.getTime())) return d.getTime();
+  return null;
+}
+
+function formatDateTimeBR(ms) {
+  if (!ms || !Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleString("pt-BR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
   const [profile, setProfile] = useState(null);
 
-  // ✅ raw para filtrar cancelled depois
   const [appointmentsRaw, setAppointmentsRaw] = useState([]);
   const [notes, setNotes] = useState([]);
 
@@ -279,28 +327,28 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     if (typeof showToastFromProps === "function") showToastFromProps(msg, type);
   };
 
-  // UI
   const [contractOpen, setContractOpen] = useState(false);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteSearch, setNoteSearch] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Agenda UX
+  const [confirmBusy, setConfirmBusy] = useState(false);
+
+  const [confirmedIds, setConfirmedIds] = useState(() => new Set());
+  const [confirmedLoading, setConfirmedLoading] = useState(false);
+
   const [agendaView, setAgendaView] = useState("compact");
   const [showAllWeeks, setShowAllWeeks] = useState(false);
   const [showAllMonths, setShowAllMonths] = useState(false);
 
-  // Notificações
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
   const [notifHasToken, setNotifHasToken] = useState(false);
   const [notifBusy, setNotifBusy] = useState(false);
 
-  // Mantras
   const [mantraIndex, setMantraIndex] = useState(0);
 
-  // ✅ DEV: troca de paciente por telefone
   const DEV_SWITCH_ENABLED = String(process.env.NEXT_PUBLIC_DEV_LOGIN || "").toLowerCase() === "true";
   const DEV_IMP_KEY = "LP_IMPERSONATE_PHONE";
 
@@ -322,7 +370,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return onlyDigits(p);
   }, [profile]);
 
-  // ✅ telefone efetivo para puxar agenda (DEV pode sobrescrever)
   const effectivePhone = useMemo(() => {
     if (DEV_SWITCH_ENABLED && impersonatePhone) return onlyDigits(impersonatePhone);
     return onlyDigits(cleanPhoneFromProfile);
@@ -332,10 +379,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const acceptedVersion = Number(profile?.contractAcceptedVersion || 0);
   const needsContractAcceptance = currentContractVersion > acceptedVersion;
 
-  const clinicWhatsappPhone = useMemo(
-    () => normalizeWhatsappPhone(globalConfig?.whatsapp || ""),
-    [globalConfig?.whatsapp]
-  );
+  const clinicWhatsappPhone = useMemo(() => normalizeWhatsappPhone(globalConfig?.whatsapp || ""), [globalConfig?.whatsapp]);
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
 
   const patientName = profile?.name || user?.displayName || "Paciente";
@@ -418,11 +462,48 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [user?.uid, user?.email, user?.displayName]);
 
-  // Abrir contrato se pendente
   useEffect(() => {
     if (loadingProfile) return;
     if (needsContractAcceptance) setContractOpen(true);
   }, [loadingProfile, needsContractAcceptance]);
+
+  // Confirmed via API
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setConfirmedLoading(true);
+        const idToken = await user.getIdToken();
+        const res = await fetch("/api/attendance/confirmed", {
+          method: "GET",
+          headers: { authorization: `Bearer ${idToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (cancelled) return;
+
+        if (!res.ok || !data?.ok) {
+          setConfirmedIds(new Set());
+          return;
+        }
+
+        const ids = Array.isArray(data.appointmentIds) ? data.appointmentIds.map(String) : [];
+        setConfirmedIds(new Set(ids));
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setConfirmedIds(new Set());
+      } finally {
+        if (!cancelled) setConfirmedLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   // Notificações - status
   useEffect(() => {
@@ -513,7 +594,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [cleanPhoneFromProfile]);
 
-  // ✅ Agenda (usa effectivePhone para DEV)
+  // Agenda
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -550,12 +631,37 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return () => unsub();
   }, [user?.uid, user?.email, loadingProfile, effectivePhone]);
 
-  // ✅ FILTRO: remove cancelled
   const appointments = useMemo(() => {
     return (appointmentsRaw || []).filter((a) => String(a.status || "").toLowerCase() !== "cancelled");
   }, [appointmentsRaw]);
 
-  // Notas (sempre do usuário logado — DEV troca só agenda)
+  // ✅ Última atualização da agenda (sutil)
+  const agendaLastUpdate = useMemo(() => {
+    let bestMs = null;
+    let bestSource = "";
+
+    for (const a of appointmentsRaw || []) {
+      const ms =
+        toMillis(a.updatedAt) ??
+        toMillis(a.uploadedAt) ??
+        toMillis(a.createdAt) ??
+        null;
+
+      if (ms && (!bestMs || ms > bestMs)) {
+        bestMs = ms;
+        bestSource = String(a.sourceUploadId || a.uploadId || "").trim();
+      }
+    }
+
+    if (!bestMs) return null;
+
+    return {
+      label: formatDateTimeBR(bestMs),
+      sourceUploadId: bestSource || "",
+    };
+  }, [appointmentsRaw]);
+
+  // Notas
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -697,7 +803,46 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return { label, wa, waDisabled, ics };
   }, [nextAppointment, clinicWhatsappPhone, patientName]);
 
-  // Agenda agrupada
+  async function handleConfirmPresence() {
+    if (!nextAppointment || !nextMeta?.wa) return;
+
+    try {
+      setConfirmBusy(true);
+
+      const idToken = await user.getIdToken();
+
+      const res = await fetch("/api/attendance/confirm", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          appointmentId: nextAppointment.id,
+          phone: effectivePhone || cleanPhoneFromProfile || "",
+          channel: "whatsapp",
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        showToast("Não consegui registrar sua confirmação agora, mas você pode confirmar pelo WhatsApp.", "error");
+      } else {
+        setConfirmedIds((prev) => {
+          const n = new Set(prev);
+          n.add(String(nextAppointment.id));
+          return n;
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Não consegui registrar sua confirmação agora, mas você pode confirmar pelo WhatsApp.", "error");
+    } finally {
+      setConfirmBusy(false);
+      window.open(nextMeta.wa, "_blank", "noreferrer");
+    }
+  }
+
   const agendaGroups = useMemo(() => {
     const now = new Date();
     const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -741,7 +886,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return { highlights, weeks, months };
   }, [appointments]);
 
-  // Notificações bloco
   const notifBlock = useMemo(() => {
     if (typeof window === "undefined") {
       return (
@@ -804,7 +948,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
   }, [notifSupported, notifHasToken, notifPermission, notifBusy]);
 
-  // ✅ ações DEV
   const handleDevApply = () => {
     const p = onlyDigits(impersonateInput);
     if (!p) {
@@ -825,6 +968,20 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     setDevPanelOpen(false);
   };
 
+  const nextLabel = useMemo(() => {
+    const dt = nextAppointment ? startDateTimeFromAppointment(nextAppointment) : null;
+    return dt ? relativeLabelForDate(dt) : null;
+  }, [nextAppointment]);
+
+  const nextIsConfirmed = useMemo(() => {
+    if (!nextAppointment?.id) return false;
+    return confirmedIds.has(String(nextAppointment.id));
+  }, [confirmedIds, nextAppointment?.id]);
+
+  const nextStatusChip = useMemo(() => {
+    return statusChipFor(nextAppointment?.status, nextIsConfirmed);
+  }, [nextAppointment?.status, nextIsConfirmed]);
+
   return (
     <>
       {toast?.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />}
@@ -836,11 +993,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             <div className="min-w-0">
               <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
               <div className="text-lg font-extrabold text-slate-900 truncate">Olá, {patientName}</div>
-              <div className="text-sm text-slate-500 mt-1">
-                Lembretes e organização do seu cuidado — constância terapêutica.
-              </div>
+              <div className="text-sm text-slate-500 mt-1">Lembretes e organização do seu cuidado — constância terapêutica.</div>
 
-              {/* ✅ DEV: indicador sutil quando estiver “fora do próprio paciente” */}
               {DEV_SWITCH_ENABLED && impersonatePhone ? (
                 <div className="mt-2 inline-flex items-center gap-2 text-[11px] px-2 py-1 rounded-full border border-amber-100 bg-amber-50 text-amber-900">
                   <Users size={14} />
@@ -851,11 +1005,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
             <div className="hidden sm:flex gap-2">
               {DEV_SWITCH_ENABLED ? (
-                <Button
-                  onClick={() => setDevPanelOpen((v) => !v)}
-                  variant="secondary"
-                  icon={Users}
-                >
+                <Button onClick={() => setDevPanelOpen((v) => !v)} variant="secondary" icon={Users}>
                   Trocar paciente
                 </Button>
               ) : null}
@@ -909,7 +1059,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </div>
 
-          {/* ✅ DEV: painel compacto (modal leve) */}
+          {/* DEV painel */}
           {DEV_SWITCH_ENABLED && devPanelOpen && (
             <Card>
               <div className="flex items-start justify-between gap-3">
@@ -918,16 +1068,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                     <Users size={18} className="text-violet-600" />
                     Trocar paciente (DEV)
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Digite o telefone do paciente para visualizar a agenda (sem alterar login).
-                  </div>
+                  <div className="text-xs text-slate-500 mt-1">Digite o telefone do paciente para visualizar a agenda (sem alterar login).</div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDevPanelOpen(false)}
-                  className="text-slate-400 hover:text-slate-700"
-                  aria-label="Fechar"
-                >
+                <button type="button" onClick={() => setDevPanelOpen(false)} className="text-slate-400 hover:text-slate-700" aria-label="Fechar">
                   <X size={18} />
                 </button>
               </div>
@@ -1044,18 +1187,22 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                     </div>
 
                     <div className="min-w-0">
-                      <div className="font-bold text-slate-900 truncate flex items-center gap-2">
+                      <div className="font-bold text-slate-900 truncate flex items-center gap-2 flex-wrap">
                         <span>
                           {brDateParts(nextAppointment.isoDate || nextAppointment.date).label}
                           {nextAppointment.time ? <span className="text-slate-400"> • </span> : null}
                           {nextAppointment.time ? <span className="text-slate-700">{nextAppointment.time}</span> : null}
                         </span>
 
-                        {nextMeta.label ? (
-                          <span className={`text-[11px] px-2 py-1 rounded-full border font-semibold ${chipClass(nextMeta.label.style)}`}>
-                            {nextMeta.label.text}
+                        {nextLabel ? (
+                          <span className={`text-[11px] px-2 py-1 rounded-full border font-semibold ${chipClass(nextLabel.style)}`}>
+                            {nextLabel.text}
                           </span>
                         ) : null}
+
+                        <span className={`text-[11px] px-2 py-1 rounded-full border font-semibold ${nextStatusChip.cls}`}>
+                          {nextStatusChip.text}
+                        </span>
                       </div>
 
                       <div className="text-sm text-slate-500 truncate flex items-center gap-2">
@@ -1086,6 +1233,10 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                           Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
                         </div>
                       ) : null}
+
+                      {confirmedLoading ? (
+                        <div className="text-[11px] text-slate-400 mt-1">Atualizando confirmações…</div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1100,8 +1251,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
                 <div className="flex flex-col sm:flex-row gap-2">
                   {nextMeta.wa && !nextMeta.waDisabled ? (
-                    <Button as="a" href={nextMeta.wa} target="_blank" rel="noreferrer" icon={MessageCircle} className="w-full">
-                      Confirmar presença no WhatsApp
+                    <Button onClick={handleConfirmPresence} disabled={confirmBusy} icon={MessageCircle} className="w-full">
+                      {confirmBusy ? "Registrando..." : "Confirmar presença no WhatsApp"}
                     </Button>
                   ) : (
                     <Button disabled variant="secondary" icon={MessageCircle} className="w-full">
@@ -1113,7 +1264,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                 <div className="text-[12px] text-slate-500 leading-snug">
                   Este botão é apenas para <b>confirmar presença</b>. Reagendamentos são tratados diretamente com a clínica.
                   <div className="text-[11px] text-slate-400 mt-1">
-                    Manter a constância ajuda seu processo terapêutico a evoluir com mais consistência.
+                    A constância sustenta seu processo — faltar quebra a sequência que você está construindo.
                   </div>
                 </div>
               </div>
@@ -1123,7 +1274,23 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           {/* Agenda */}
           <Card title="Agenda">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <div className="text-xs text-slate-500">Visualização:</div>
+              <div className="min-w-0">
+                <div className="text-xs text-slate-500">Visualização:</div>
+
+                {/* ✅ sutil: última atualização */}
+                {agendaLastUpdate?.label ? (
+                  <div className="text-[11px] text-slate-400 mt-1 truncate">
+                    Agenda atualizada em <b className="text-slate-500">{agendaLastUpdate.label}</b>
+                    {agendaLastUpdate.sourceUploadId ? (
+                      <span className="text-slate-300"> • </span>
+                    ) : null}
+                    {agendaLastUpdate.sourceUploadId ? (
+                      <span>Upload: {agendaLastUpdate.sourceUploadId}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -1175,7 +1342,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                       Próximos atendimentos
                     </div>
                     {agendaGroups.highlights.map((a) => (
-                      <AppointmentMiniRow key={a.id} a={a} />
+                      <AppointmentMiniRow
+                        key={a.id}
+                        a={a}
+                        isConfirmed={confirmedIds.has(String(a.id))}
+                      />
                     ))}
                   </div>
                 )}
@@ -1187,7 +1358,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                     <div key={w.key} className="space-y-2">
                       <div className="text-xs text-slate-400 font-semibold mt-2">{w.label}</div>
                       {w.list.slice(0, agendaView === "compact" ? 5 : 999).map((a) => (
-                        <AppointmentMiniRow key={a.id} a={a} />
+                        <AppointmentMiniRow
+                          key={a.id}
+                          a={a}
+                          isConfirmed={confirmedIds.has(String(a.id))}
+                        />
                       ))}
                       {agendaView === "compact" && w.list.length > 5 && (
                         <div className="text-xs text-slate-400">+ {w.list.length - 5} atendimentos nesta semana</div>
@@ -1210,7 +1385,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                       <div key={m.label} className="space-y-2">
                         <div className="text-xs text-slate-400 font-semibold mt-2">{m.label}</div>
                         {m.list.slice(0, agendaView === "compact" ? 4 : 999).map((a) => (
-                          <AppointmentMiniRow key={a.id} a={a} />
+                          <AppointmentMiniRow
+                            key={a.id}
+                            a={a}
+                            isConfirmed={confirmedIds.has(String(a.id))}
+                          />
                         ))}
                         {agendaView === "compact" && m.list.length > 4 && (
                           <div className="text-xs text-slate-400">+ {m.list.length - 4} atendimentos neste mês</div>
@@ -1292,12 +1471,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                           <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">{n.content}</div>
                           {when ? <div className="text-[11px] text-slate-400 mt-2">{when}</div> : null}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteNote(n.id)}
-                          className="text-slate-400 hover:text-red-500 transition-colors mt-1"
-                          title="Apagar"
-                        >
+                        <button type="button" onClick={() => handleDeleteNote(n.id)} className="text-slate-400 hover:text-red-500 transition-colors mt-1" title="Apagar">
                           <Trash2 size={18} />
                         </button>
                       </div>
