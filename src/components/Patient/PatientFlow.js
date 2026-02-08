@@ -26,9 +26,97 @@ import {
   FileText,
   Trash2,
   Loader2,
+  Bell,
+  Plus,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  User,
+  Phone,
 } from "lucide-react";
 
-export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig }) {
+/** Skeleton simples (sem dependências) */
+function Skeleton({ className = "" }) {
+  return <div className={`animate-pulse rounded-xl bg-slate-100 ${className}`} />;
+}
+
+function onlyDigits(v) {
+  return String(v || "").replace(/\D/g, "");
+}
+
+function formatPhoneBR(raw) {
+  const d = onlyDigits(raw);
+  if (!d) return "";
+  // 11 dígitos: (11) 99999-9999 | 10 dígitos: (11) 9999-9999
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return d;
+}
+
+function brDateParts(dateStrOrIso) {
+  // aceita "YYYY-MM-DD" ou "DD/MM/YYYY" ou qualquer string
+  const s = String(dateStrOrIso || "").trim();
+  if (!s) return { day: "--", mon: "---", label: "" };
+
+  let dateObj = null;
+
+  // YYYY-MM-DD
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) dateObj = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
+
+  // DD/MM/YYYY
+  if (!dateObj) {
+    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (br) dateObj = new Date(`${br[3]}-${br[2]}-${br[1]}T00:00:00`);
+  }
+
+  // fallback (tenta Date)
+  if (!dateObj || Number.isNaN(dateObj.getTime())) {
+    return { day: "--", mon: "---", label: s };
+  }
+
+  const day = String(dateObj.getDate()).padStart(2, "0");
+  const monNames = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+  const mon = monNames[dateObj.getMonth()];
+  const label = dateObj.toLocaleDateString("pt-BR");
+  return { day, mon, label };
+}
+
+function makeIcsDataUrl({ title, description, startISO, endISO }) {
+  // startISO/endISO: "YYYY-MM-DDTHH:mm:00"
+  const dt = (iso) => {
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2, "0");
+    const y = d.getUTCFullYear();
+    const m = pad(d.getUTCMonth() + 1);
+    const da = pad(d.getUTCDate());
+    const h = pad(d.getUTCHours());
+    const mi = pad(d.getUTCMinutes());
+    const s = pad(d.getUTCSeconds());
+    return `${y}${m}${da}T${h}${mi}${s}Z`;
+  };
+
+  const uid = `lembretepsi-${Math.random().toString(16).slice(2)}@local`;
+  const ics =
+    "BEGIN:VCALENDAR\n" +
+    "VERSION:2.0\n" +
+    "PRODID:-//Lembrete Psi//PT-BR\n" +
+    "CALSCALE:GREGORIAN\n" +
+    "METHOD:PUBLISH\n" +
+    "BEGIN:VEVENT\n" +
+    `UID:${uid}\n` +
+    `DTSTAMP:${dt(new Date().toISOString())}\n` +
+    `DTSTART:${dt(startISO)}\n` +
+    `DTEND:${dt(endISO)}\n` +
+    `SUMMARY:${String(title || "Atendimento").replace(/\n/g, " ")}\n` +
+    `DESCRIPTION:${String(description || "").replace(/\n/g, " ")}\n` +
+    "END:VEVENT\n" +
+    "END:VCALENDAR";
+
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
+}
+
+export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
   const [profile, setProfile] = useState(null);
   const [appointments, setAppointments] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -37,13 +125,27 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [loadingNotes, setLoadingNotes] = useState(true);
 
-  const [noteContent, setNoteContent] = useState("");
   const [toast, setToast] = useState({ msg: "", type: "success" });
-  const showToast = (msg, type = "success") => setToast({ msg, type });
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    if (typeof showToastFromProps === "function") showToastFromProps(msg, type);
+  };
+
+  // UI states
+  const [contractOpen, setContractOpen] = useState(false);
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [noteContent, setNoteContent] = useState("");
+  const [noteSearch, setNoteSearch] = useState("");
+
+  // Notificações
+  const [notifSupported, setNotifSupported] = useState(false);
+  const [notifPermission, setNotifPermission] = useState("default"); // default | granted | denied
+  const [notifHasToken, setNotifHasToken] = useState(false);
+  const [notifBusy, setNotifBusy] = useState(false);
 
   const cleanPhoneFromProfile = useMemo(() => {
     const p = profile?.phone || profile?.phoneNumber || "";
-    return String(p).replace(/\D/g, "");
+    return onlyDigits(p);
   }, [profile]);
 
   const currentContractVersion = Number(globalConfig?.contractVersion || 1);
@@ -52,22 +154,23 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
   const whatsappLink = useMemo(() => {
     const raw = globalConfig?.whatsapp || "";
-    const phone = String(raw).replace(/\D/g, "");
+    const phone = onlyDigits(raw);
     if (!phone) return null;
     return `https://wa.me/${phone}`;
   }, [globalConfig?.whatsapp]);
 
-  // 1) Perfil users/{uid}
+  const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
+
+  // ✅ 1) Perfil users/{uid}
   useEffect(() => {
     if (!user?.uid) return;
 
     let cancelled = false;
-    let unsubProfile = null;
+    let unsub = null;
 
     (async () => {
       try {
         setLoadingProfile(true);
-
         const userRef = doc(db, "users", user.uid);
         const snap = await getDoc(userRef);
 
@@ -93,7 +196,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
         if (cancelled) return;
 
-        unsubProfile = onSnapshot(
+        unsub = onSnapshot(
           userRef,
           (docSnap) => {
             if (docSnap.exists()) setProfile({ id: docSnap.id, ...docSnap.data() });
@@ -115,61 +218,128 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
     return () => {
       cancelled = true;
-      if (typeof unsubProfile === "function") unsubProfile();
+      if (typeof unsub === "function") unsub();
     };
   }, [user?.uid, user?.email, user?.displayName]);
 
-  // 2) ✅ Registrar pushToken no subscribers/{phone}
+  // ✅ 2) Status de notificações (suporte + permissão)
   useEffect(() => {
-    if (!user?.uid) return;
-    if (loadingProfile) return;
+    if (typeof window === "undefined") return;
 
-    const phone = cleanPhoneFromProfile;
-    if (!phone) return;
+    setNotifPermission(Notification?.permission || "default");
+    setNotifSupported("Notification" in window && "serviceWorker" in navigator);
 
-    (async () => {
-      try {
-        if (typeof window === "undefined") return;
-        if (!("Notification" in window)) return;
+    const onChange = () => setNotifPermission(Notification.permission || "default");
+    // alguns browsers não disparam evento; ok.
+    document?.addEventListener?.("visibilitychange", onChange);
+    return () => document?.removeEventListener?.("visibilitychange", onChange);
+  }, []);
 
-        const { isSupported, getMessaging, getToken } = await import("firebase/messaging");
+  // ✅ 3) Registrar pushToken e marcar “ativado”
+  async function enableNotificationsAndSaveToken() {
+    try {
+      if (typeof window === "undefined") return;
+      if (!("Notification" in window)) return;
 
-        const supported = await isSupported();
-        if (!supported) return;
+      setNotifBusy(true);
 
-        // pede permissão
-        if (Notification.permission === "default") {
-          const perm = await Notification.requestPermission();
-          if (perm !== "granted") return;
-        }
-        if (Notification.permission !== "granted") return;
-
-        // registra SW
-        const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
-
-        const messaging = getMessaging(app);
-
-        const vapidKey = process.env.NEXT_PUBLIC_VAPID_KEY;
-        if (!vapidKey) {
-          console.warn("NEXT_PUBLIC_VAPID_KEY não configurada");
+      // pede permissão
+      if (Notification.permission === "default") {
+        const perm = await Notification.requestPermission();
+        setNotifPermission(perm || "default");
+        if (perm !== "granted") {
+          showToast("Permissão de notificação não concedida.", "error");
           return;
         }
-
-        const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg });
-        if (!token) return;
-
-        // salva token no subscriber do telefone (rules agora permitem)
-        await updateDoc(doc(db, "subscribers", phone), {
-          pushToken: token,
-          lastSeen: new Date(),
-        });
-      } catch (e) {
-        console.error(e);
       }
-    })();
-  }, [user?.uid, loadingProfile, cleanPhoneFromProfile]);
 
-  // 3) Agenda
+      if (Notification.permission !== "granted") {
+        showToast("Notificações bloqueadas no navegador.", "error");
+        return;
+      }
+
+      const { isSupported, getMessaging, getToken } = await import("firebase/messaging");
+      const supported = await isSupported();
+      setNotifSupported(Boolean(supported));
+      if (!supported) {
+        showToast("Seu navegador não suporta notificações.", "error");
+        return;
+      }
+
+      // registra SW
+      const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+
+      const messaging = getMessaging(app);
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_KEY;
+
+      if (!vapidKey) {
+        console.warn("NEXT_PUBLIC_VAPID_KEY não configurada");
+        showToast("VAPID não configurado. Fale com o administrador.", "error");
+        return;
+      }
+
+      const token = await getToken(messaging, {
+        vapidKey,
+        serviceWorkerRegistration: swReg,
+      });
+
+      if (!token) {
+        showToast("Não foi possível gerar token de notificação.", "error");
+        return;
+      }
+
+      const phone = cleanPhoneFromProfile;
+      if (!phone) {
+        showToast("Seu telefone ainda não está no perfil. Peça atualização ao admin.", "error");
+        return;
+      }
+
+      // salva token no subscriber do telefone
+      await updateDoc(doc(db, "subscribers", phone), {
+        pushToken: token,
+        lastSeen: new Date(),
+      });
+
+      setNotifHasToken(true);
+      showToast("Notificações ativadas ✅", "success");
+    } catch (e) {
+      console.error(e);
+      showToast("Falha ao ativar notificações.", "error");
+    } finally {
+      setNotifBusy(false);
+    }
+  }
+
+  // ✅ 4) Checar se já existe token salvo no Firestore (no subscriber)
+  useEffect(() => {
+    if (!cleanPhoneFromProfile) return;
+
+    let unsub = null;
+    try {
+      // se rules não permitirem ler, isso pode falhar silenciosamente; por isso try/catch e fallback
+      const ref = doc(db, "subscribers", cleanPhoneFromProfile);
+      unsub = onSnapshot(
+        ref,
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            setNotifHasToken(Boolean(data?.pushToken));
+          }
+        },
+        () => {
+          // se não puder ler, ao menos mantém o banner pela permissão do browser
+        }
+      );
+    } catch (_) {
+      // ignore
+    }
+
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [cleanPhoneFromProfile]);
+
+  // ✅ 5) Agenda (por phone se existir, senão por email)
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -180,7 +350,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     const phone = cleanPhoneFromProfile;
 
     let q = null;
+
     if (phone) {
+      // OBS: se o Firebase pedir índice composto (where + orderBy), você já criou via link do console
       q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(50));
     } else if (user?.email) {
       q = query(
@@ -212,7 +384,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return () => unsub();
   }, [user?.uid, user?.email, loadingProfile, cleanPhoneFromProfile]);
 
-  // 4) Notas por patientId
+  // ✅ 6) Notas por patientId
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -274,6 +446,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       });
 
       setNoteContent("");
+      setNoteModalOpen(false);
       showToast("Nota salva!", "success");
     } catch (e) {
       console.error(e);
@@ -292,6 +465,13 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     }
   };
 
+  const filteredNotes = useMemo(() => {
+    const q = (noteSearch || "").trim().toLowerCase();
+    if (!q) return notes;
+    return (notes || []).filter((n) => String(n.content || "").toLowerCase().includes(q));
+  }, [notes, noteSearch]);
+
+  // Loading inicial
   if (loadingProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
@@ -300,115 +480,399 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
   }
 
-  return (
-    <>
-      {toast?.msg && (
-        <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />
-      )}
+  const patientName = profile?.name || user?.displayName || "Paciente";
+  const patientPhone = formatPhoneBR(cleanPhoneFromProfile);
 
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
-            <div className="text-xl font-black text-slate-900">
-              Olá, {profile?.name || user?.displayName || "Paciente"} 👋
+  const notifBanner = (() => {
+    // Se tiver token salvo no Firestore, ótimo.
+    // Se não tiver, mas permissão é granted, ainda sugere ativar/sincronizar.
+    if (!notifSupported) {
+      return (
+        <div className="bg-slate-50 border border-slate-100 text-slate-600 rounded-2xl p-4 flex items-start gap-3">
+          <AlertTriangle size={18} className="mt-0.5 text-slate-400" />
+          <div className="text-sm">
+            Este dispositivo/navegador pode não suportar notificações.
+            <div className="text-xs text-slate-400 mt-1">Você ainda pode usar WhatsApp para contato.</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (notifHasToken) {
+      return (
+        <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-2xl p-4 flex items-start gap-3">
+          <CheckCircle size={18} className="mt-0.5" />
+          <div className="text-sm">
+            Notificações ativadas ✅
+            <div className="text-xs text-emerald-700/70 mt-1">Você receberá lembretes por push neste aparelho.</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (notifPermission === "denied") {
+      return (
+        <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-2xl p-4 flex items-start gap-3">
+          <AlertTriangle size={18} className="mt-0.5" />
+          <div className="text-sm">
+            Notificações estão bloqueadas.
+            <div className="text-xs text-amber-800/70 mt-1">
+              Libere nas permissões do navegador para receber lembretes.
             </div>
           </div>
+        </div>
+      );
+    }
 
-          <div className="flex gap-2">
-            <Button onClick={onAdminAccess} variant="secondary">Admin</Button>
-            <Button onClick={onLogout} variant="secondary">Sair</Button>
+    return (
+      <div className="bg-violet-50 border border-violet-100 text-violet-900 rounded-2xl p-4 flex items-start justify-between gap-3">
+        <div className="flex gap-3">
+          <Bell size={18} className="mt-0.5 text-violet-700" />
+          <div className="text-sm">
+            Ative as notificações para receber lembretes ✅
+            <div className="text-xs text-violet-800/70 mt-1">
+              Um toque e pronto (recomendado no celular).
+            </div>
           </div>
         </div>
 
-        {needsContractAcceptance && (
-          <Card title="Contrato Terapêutico">
-            <div className="space-y-4">
-              <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-xl p-4 flex gap-3">
-                <AlertTriangle className="mt-0.5" size={18} />
-                <div className="text-sm">
-                  Identificamos uma <b>nova versão</b> do contrato (v{currentContractVersion}). Para continuar, é necessário aceitar.
+        <Button
+          onClick={enableNotificationsAndSaveToken}
+          disabled={notifBusy}
+          className="shrink-0"
+          icon={notifBusy ? Loader2 : Bell}
+        >
+          {notifBusy ? "Ativando..." : "Ativar"}
+        </Button>
+      </div>
+    );
+  })();
+
+  return (
+    <>
+      {toast?.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />}
+
+      <div className={`min-h-screen bg-slate-50 ${needsContractAcceptance ? "pb-24" : "pb-10"}`}>
+        <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
+          {/* Topo */}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
+              <div className="text-2xl font-black text-slate-900 flex items-center gap-2">
+                <span>Olá, {patientName}</span> <span className="text-lg">👋</span>
+              </div>
+              <div className="text-sm text-slate-500 mt-1">Acompanhe seus próximos atendimentos, contrato e diário.</div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={onAdminAccess} variant="secondary">
+                Admin
+              </Button>
+              <Button onClick={onLogout} variant="secondary">
+                Sair
+              </Button>
+            </div>
+          </div>
+
+          {/* Cartão do paciente */}
+          <Card>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
+                  <User size={20} />
+                </div>
+                <div>
+                  <div className="font-bold text-slate-800 leading-tight">{patientName}</div>
+                  <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
+                    <span className="inline-flex items-center gap-1">
+                      <Phone size={14} className="text-slate-400" />
+                      {patientPhone || "Telefone não informado"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-4 border border-slate-100 rounded-xl bg-slate-50 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">
-                {globalConfig?.contractText || "Contrato não configurado."}
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  status={needsContractAcceptance ? "unsigned" : "signed"}
+                  text={needsContractAcceptance ? `Contrato pendente (v${currentContractVersion})` : "Contrato ok"}
+                />
+                {whatsappLink && (
+                  <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" variant="secondary" icon={MessageCircle}>
+                    WhatsApp
+                  </Button>
+                )}
               </div>
-
-              <Button onClick={handleAcceptContract} icon={CheckCircle} className="w-full">
-                Aceitar Contrato
-              </Button>
             </div>
           </Card>
-        )}
 
-        <Card title="Próximos Atendimentos">
-          {loadingAppointments ? (
-            <div className="text-sm text-slate-400">Carregando agenda...</div>
-          ) : appointments.length === 0 ? (
-            <div className="text-sm text-slate-400">Nenhum agendamento encontrado.</div>
-          ) : (
+          {/* Banner Notificações */}
+          {notifBanner}
+
+          {/* CONTRATO (colapsável) */}
+          <Card title="Contrato Terapêutico">
             <div className="space-y-3">
-              {appointments.map((a) => (
-                <div key={a.id} className="p-4 rounded-xl border border-slate-100 bg-white flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="font-semibold text-slate-800 flex items-center gap-2">
-                      <CalendarCheck size={18} className="text-violet-600" />
-                      {a.date || a.isoDate} {a.time ? `• ${a.time}` : ""}
-                    </div>
-                    <div className="text-sm text-slate-500">
-                      {a.profissional ? <>Profissional: <b>{a.profissional}</b></> : <span>Profissional não informado</span>}
-                    </div>
+              {needsContractAcceptance ? (
+                <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-xl p-4 flex gap-3">
+                  <AlertTriangle className="mt-0.5" size={18} />
+                  <div className="text-sm">
+                    Existe uma <b>nova versão</b> do contrato (v{currentContractVersion}). Para continuar, é necessário aceitar.
                   </div>
-                  {a.reminderType && <Badge>{String(a.reminderType).toUpperCase()}</Badge>}
                 </div>
-              ))}
-            </div>
-          )}
-
-          {whatsappLink && (
-            <div className="mt-4">
-              <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle} className="w-full">
-                Falar no WhatsApp
-              </Button>
-            </div>
-          )}
-        </Card>
-
-        <Card title="Minhas Notas">
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <input
-                className="flex-1 p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
-                value={noteContent}
-                onChange={(e) => setNoteContent(e.target.value)}
-                placeholder="Escreva uma nota rápida..."
-              />
-              <Button onClick={handleSaveNote} icon={FileText}>Salvar</Button>
-            </div>
-
-            {loadingNotes ? (
-              <div className="text-sm text-slate-400">Carregando notas...</div>
-            ) : notes.length === 0 ? (
-              <div className="text-sm text-slate-400">Nenhuma nota ainda.</div>
-            ) : (
-              <div className="space-y-2">
-                {notes.map((n) => (
-                  <div key={n.id} className="p-3 rounded-xl border border-slate-100 bg-slate-50 flex justify-between gap-3">
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{n.content}</div>
-                    <button
-                      onClick={() => handleDeleteNote(n.id)}
-                      className="text-slate-400 hover:text-red-500 transition"
-                      title="Apagar nota"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+              ) : (
+                <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl p-4 flex gap-3">
+                  <CheckCircle className="mt-0.5" size={18} />
+                  <div className="text-sm">
+                    Contrato aceito ✅
+                    <div className="text-xs text-emerald-700/70 mt-1">Você está com a versão v{acceptedVersion} registrada.</div>
                   </div>
-                ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setContractOpen((v) => !v)}
+                className="w-full flex items-center justify-between gap-2 p-4 rounded-xl border border-slate-100 bg-white hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <FileText size={18} className="text-violet-600" />
+                  Ver contrato
+                </div>
+                {contractOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+              </button>
+
+              {contractOpen && (
+                <div className="p-4 border border-slate-100 rounded-xl bg-slate-50 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">
+                  {contractText}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* AGENDA */}
+          <Card title="Próximos Atendimentos">
+            {loadingAppointments ? (
+              <div className="space-y-3">
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+              </div>
+            ) : appointments.length === 0 ? (
+              <div className="text-sm text-slate-500">
+                Nenhum agendamento encontrado.
+                {!cleanPhoneFromProfile && (
+                  <div className="mt-2 text-xs text-slate-400">
+                    Dica: seu perfil ainda não tem telefone registrado, então tentamos buscar por e-mail.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {appointments.map((a) => {
+                  const dateBase = a.isoDate || a.date || "";
+                  const { day, mon, label } = brDateParts(dateBase);
+                  const time = a.time || "";
+                  const prof = a.profissional || "Profissional não informado";
+
+                  // ics (duração padrão 50min)
+                  let icsUrl = null;
+                  try {
+                    if (a.isoDate && time) {
+                      const startISO = `${a.isoDate}T${time}:00`;
+                      const start = new Date(startISO);
+                      const end = new Date(start.getTime() + 50 * 60 * 1000);
+                      icsUrl = makeIcsDataUrl({
+                        title: "Atendimento",
+                        description: `Atendimento com ${prof}`,
+                        startISO: start.toISOString(),
+                        endISO: end.toISOString(),
+                      });
+                    }
+                  } catch (_) {
+                    // ignore
+                  }
+
+                  return (
+                    <div
+                      key={a.id}
+                      className="p-4 rounded-2xl border border-slate-100 bg-white flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                    >
+                      <div className="flex gap-4 items-center">
+                        <div className="w-16 shrink-0 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-center">
+                          <div className="text-2xl font-black text-slate-800 leading-none">{day}</div>
+                          <div className="text-[11px] font-bold text-slate-500 mt-1">{mon}</div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="font-bold text-slate-800 flex items-center gap-2">
+                            <CalendarCheck size={18} className="text-violet-600" />
+                            <span>{label || a.date || a.isoDate}</span>
+                            {time ? <span className="text-slate-400">•</span> : null}
+                            {time ? <span className="text-slate-700">{time}</span> : null}
+                          </div>
+
+                          <div className="text-sm text-slate-500">
+                            Profissional: <b className="text-slate-700">{prof}</b>
+                          </div>
+
+                          {a.reminderType ? (
+                            <div className="pt-1">
+                              <Badge status="time" text={`Lembrete ${String(a.reminderType).toUpperCase()}`} />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        {icsUrl ? (
+                          <Button
+                            as="a"
+                            href={icsUrl}
+                            download={`atendimento_${onlyDigits(a.phone || "")}_${a.isoDate || "data"}.ics`}
+                            variant="secondary"
+                            icon={CalendarCheck}
+                          >
+                            Adicionar ao calendário
+                          </Button>
+                        ) : (
+                          <Button variant="secondary" disabled icon={CalendarCheck}>
+                            Calendário indisponível
+                          </Button>
+                        )}
+
+                        {whatsappLink ? (
+                          <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle}>
+                            Falar com a clínica
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
+          </Card>
+
+          {/* NOTAS (Diário rápido) */}
+          <Card title="Diário rápido">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                  <input
+                    className="w-full pl-9 p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700 text-sm"
+                    placeholder="Buscar nas suas notas..."
+                    value={noteSearch}
+                    onChange={(e) => setNoteSearch(e.target.value)}
+                  />
+                </div>
+
+                <Button onClick={() => setNoteModalOpen(true)} icon={Plus} className="shrink-0">
+                  Nova
+                </Button>
+              </div>
+
+              {loadingNotes ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-16" />
+                  <Skeleton className="h-16" />
+                  <Skeleton className="h-16" />
+                </div>
+              ) : filteredNotes.length === 0 ? (
+                <div className="text-sm text-slate-500">
+                  Nenhuma nota ainda.
+                  <div className="text-xs text-slate-400 mt-1">Use “Nova” para registrar lembretes, tarefas ou observações.</div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredNotes.map((n) => {
+                    const when =
+                      n.createdAt?.seconds
+                        ? new Date(n.createdAt.seconds * 1000).toLocaleString("pt-BR")
+                        : "";
+
+                    return (
+                      <div key={n.id} className="p-4 rounded-2xl border border-slate-100 bg-white flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">{n.content}</div>
+                          {when ? <div className="text-[11px] text-slate-400 mt-2">{when}</div> : null}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNote(n.id)}
+                          className="text-slate-400 hover:text-red-500 transition-colors mt-1"
+                          title="Apagar"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {/* FAB (mobile) */}
+        <button
+          type="button"
+          onClick={() => setNoteModalOpen(true)}
+          className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-2xl bg-violet-600 text-white shadow-xl shadow-violet-200 flex items-center justify-center active:scale-95 transition-transform md:hidden"
+          aria-label="Adicionar nota"
+        >
+          <Plus size={22} />
+        </button>
+
+        {/* Rodapé fixo para aceitar contrato (mobile friendly) */}
+        {needsContractAcceptance && (
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 p-4">
+            <div className="max-w-5xl mx-auto flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div className="text-sm text-slate-600">
+                <b className="text-slate-800">Ação necessária:</b> aceite o contrato (v{currentContractVersion}) para continuar.
+              </div>
+              <Button onClick={handleAcceptContract} icon={CheckCircle} className="sm:w-auto w-full">
+                Aceitar contrato
+              </Button>
+            </div>
           </div>
-        </Card>
+        )}
+
+        {/* Modal Nova Nota */}
+        {noteModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div className="font-bold text-slate-800">Nova nota</div>
+                <button
+                  type="button"
+                  onClick={() => setNoteModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-4 space-y-3">
+                <textarea
+                  className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700 text-sm min-h-[120px] resize-none"
+                  placeholder="Escreva aqui..."
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => setNoteModalOpen(false)} className="flex-1">
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleSaveNote} className="flex-1" icon={CheckCircle}>
+                    Salvar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
