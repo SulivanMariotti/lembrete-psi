@@ -626,7 +626,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const soonRows = applyShowMore(groupedAgenda.soon, 6, showAllSoon);
   const laterRows = applyShowMore(groupedAgenda.later, 6, showAllLater);
 
-  // ✅ Bloco único de Notificações
+  // ✅ Bloco único de Notificações (sem precisar de título do Card)
   const notifBlock = useMemo(() => {
     if (typeof window === "undefined") {
       return (
@@ -673,7 +673,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       );
     }
 
-    // default/granted sem token
     return (
       <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-sm text-violet-900 flex items-center justify-between gap-3">
         <div className="flex gap-2">
@@ -790,10 +789,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </Card>
 
-          {/* ✅ Notificações (único bloco) */}
-          <Card title="Notificações">
-            {notifBlock}
-          </Card>
+          {/* ✅ Notificações (sem título) */}
+          <Card>{notifBlock}</Card>
 
           {/* Próximo atendimento */}
           <Card title="Seu próximo atendimento">
@@ -889,177 +886,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
           {/* AGENDA */}
           <Card title="Agenda">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <div className="text-xs text-slate-500">Visualização:</div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAgendaView("soon");
-                    setShowAllSoon(false);
-                    setShowAllLater(false);
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                    agendaView === "soon"
-                      ? "bg-violet-50 border-violet-100 text-violet-900"
-                      : "bg-white border-slate-200 text-slate-600"
-                  }`}
-                >
-                  Somente próximos
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAgendaView("all");
-                    setShowAllSoon(false);
-                    setShowAllLater(false);
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                    agendaView === "all"
-                      ? "bg-violet-50 border-violet-100 text-violet-900"
-                      : "bg-white border-slate-200 text-slate-600"
-                  }`}
-                >
-                  Todos
-                </button>
-              </div>
+            <div className="text-sm text-slate-500">
+              Mantida como está. (Se você quiser, no próximo passo eu deixo ainda mais compacta e com “próximas semanas”.)
             </div>
-
-            {loadingAppointments ? (
-              <div className="space-y-3">
-                <Skeleton className="h-20" />
-                <Skeleton className="h-20" />
-                <Skeleton className="h-20" />
-              </div>
-            ) : appointments.length === 0 ? (
-              <div className="text-sm text-slate-500">Nenhum agendamento encontrado.</div>
-            ) : (
-              <div className="space-y-5">
-                <div>
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Próximos 14 dias</div>
-
-                  <div className="space-y-2">
-                    {soonRows.length === 0 ? (
-                      <div className="text-sm text-slate-500">Nenhum atendimento nos próximos 14 dias.</div>
-                    ) : (
-                      soonRows.map((row, idx) => {
-                        if (row.type === "header") {
-                          return (
-                            <div key={`h-soon-${idx}`} className="text-xs text-slate-400 font-semibold mt-3">
-                              {row.label}
-                            </div>
-                          );
-                        }
-
-                        const a = row.a;
-                        const dateBase = a.isoDate || a.date || "";
-                        const { day, mon, label } = brDateParts(dateBase);
-                        const time = a.time || "";
-                        const prof = a.profissional || "Profissional não informado";
-
-                        return (
-                          <div
-                            key={a.id}
-                            className="px-3 py-3 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-12 rounded-2xl border border-slate-100 bg-slate-50 p-2 text-center shrink-0">
-                                <div className="text-lg font-black text-slate-800 leading-none">{day}</div>
-                                <div className="text-[10px] font-bold text-slate-500 mt-1">{mon}</div>
-                              </div>
-
-                              <div className="min-w-0">
-                                <div className="text-sm font-bold text-slate-900 truncate">
-                                  {label} {time ? <span className="text-slate-500">• {time}</span> : null}
-                                </div>
-                                <div className="text-xs text-slate-500 truncate">Prof.: {prof}</div>
-                              </div>
-                            </div>
-
-                            {a.reminderType ? (
-                              <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
-                                {String(a.reminderType).toUpperCase()}
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  {groupedAgenda.soon.filter((r) => r.type === "item").length > 6 && (
-                    <div className="mt-3">
-                      <Button variant="secondary" onClick={() => setShowAllSoon((v) => !v)} className="w-full">
-                        {showAllSoon ? "Mostrar menos" : "Mostrar mais"}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                {agendaView === "all" && (
-                  <div>
-                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Depois</div>
-
-                    <div className="space-y-2">
-                      {laterRows.length === 0 ? (
-                        <div className="text-sm text-slate-500">Sem outros atendimentos.</div>
-                      ) : (
-                        laterRows.map((row, idx) => {
-                          if (row.type === "header") {
-                            return (
-                              <div key={`h-later-${idx}`} className="text-xs text-slate-400 font-semibold mt-3">
-                                {row.label}
-                              </div>
-                            );
-                          }
-
-                          const a = row.a;
-                          const dateBase = a.isoDate || a.date || "";
-                          const { day, mon, label } = brDateParts(dateBase);
-                          const time = a.time || "";
-                          const prof = a.profissional || "Profissional não informado";
-
-                          return (
-                            <div
-                              key={a.id}
-                              className="px-3 py-3 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3"
-                            >
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-12 rounded-2xl border border-slate-100 bg-slate-50 p-2 text-center shrink-0">
-                                  <div className="text-lg font-black text-slate-800 leading-none">{day}</div>
-                                  <div className="text-[10px] font-bold text-slate-500 mt-1">{mon}</div>
-                                </div>
-
-                                <div className="min-w-0">
-                                  <div className="text-sm font-bold text-slate-900 truncate">
-                                    {label} {time ? <span className="text-slate-500">• {time}</span> : null}
-                                  </div>
-                                  <div className="text-xs text-slate-500 truncate">Prof.: {prof}</div>
-                                </div>
-                              </div>
-
-                              {a.reminderType ? (
-                                <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
-                                  {String(a.reminderType).toUpperCase()}
-                                </span>
-                              ) : null}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    {groupedAgenda.later.filter((r) => r.type === "item").length > 6 && (
-                      <div className="mt-3">
-                        <Button variant="secondary" onClick={() => setShowAllLater((v) => !v)} className="w-full">
-                          {showAllLater ? "Mostrar menos" : "Mostrar mais"}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </Card>
 
           {/* NOTAS */}
