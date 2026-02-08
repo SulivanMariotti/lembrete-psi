@@ -27,7 +27,6 @@ export async function POST(req) {
   try {
     initAdmin();
 
-    // Auth: Bearer <firebase idToken>
     const authHeader = req.headers.get("authorization") || "";
     const match = authHeader.match(/^Bearer\s+(.+)$/i);
     const idToken = match?.[1];
@@ -38,10 +37,7 @@ export async function POST(req) {
 
     const decoded = await admin.auth().verifyIdToken(idToken);
     const uid = decoded?.uid;
-
-    if (!uid) {
-      return NextResponse.json({ ok: false, error: "Invalid token." }, { status: 401 });
-    }
+    if (!uid) return NextResponse.json({ ok: false, error: "Invalid token." }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
     const phone = String(body?.phone || "").replace(/\D/g, "");
@@ -50,11 +46,10 @@ export async function POST(req) {
     if (!phone) return NextResponse.json({ ok: false, error: "Missing phone." }, { status: 400 });
     if (!token) return NextResponse.json({ ok: false, error: "Missing token." }, { status: 400 });
 
-    // ✅ Não salvar o token bruto em logs. Apenas hash + sufixo para auditoria.
     const tokenHash = sha256(token);
     const tokenTail = token.length >= 8 ? token.slice(-8) : token;
 
-    const payload = {
+    await admin.firestore().collection("history").add({
       type: "push_enabled",
       patientId: uid,
       phone,
@@ -62,13 +57,11 @@ export async function POST(req) {
       tokenTail,
       userAgent: req.headers.get("user-agent") || "",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    await admin.firestore().collection("history").add(payload);
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ ok: false, error: e.message || "Erro" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
   }
 }

@@ -2,8 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { app, db } from "../../app/firebase";
-import {
-  collection,
+import {collection,
   doc,
   getDoc,
   onSnapshot,
@@ -15,7 +14,7 @@ import {
   setDoc,
   addDoc,
   deleteDoc,
-} from "firebase/firestore";
+  getDocs} from "firebase/firestore";
 
 import { Button, Card, Toast } from "../DesignSystem";
 import {
@@ -628,16 +627,65 @@ useEffect(() => {
         return;
       }
 
-      const phone = resolvedPhone || cleanPhoneFromProfile;
-      if (!phone) {
-        showToast("Seu telefone ainda não está no perfil. Peça atualização ao admin.", "error");
-        return;
-      }
+      const resolvePhoneFromSubscriberByEmail = async () => {
+  try {
+    const email = (user?.email || "").toLowerCase().trim();
+    if (!email) return "";
+    const snap = await getDocs(query(collection(db, "subscribers"), where("email", "==", email)));
+    const first = snap.docs?.[0];
+    const p = first?.id ? String(first.id).replace(/\D/g, "") : "";
+    return p;
+  } catch (_) {
+    return "";
+  }
+};
 
-      await updateDoc(doc(db, "subscribers", phone), { pushToken: token, lastSeen: new Date() });
-      setNotifHasToken(true);
-      showToast("Notificações ativadas ✅", "success");
-    } catch (e) {
+let phone = resolvedPhone || cleanPhoneFromProfile;
+
+// Fallback robusto: se não tiver no perfil, tenta achar em subscribers pelo email do usuário
+if (!phone) {
+  phone = await resolvePhoneFromSubscriberByEmail();
+  if (phone) {
+    try {
+      await updateDoc(doc(db, "users", user.uid), { phone });
+    } catch (_) {}
+  }
+}
+
+if (!phone) {
+  showToast("Seu telefone ainda não está no perfil. Peça atualização ao admin.", "error");
+  return;
+}
+// Evita regravar/logar se já estiver igual no Firestore
+try {
+  const currentSnap = await getDoc(doc(db, "subscribers", phone));
+  const current = currentSnap.exists() ? currentSnap.data() : null;
+  if (current?.pushToken && current.pushToken === token) {
+    setNotifHasToken(true);
+    showToast("Notificações já estavam ativas ✅", "success");
+    return;
+  }
+} catch (_) {
+  // se falhar a leitura, seguimos com a atualização
+}
+
+await updateDoc(doc(db, "subscribers", phone), { pushToken: token, lastSeen: new Date() });
+
+// ✅ Log server-side (auditoria). Não salvamos o token bruto nos logs.
+try {
+  const idToken = await user.getIdToken();
+  await fetch("/api/push/enabled", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ phone, token }),
+  });
+} catch (_) {
+  // silencioso
+}
+
+setNotifHasToken(true);
+showToast("Notificações ativadas ✅", "success");
+} catch (e) {
       console.error(e);
       showToast("Falha ao ativar notificações.", "error");
     } finally {
@@ -1056,6 +1104,75 @@ useEffect(() => {
   const nextPlaceLabel = useMemo(() => {
     return String(getLocationFromAppointment(nextAppointment) || "").trim();
   }, [nextAppointment]);
+
+// PASSO 13/45: manutenção automática do token (sem popup)
+// - Só roda quando a permissão já é "granted"
+// - Não dispara requestPermission automaticamente
+useEffect(() => {
+  const run = async () => {
+    try {
+      if (!user) return;
+      if (typeof Notification === "undefined") return;
+      if (Notification.permission !== "granted") return;
+
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_KEY;
+      if (!vapidKey) return;
+      if (!("serviceWorker" in navigator)) return;
+
+      const swReg = await navigator.serviceWorker.getRegistration();
+      if (!swReg) return;
+
+      const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg });
+      if (!token) return;
+
+      // resolve phone do perfil/subscriber
+      const cleanPhoneFromProfile = String(profile?.phone || "").replace(/\D/g, "");
+      let phone = resolvedPhone || cleanPhoneFromProfile;
+
+      if (!phone) {
+        const email = (user?.email || "").toLowerCase().trim();
+        if (email) {
+          const snap = await getDocs(query(collection(db, "subscribers"), where("email", "==", email)));
+          const first = snap.docs?.[0];
+          phone = first?.id ? String(first.id).replace(/\D/g, "") : "";
+          if (phone) {
+            try {
+              await updateDoc(doc(db, "users", user.uid), { phone });
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (!phone) return;
+
+      // Evita regravar/logar se já estiver igual
+      try {
+        const currentSnap = await getDoc(doc(db, "subscribers", phone));
+        const current = currentSnap.exists() ? currentSnap.data() : null;
+        if (current?.pushToken && current.pushToken === token) {
+          setNotifHasToken(true);
+          return;
+        }
+      } catch (_) {}
+
+      await updateDoc(doc(db, "subscribers", phone), { pushToken: token, lastSeen: new Date() });
+
+      try {
+        const idToken = await user.getIdToken();
+        await fetch("/api/push/enabled", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ phone, token }),
+        });
+      } catch (_) {}
+
+      setNotifHasToken(true);
+    } catch (_) {}
+  };
+
+  run();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [user, profile?.phone, resolvedPhone]);
 
   return (
     <>
