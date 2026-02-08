@@ -17,7 +17,7 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 
-import { Button, Card, Badge, Toast } from "../DesignSystem";
+import { Button, Card, Toast } from "../DesignSystem";
 import {
   CalendarCheck,
   CheckCircle,
@@ -45,12 +45,29 @@ function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
 
+/**
+ * Normaliza número BR para formato do WhatsApp (E.164 sem +).
+ * Aceita:
+ * - "5511...." (já ok)
+ * - "11...." (adiciona 55)
+ * - "+55(11)..." etc (remove caracteres)
+ */
+function normalizeWhatsappPhone(raw) {
+  const d = onlyDigits(raw);
+  if (!d) return "";
+  if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
+  if (d.length === 10 || d.length === 11) return `55${d}`;
+  return d;
+}
+
 function formatPhoneBR(raw) {
   const d = onlyDigits(raw);
   if (!d) return "";
-  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-  return d;
+  const pure = d.startsWith("55") && (d.length === 12 || d.length === 13) ? d.slice(2) : d;
+
+  if (pure.length === 11) return `(${pure.slice(0, 2)}) ${pure.slice(2, 7)}-${pure.slice(7)}`;
+  if (pure.length === 10) return `(${pure.slice(0, 2)}) ${pure.slice(2, 6)}-${pure.slice(6)}`;
+  return pure;
 }
 
 function parseDateFromAny(a) {
@@ -135,6 +152,43 @@ function makeIcsDataUrl({ title, description, startISO, endISO }) {
   return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 }
 
+function startDateTimeFromAppointment(a) {
+  const iso = a?.isoDate || a?.date || "";
+  const t = String(a?.time || "").trim();
+  const d = parseDateFromAny(iso);
+  if (!d) return null;
+
+  if (t && /^\d{2}:\d{2}$/.test(t)) {
+    return new Date(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`
+    );
+  }
+  return d;
+}
+
+function relativeLabelForDate(dt) {
+  if (!dt) return null;
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTarget = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+
+  const diffDays = Math.round((startOfTarget.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) return { text: "Hoje", style: "today" };
+  if (diffDays === 1) return { text: "Amanhã", style: "tomorrow" };
+  if (diffDays > 1) return { text: `Em ${diffDays} dias`, style: "future" };
+  if (diffDays === -1) return { text: "Ontem", style: "past" };
+  return { text: `${Math.abs(diffDays)} dias atrás`, style: "past" };
+}
+
+function chipClass(style) {
+  if (style === "today") return "bg-emerald-50 border-emerald-100 text-emerald-900";
+  if (style === "tomorrow") return "bg-violet-50 border-violet-100 text-violet-900";
+  if (style === "future") return "bg-slate-50 border-slate-200 text-slate-700";
+  return "bg-amber-50 border-amber-100 text-amber-900";
+}
+
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
   const [profile, setProfile] = useState(null);
   const [appointments, setAppointments] = useState([]);
@@ -157,7 +211,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [noteSearch, setNoteSearch] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // ✅ Agenda UX
+  // Agenda UX
   const [agendaView, setAgendaView] = useState("soon"); // "soon" | "all"
   const [showAllSoon, setShowAllSoon] = useState(false);
   const [showAllLater, setShowAllLater] = useState(false);
@@ -177,11 +231,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const acceptedVersion = Number(profile?.contractAcceptedVersion || 0);
   const needsContractAcceptance = currentContractVersion > acceptedVersion;
 
-  const whatsappLink = useMemo(() => {
-    const raw = globalConfig?.whatsapp || "";
-    const phone = onlyDigits(raw);
-    if (!phone) return null;
-    return `https://wa.me/${phone}`;
+  // ✅ WhatsApp da clínica vindo do config/global
+  const clinicWhatsappPhone = useMemo(() => {
+    return normalizeWhatsappPhone(globalConfig?.whatsapp || "");
   }, [globalConfig?.whatsapp]);
 
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
@@ -464,24 +516,15 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   }, [notes, noteSearch]);
 
   const patientName = profile?.name || user?.displayName || "Paciente";
-  const patientPhone = formatPhoneBR(cleanPhoneFromProfile);
+  const patientPhoneDisplay = formatPhoneBR(cleanPhoneFromProfile);
 
   // Próximo atendimento
   const nextAppointment = useMemo(() => {
     const now = new Date();
     const list = (appointments || [])
       .map((a) => {
-        const iso = a.isoDate || a.date || "";
-        const t = String(a.time || "").trim();
-        const d = parseDateFromAny(iso);
-        if (!d) return { a, ts: Number.POSITIVE_INFINITY };
-        let dt = d;
-        if (t && /^\d{2}:\d{2}$/.test(t)) {
-          dt = new Date(
-            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`
-          );
-        }
-        return { a, ts: dt.getTime() };
+        const dt = startDateTimeFromAppointment(a);
+        return { a, ts: dt ? dt.getTime() : Number.POSITIVE_INFINITY };
       })
       .filter((x) => Number.isFinite(x.ts))
       .sort((x, y) => x.ts - y.ts);
@@ -490,24 +533,57 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return upcoming?.a || (list[0]?.a ?? null);
   }, [appointments]);
 
+  // Meta do próximo atendimento (chip + WhatsApp + ics)
+  const nextMeta = useMemo(() => {
+    if (!nextAppointment) return { label: null, wa: null, waDisabled: true, ics: null };
+
+    const dt = startDateTimeFromAppointment(nextAppointment);
+    const label = relativeLabelForDate(dt);
+
+    let wa = null;
+    let waDisabled = true;
+
+    if (clinicWhatsappPhone) {
+      const dateLabel = brDateParts(nextAppointment.isoDate || nextAppointment.date).label;
+      const time = String(nextAppointment.time || "").trim();
+      const prof = nextAppointment.profissional ? ` com ${nextAppointment.profissional}` : "";
+
+      // ✅ confirmação de presença (sem reagendar/cancelar)
+      const msg =
+        `Olá! Sou ${patientName}. ` +
+        `Confirmo minha presença no atendimento${prof} no dia ${dateLabel}${time ? ` às ${time}` : ""}. ` +
+        `Estou me organizando para estar presente.`;
+
+      wa = `https://wa.me/${clinicWhatsappPhone}?text=${encodeURIComponent(msg)}`;
+      waDisabled = false;
+    }
+
+    let ics = null;
+    try {
+      if (nextAppointment.isoDate && nextAppointment.time) {
+        const start = new Date(`${nextAppointment.isoDate}T${nextAppointment.time}:00`);
+        const end = addMinutes(start, 50);
+        ics = makeIcsDataUrl({
+          title: "Atendimento",
+          description: `Atendimento ${nextAppointment.profissional ? `com ${nextAppointment.profissional}` : ""}`,
+          startISO: start.toISOString(),
+          endISO: end.toISOString(),
+        });
+      }
+    } catch (_) {}
+
+    return { label, wa, waDisabled, ics };
+  }, [nextAppointment, clinicWhatsappPhone, patientName]);
+
   // Agrupar agenda (14 dias + depois), com headers por mês
   const groupedAgenda = useMemo(() => {
     const now = new Date();
     const in14 = addMinutes(now, 14 * 24 * 60);
 
     const items = (appointments || []).map((a) => {
+      const dt = startDateTimeFromAppointment(a);
+      const ts = dt ? dt.getTime() : Number.POSITIVE_INFINITY;
       const iso = a.isoDate || a.date || "";
-      const t = String(a.time || "").trim();
-      const d = parseDateFromAny(iso);
-      let ts = Number.POSITIVE_INFINITY;
-      if (d) {
-        if (t && /^\d{2}:\d{2}$/.test(t)) {
-          const dt = new Date(
-            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`
-          );
-          ts = dt.getTime();
-        } else ts = d.getTime();
-      }
       return { a, ts, month: monthLabelFromIso(iso) };
     });
 
@@ -540,14 +616,12 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [appointments]);
 
-  // ✅ aplicar “Mostrar mais” sem quebrar headers
   function applyShowMore(rows, maxItems, showAll) {
     if (showAll) return rows;
     let count = 0;
     const out = [];
     for (const r of rows) {
       if (r.type === "header") {
-        // só inclui header se ainda houver itens depois dele
         out.push(r);
         continue;
       }
@@ -558,31 +632,22 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         break;
       }
     }
-    // remove header final se ele ficou sem item abaixo
     while (out.length && out[out.length - 1]?.type === "header") out.pop();
     return out;
   }
 
-  const notifInlineInfo = (() => {
+  const soonRows = applyShowMore(groupedAgenda.soon, 6, showAllSoon);
+  const laterRows = applyShowMore(groupedAgenda.later, 6, showAllLater);
+
+  // ✅ Banner de notificação APENAS para erro/limitação (sem duplicar “receberá no aparelho”)
+  const notifBanner = useMemo(() => {
     if (!notifSupported) {
       return (
         <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-600 flex gap-2">
           <AlertTriangle size={16} className="mt-0.5 text-slate-400" />
           <div>
             Este navegador pode não suportar notificações.
-            <div className="text-xs text-slate-400 mt-1">Você ainda pode usar WhatsApp para contato.</div>
-          </div>
-        </div>
-      );
-    }
-
-    if (notifHasToken) {
-      return (
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-900 flex gap-2">
-          <CheckCircle size={16} className="mt-0.5" />
-          <div>
-            <b>Notificação ativada</b> ✅
-            <div className="text-xs text-emerald-800/70 mt-1">Você receberá lembretes neste aparelho.</div>
+            <div className="text-xs text-slate-400 mt-1">Se possível, use Chrome/Safari para receber lembretes.</div>
           </div>
         </div>
       );
@@ -593,28 +658,58 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
           <AlertTriangle size={16} className="mt-0.5" />
           <div>
-            Notificações bloqueadas.
-            <div className="text-xs text-amber-800/70 mt-1">Libere nas permissões do navegador para receber lembretes.</div>
+            Notificações bloqueadas no navegador.
+            <div className="text-xs text-amber-800/70 mt-1">Libere as permissões para receber lembretes neste aparelho.</div>
           </div>
         </div>
       );
     }
 
-    return (
-      <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-sm text-violet-900 flex items-center justify-between gap-3">
-        <div className="flex gap-2">
-          <Bell size={16} className="mt-0.5 text-violet-700" />
-          <div>
-            <b>Ative as notificações</b>
-            <div className="text-xs text-violet-800/70 mt-1">Você receberá lembretes neste aparelho.</div>
-          </div>
-        </div>
-        <Button onClick={enableNotificationsAndSaveToken} disabled={notifBusy} variant="secondary" icon={notifBusy ? Loader2 : Bell}>
-          {notifBusy ? "Ativando..." : "Ativar"}
-        </Button>
-      </div>
-    );
-  })();
+    return null;
+  }, [notifSupported, notifPermission]);
+
+  // ✅ Checklist: aqui é o ÚNICO lugar onde aparece “receberá neste aparelho”
+  const checklist = useMemo(() => {
+    const notifOk = Boolean(notifHasToken);
+    const contractOk = !needsContractAcceptance;
+    const nextOk = Boolean(nextAppointment);
+
+    return [
+      {
+        key: "notif",
+        title: "Notificações",
+        ok: notifOk,
+        helper: notifOk ? "Ativadas neste aparelho" : "Ative para receber lembretes",
+        action:
+          !notifOk && notifSupported && notifPermission !== "denied"
+            ? { label: notifBusy ? "Ativando..." : "Ativar", onClick: enableNotificationsAndSaveToken, icon: Bell }
+            : null,
+      },
+      {
+        key: "contract",
+        title: "Contrato",
+        ok: contractOk,
+        helper: contractOk ? "Aceito" : "Pendente (necessário aceitar)",
+        action: !contractOk ? { label: "Abrir", onClick: () => setContractOpen(true), icon: FileText } : null,
+      },
+      {
+        key: "next",
+        title: "Próximo atendimento",
+        ok: nextOk,
+        helper: nextOk
+          ? `${brDateParts(nextAppointment.isoDate || nextAppointment.date).label}${nextAppointment.time ? ` • ${nextAppointment.time}` : ""}`
+          : "Nenhum encontrado",
+        action: null,
+      },
+    ];
+  }, [
+    notifHasToken,
+    needsContractAcceptance,
+    nextAppointment,
+    notifSupported,
+    notifPermission,
+    notifBusy,
+  ]);
 
   if (loadingProfile) {
     return (
@@ -643,10 +738,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
   }
 
-  // ✅ rows com show-more aplicado
-  const soonRows = applyShowMore(groupedAgenda.soon, 6, showAllSoon);
-  const laterRows = applyShowMore(groupedAgenda.later, 6, showAllLater);
-
   return (
     <>
       {toast?.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />}
@@ -660,7 +751,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               <div className="text-2xl font-black text-slate-900 flex items-center gap-2">
                 <span>Olá, {patientName}</span> <span className="text-lg">👋</span>
               </div>
-              <div className="text-sm text-slate-500 mt-1">Agenda, contrato e seu diário.</div>
+              <div className="text-sm text-slate-500 mt-1">Lembretes e organização do seu cuidado.</div>
             </div>
 
             <div className="hidden sm:flex gap-2">
@@ -701,47 +792,72 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </div>
 
+          {/* ✅ Banner só quando houver problema */}
+          {notifBanner}
+
+          {/* Checklist (único lugar do status “no aparelho”) */}
+          <Card title="Checklist rápido">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {checklist.map((it) => (
+                <div key={it.key} className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-extrabold text-slate-900">{it.title}</div>
+                    {it.ok ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border bg-emerald-50 border-emerald-100 text-emerald-900 font-semibold">
+                        <CheckCircle size={14} /> OK
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border bg-amber-50 border-amber-100 text-amber-900 font-semibold">
+                        <AlertTriangle size={14} /> Pendente
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-slate-500 mt-2">{it.helper}</div>
+
+                  {it.action ? (
+                    <div className="mt-3">
+                      <Button
+                        variant="secondary"
+                        className="w-full"
+                        icon={it.action.icon}
+                        onClick={it.action.onClick}
+                        disabled={it.key === "notif" && notifBusy}
+                      >
+                        {it.action.label}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </Card>
+
           {/* Card paciente */}
           <Card>
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
-                    <User size={20} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-black text-slate-900 truncate">{patientName}</div>
-                    <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
-                      <Phone size={14} className="text-slate-400" />
-                      {patientPhone || "Telefone não informado"}
-                    </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
+                  <User size={20} />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-black text-slate-900 truncate">{patientName}</div>
+                  <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
+                    <Phone size={14} className="text-slate-400" />
+                    {patientPhoneDisplay || "Telefone não informado"}
                   </div>
                 </div>
-
-                {needsContractAcceptance ? (
-                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-100 text-xs font-semibold">
-                    <AlertTriangle size={14} /> Contrato pendente
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100 text-xs font-semibold">
-                    <CheckCircle size={14} /> Contrato OK
-                  </span>
-                )}
               </div>
 
-              {notifInlineInfo}
-
-              <div className="flex">
-                {whatsappLink ? (
-                  <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle} className="w-full">
-                    Falar com a clínica no WhatsApp
-                  </Button>
-                ) : (
-                  <Button disabled variant="secondary" icon={MessageCircle} className="w-full">
-                    WhatsApp indisponível
-                  </Button>
-                )}
-              </div>
+              {needsContractAcceptance ? (
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-100 text-xs font-semibold">
+                  <AlertTriangle size={14} /> Contrato pendente
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100 text-xs font-semibold">
+                  <CheckCircle size={14} /> Contrato OK
+                </span>
+              )}
             </div>
           </Card>
 
@@ -750,50 +866,70 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             {!nextAppointment ? (
               <div className="text-sm text-slate-500">Nenhum atendimento encontrado.</div>
             ) : (
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-14 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-center shrink-0">
-                    <div className="text-xl font-black text-slate-800 leading-none">
-                      {brDateParts(nextAppointment.isoDate || nextAppointment.date).day}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-14 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-center shrink-0">
+                      <div className="text-xl font-black text-slate-800 leading-none">
+                        {brDateParts(nextAppointment.isoDate || nextAppointment.date).day}
+                      </div>
+                      <div className="text-[11px] font-bold text-slate-500 mt-1">
+                        {brDateParts(nextAppointment.isoDate || nextAppointment.date).mon}
+                      </div>
                     </div>
-                    <div className="text-[11px] font-bold text-slate-500 mt-1">
-                      {brDateParts(nextAppointment.isoDate || nextAppointment.date).mon}
+
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 truncate flex items-center gap-2">
+                        <span>
+                          {brDateParts(nextAppointment.isoDate || nextAppointment.date).label}
+                          {nextAppointment.time ? <span className="text-slate-400"> • </span> : null}
+                          {nextAppointment.time ? <span className="text-slate-700">{nextAppointment.time}</span> : null}
+                        </span>
+
+                        {nextMeta.label ? (
+                          <span className={`text-[11px] px-2 py-1 rounded-full border font-semibold ${chipClass(nextMeta.label.style)}`}>
+                            {nextMeta.label.text}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="text-sm text-slate-500 truncate">
+                        Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="min-w-0">
-                    <div className="font-bold text-slate-900 truncate">
-                      {brDateParts(nextAppointment.isoDate || nextAppointment.date).label}
-                      {nextAppointment.time ? <span className="text-slate-400"> • </span> : null}
-                      {nextAppointment.time ? <span className="text-slate-700">{nextAppointment.time}</span> : null}
-                    </div>
-                    <div className="text-sm text-slate-500 truncate">
-                      Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
-                    </div>
+                  <div className="shrink-0">
+                    {nextMeta.ics ? (
+                      <Button as="a" href={nextMeta.ics} download={`proximo_atendimento.ics`} variant="secondary" icon={CalendarCheck}>
+                        Calendário
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
 
-                <div className="shrink-0">
-                  {(() => {
-                    try {
-                      if (!nextAppointment.isoDate || !nextAppointment.time) return null;
-                      const start = new Date(`${nextAppointment.isoDate}T${nextAppointment.time}:00`);
-                      const end = addMinutes(start, 50);
-                      const icsUrl = makeIcsDataUrl({
-                        title: "Atendimento",
-                        description: `Atendimento com ${nextAppointment.profissional || ""}`,
-                        startISO: start.toISOString(),
-                        endISO: end.toISOString(),
-                      });
-                      return (
-                        <Button as="a" href={icsUrl} download={`proximo_atendimento.ics`} variant="secondary" icon={CalendarCheck}>
-                          Calendário
-                        </Button>
-                      );
-                    } catch (_) {
-                      return null;
-                    }
-                  })()}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  {nextMeta.wa && !nextMeta.waDisabled ? (
+                    <Button as="a" href={nextMeta.wa} target="_blank" rel="noreferrer" icon={MessageCircle} className="w-full">
+                      Confirmar presença no WhatsApp
+                    </Button>
+                  ) : (
+                    <Button disabled variant="secondary" icon={MessageCircle} className="w-full">
+                      WhatsApp não configurado (admin)
+                    </Button>
+                  )}
+                </div>
+
+                {/* Microtexto alinhado à sua diretriz clínica (constância) */}
+                <div className="rounded-xl border border-slate-100 bg-white p-3 text-sm text-slate-700">
+                  <b className="text-slate-900">O segredo da terapia é a constância.</b>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Comparecer às sessões sustenta o processo. Faltar pode interromper evoluções importantes — sua presença é o maior investimento em si.
+                  </div>
+                </div>
+
+                <div className="text-xs text-slate-400">
+                  O WhatsApp aqui é apenas para <b>confirmar presença</b>.
                 </div>
               </div>
             )}
@@ -822,7 +958,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </Card>
 
-          {/* ✅ AGENDA com filtro + mostrar mais */}
+          {/* AGENDA */}
           <Card title="Agenda">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="text-xs text-slate-500">Visualização:</div>
@@ -870,7 +1006,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               <div className="text-sm text-slate-500">Nenhum agendamento encontrado.</div>
             ) : (
               <div className="space-y-5">
-                {/* Próximos 14 dias */}
                 <div>
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Próximos 14 dias</div>
 
@@ -923,21 +1058,15 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                     )}
                   </div>
 
-                  {/* Mostrar mais */}
                   {groupedAgenda.soon.filter((r) => r.type === "item").length > 6 && (
                     <div className="mt-3">
-                      <Button
-                        variant="secondary"
-                        onClick={() => setShowAllSoon((v) => !v)}
-                        className="w-full"
-                      >
+                      <Button variant="secondary" onClick={() => setShowAllSoon((v) => !v)} className="w-full">
                         {showAllSoon ? "Mostrar menos" : "Mostrar mais"}
                       </Button>
                     </div>
                   )}
                 </div>
 
-                {/* Depois (apenas se agendaView === all) */}
                 {agendaView === "all" && (
                   <div>
                     <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Depois</div>
@@ -991,14 +1120,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                       )}
                     </div>
 
-                    {/* Mostrar mais */}
                     {groupedAgenda.later.filter((r) => r.type === "item").length > 6 && (
                       <div className="mt-3">
-                        <Button
-                          variant="secondary"
-                          onClick={() => setShowAllLater((v) => !v)}
-                          className="w-full"
-                        >
+                        <Button variant="secondary" onClick={() => setShowAllLater((v) => !v)} className="w-full">
                           {showAllLater ? "Mostrar menos" : "Mostrar mais"}
                         </Button>
                       </div>
