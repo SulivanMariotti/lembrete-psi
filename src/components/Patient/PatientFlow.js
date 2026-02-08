@@ -57,11 +57,9 @@ function parseDateFromAny(a) {
   const s = String(a || "").trim();
   if (!s) return null;
 
-  // YYYY-MM-DD
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
 
-  // DD/MM/YYYY
   const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (br) return new Date(`${br[3]}-${br[2]}-${br[1]}T00:00:00`);
 
@@ -158,6 +156,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [noteContent, setNoteContent] = useState("");
   const [noteSearch, setNoteSearch] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // ✅ Agenda UX
+  const [agendaView, setAgendaView] = useState("soon"); // "soon" | "all"
+  const [showAllSoon, setShowAllSoon] = useState(false);
+  const [showAllLater, setShowAllLater] = useState(false);
 
   // Notificações
   const [notifSupported, setNotifSupported] = useState(false);
@@ -351,9 +354,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     const phone = cleanPhoneFromProfile;
 
     let q = null;
-    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(80));
+    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(120));
     else if (user?.email)
-      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(80));
+      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(120));
     else {
       setAppointments([]);
       setLoadingAppointments(false);
@@ -463,7 +466,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const patientName = profile?.name || user?.displayName || "Paciente";
   const patientPhone = formatPhoneBR(cleanPhoneFromProfile);
 
-  // ✅ Próximo atendimento
+  // Próximo atendimento
   const nextAppointment = useMemo(() => {
     const now = new Date();
     const list = (appointments || [])
@@ -474,7 +477,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         if (!d) return { a, ts: Number.POSITIVE_INFINITY };
         let dt = d;
         if (t && /^\d{2}:\d{2}$/.test(t)) {
-          dt = new Date(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`);
+          dt = new Date(
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`
+          );
         }
         return { a, ts: dt.getTime() };
       })
@@ -485,7 +490,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return upcoming?.a || (list[0]?.a ?? null);
   }, [appointments]);
 
-  // ✅ Agrupar agenda: Próximos 14 dias + Depois, com headers por mês
+  // Agrupar agenda (14 dias + depois), com headers por mês
   const groupedAgenda = useMemo(() => {
     const now = new Date();
     const in14 = addMinutes(now, 14 * 24 * 60);
@@ -497,11 +502,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       let ts = Number.POSITIVE_INFINITY;
       if (d) {
         if (t && /^\d{2}:\d{2}$/.test(t)) {
-          const dt = new Date(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`);
+          const dt = new Date(
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`
+          );
           ts = dt.getTime();
-        } else {
-          ts = d.getTime();
-        }
+        } else ts = d.getTime();
       }
       return { a, ts, month: monthLabelFromIso(iso) };
     });
@@ -510,7 +515,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
     const soon = [];
     const later = [];
-
     for (const x of sorted) {
       if (x.ts <= in14.getTime()) soon.push(x);
       else later.push(x);
@@ -535,6 +539,29 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       later: splitByMonth(later),
     };
   }, [appointments]);
+
+  // ✅ aplicar “Mostrar mais” sem quebrar headers
+  function applyShowMore(rows, maxItems, showAll) {
+    if (showAll) return rows;
+    let count = 0;
+    const out = [];
+    for (const r of rows) {
+      if (r.type === "header") {
+        // só inclui header se ainda houver itens depois dele
+        out.push(r);
+        continue;
+      }
+      if (count < maxItems) {
+        out.push(r);
+        count++;
+      } else {
+        break;
+      }
+    }
+    // remove header final se ele ficou sem item abaixo
+    while (out.length && out[out.length - 1]?.type === "header") out.pop();
+    return out;
+  }
 
   const notifInlineInfo = (() => {
     if (!notifSupported) {
@@ -582,19 +609,13 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             <div className="text-xs text-violet-800/70 mt-1">Você receberá lembretes neste aparelho.</div>
           </div>
         </div>
-        <Button
-          onClick={enableNotificationsAndSaveToken}
-          disabled={notifBusy}
-          variant="secondary"
-          icon={notifBusy ? Loader2 : Bell}
-        >
+        <Button onClick={enableNotificationsAndSaveToken} disabled={notifBusy} variant="secondary" icon={notifBusy ? Loader2 : Bell}>
           {notifBusy ? "Ativando..." : "Ativar"}
         </Button>
       </div>
     );
   })();
 
-  // Loading inicial (skeleton)
   if (loadingProfile) {
     return (
       <div className="min-h-screen bg-slate-50 p-4">
@@ -622,13 +643,17 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
   }
 
+  // ✅ rows com show-more aplicado
+  const soonRows = applyShowMore(groupedAgenda.soon, 6, showAllSoon);
+  const laterRows = applyShowMore(groupedAgenda.later, 6, showAllLater);
+
   return (
     <>
       {toast?.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />}
 
       <div className={`min-h-screen bg-slate-50 ${needsContractAcceptance ? "pb-24" : "pb-10"}`}>
         <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
-          {/* Header (Admin/Sair ficam aqui, sem duplicar no card) */}
+          {/* Header */}
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
@@ -638,7 +663,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               <div className="text-sm text-slate-500 mt-1">Agenda, contrato e seu diário.</div>
             </div>
 
-            {/* Desktop */}
             <div className="hidden sm:flex gap-2">
               <Button onClick={onAdminAccess} variant="secondary" icon={Shield}>
                 Admin
@@ -648,7 +672,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               </Button>
             </div>
 
-            {/* Mobile menu */}
             <div className="sm:hidden relative">
               <Button variant="secondary" onClick={() => setMobileMenuOpen((v) => !v)}>
                 Menu
@@ -695,7 +718,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   </div>
                 </div>
 
-                {/* contrato status */}
                 {needsContractAcceptance ? (
                   <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-100 text-xs font-semibold">
                     <AlertTriangle size={14} /> Contrato pendente
@@ -707,10 +729,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                 )}
               </div>
 
-              {/* info notificações */}
               {notifInlineInfo}
 
-              {/* WhatsApp (única ação clínica aqui) */}
               <div className="flex">
                 {whatsappLink ? (
                   <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle} className="w-full">
@@ -725,7 +745,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </Card>
 
-          {/* Próximo atendimento em destaque */}
+          {/* Próximo atendimento */}
           <Card title="Seu próximo atendimento">
             {!nextAppointment ? (
               <div className="text-sm text-slate-500">Nenhum atendimento encontrado.</div>
@@ -753,7 +773,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   </div>
                 </div>
 
-                {/* calendário */}
                 <div className="shrink-0">
                   {(() => {
                     try {
@@ -803,8 +822,44 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </Card>
 
-          {/* AGENDA (menor + agrupada) */}
+          {/* ✅ AGENDA com filtro + mostrar mais */}
           <Card title="Agenda">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="text-xs text-slate-500">Visualização:</div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAgendaView("soon");
+                    setShowAllSoon(false);
+                    setShowAllLater(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                    agendaView === "soon"
+                      ? "bg-violet-50 border-violet-100 text-violet-900"
+                      : "bg-white border-slate-200 text-slate-600"
+                  }`}
+                >
+                  Somente próximos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAgendaView("all");
+                    setShowAllSoon(false);
+                    setShowAllLater(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                    agendaView === "all"
+                      ? "bg-violet-50 border-violet-100 text-violet-900"
+                      : "bg-white border-slate-200 text-slate-600"
+                  }`}
+                >
+                  Todos
+                </button>
+              </div>
+            </div>
+
             {loadingAppointments ? (
               <div className="space-y-3">
                 <Skeleton className="h-20" />
@@ -817,14 +872,13 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               <div className="space-y-5">
                 {/* Próximos 14 dias */}
                 <div>
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                    Próximos 14 dias
-                  </div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Próximos 14 dias</div>
+
                   <div className="space-y-2">
-                    {groupedAgenda.soon.length === 0 ? (
+                    {soonRows.length === 0 ? (
                       <div className="text-sm text-slate-500">Nenhum atendimento nos próximos 14 dias.</div>
                     ) : (
-                      groupedAgenda.soon.map((row, idx) => {
+                      soonRows.map((row, idx) => {
                         if (row.type === "header") {
                           return (
                             <div key={`h-soon-${idx}`} className="text-xs text-slate-400 font-semibold mt-3">
@@ -868,62 +922,89 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                       })
                     )}
                   </div>
+
+                  {/* Mostrar mais */}
+                  {groupedAgenda.soon.filter((r) => r.type === "item").length > 6 && (
+                    <div className="mt-3">
+                      <Button
+                        variant="secondary"
+                        onClick={() => setShowAllSoon((v) => !v)}
+                        className="w-full"
+                      >
+                        {showAllSoon ? "Mostrar menos" : "Mostrar mais"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Depois */}
-                <div>
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                    Depois
-                  </div>
-                  <div className="space-y-2">
-                    {groupedAgenda.later.length === 0 ? (
-                      <div className="text-sm text-slate-500">Sem outros atendimentos.</div>
-                    ) : (
-                      groupedAgenda.later.map((row, idx) => {
-                        if (row.type === "header") {
+                {/* Depois (apenas se agendaView === all) */}
+                {agendaView === "all" && (
+                  <div>
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Depois</div>
+
+                    <div className="space-y-2">
+                      {laterRows.length === 0 ? (
+                        <div className="text-sm text-slate-500">Sem outros atendimentos.</div>
+                      ) : (
+                        laterRows.map((row, idx) => {
+                          if (row.type === "header") {
+                            return (
+                              <div key={`h-later-${idx}`} className="text-xs text-slate-400 font-semibold mt-3">
+                                {row.label}
+                              </div>
+                            );
+                          }
+
+                          const a = row.a;
+                          const dateBase = a.isoDate || a.date || "";
+                          const { day, mon, label } = brDateParts(dateBase);
+                          const time = a.time || "";
+                          const prof = a.profissional || "Profissional não informado";
+
                           return (
-                            <div key={`h-later-${idx}`} className="text-xs text-slate-400 font-semibold mt-3">
-                              {row.label}
+                            <div
+                              key={a.id}
+                              className="px-3 py-3 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-12 rounded-2xl border border-slate-100 bg-slate-50 p-2 text-center shrink-0">
+                                  <div className="text-lg font-black text-slate-800 leading-none">{day}</div>
+                                  <div className="text-[10px] font-bold text-slate-500 mt-1">{mon}</div>
+                                </div>
+
+                                <div className="min-w-0">
+                                  <div className="text-sm font-bold text-slate-900 truncate">
+                                    {label} {time ? <span className="text-slate-500">• {time}</span> : null}
+                                  </div>
+                                  <div className="text-xs text-slate-500 truncate">Prof.: {prof}</div>
+                                </div>
+                              </div>
+
+                              {a.reminderType ? (
+                                <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
+                                  {String(a.reminderType).toUpperCase()}
+                                </span>
+                              ) : null}
                             </div>
                           );
-                        }
+                        })
+                      )}
+                    </div>
 
-                        const a = row.a;
-                        const dateBase = a.isoDate || a.date || "";
-                        const { day, mon, label } = brDateParts(dateBase);
-                        const time = a.time || "";
-                        const prof = a.profissional || "Profissional não informado";
-
-                        return (
-                          <div
-                            key={a.id}
-                            className="px-3 py-3 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-12 rounded-2xl border border-slate-100 bg-slate-50 p-2 text-center shrink-0">
-                                <div className="text-lg font-black text-slate-800 leading-none">{day}</div>
-                                <div className="text-[10px] font-bold text-slate-500 mt-1">{mon}</div>
-                              </div>
-
-                              <div className="min-w-0">
-                                <div className="text-sm font-bold text-slate-900 truncate">
-                                  {label} {time ? <span className="text-slate-500">• {time}</span> : null}
-                                </div>
-                                <div className="text-xs text-slate-500 truncate">Prof.: {prof}</div>
-                              </div>
-                            </div>
-
-                            {a.reminderType ? (
-                              <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
-                                {String(a.reminderType).toUpperCase()}
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      })
+                    {/* Mostrar mais */}
+                    {groupedAgenda.later.filter((r) => r.type === "item").length > 6 && (
+                      <div className="mt-3">
+                        <Button
+                          variant="secondary"
+                          onClick={() => setShowAllLater((v) => !v)}
+                          className="w-full"
+                        >
+                          {showAllLater ? "Mostrar menos" : "Mostrar mais"}
+                        </Button>
+                      </div>
                     )}
                   </div>
-                </div>
+                )}
               </div>
             )}
           </Card>
