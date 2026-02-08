@@ -225,6 +225,23 @@ function prettyServiceLabel(serviceType) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// PASSO 7/45: fallback robusto para exibir serviço/local mesmo em sessões antigas
+function getServiceTypeFromAppointment(a) {
+  // preferimos o campo novo `serviceType`, mas suportamos variações antigas
+  return (
+    a?.serviceType ||
+    a?.servico ||
+    a?.service ||
+    a?.tipoServico ||
+    a?.tipo_servico ||
+    ""
+  );
+}
+
+function getLocationFromAppointment(a) {
+  return a?.location || a?.local || a?.sala || a?.place || "";
+}
+
 function statusChipFor(appointmentStatus, isConfirmed) {
   const s = String(appointmentStatus || "scheduled").toLowerCase();
 
@@ -248,7 +265,9 @@ function AppointmentMiniRow({ a, isConfirmed }) {
   const { day, mon, label } = brDateParts(dateBase);
   const time = a.time || "";
   const prof = a.profissional || "Profissional não informado";
-  const place = a.location || a.sala || "";
+  const place = getLocationFromAppointment(a);
+  const serviceRaw = getServiceTypeFromAppointment(a);
+  const serviceLabel = prettyServiceLabel(serviceRaw);
 
   const st = statusChipFor(a.status, isConfirmed);
 
@@ -267,6 +286,8 @@ function AppointmentMiniRow({ a, isConfirmed }) {
           </div>
           <div className="text-[12px] text-slate-500 truncate">
             Prof.: <b className="text-slate-700">{prof}</b>
+            {serviceLabel ? <span className="text-slate-400"> • </span> : null}
+            {serviceLabel ? <span className="text-slate-600">{serviceLabel}</span> : null}
             {place ? <span className="text-slate-400"> • </span> : null}
             {place ? <span className="text-slate-500">{place}</span> : null}
           </div>
@@ -370,10 +391,56 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return onlyDigits(p);
   }, [profile]);
 
+// Fallback: se o phone não veio no users/{uid}, tenta resolver pelo subscribers via e-mail do usuário
+const [resolvedPhone, setResolvedPhone] = useState("");
+
+useEffect(() => {
+  let cancelled = false;
+
+  async function resolve() {
+    const fromProfile = cleanPhoneFromProfile;
+    if (fromProfile) {
+      if (!cancelled) setResolvedPhone(fromProfile);
+      return;
+    }
+
+    const email = String(user?.email || "").trim().toLowerCase();
+    if (!email) return;
+
+    try {
+      const q = query(collection(db, "subscribers"), where("email", "==", email), limit(1));
+      const snap = await getDocs(q);
+      const docSnap = snap.docs?.[0];
+      const phone =
+        (docSnap?.id ? String(docSnap.id) : "") ||
+        String(docSnap?.data()?.phone || "");
+
+      const clean = onlyDigits(phone);
+      if (!clean) return;
+
+      if (!cancelled) setResolvedPhone(clean);
+
+      // tenta gravar no perfil para evitar esse fallback no futuro
+      try {
+        await setDoc(doc(db, "users", user.uid), { phone: clean, phoneNumber: clean, updatedAt: new Date() }, { merge: true });
+      } catch (_) {
+        // sem impacto: pode falhar por regras
+      }
+    } catch (_) {
+      // silencioso
+    }
+  }
+
+  resolve();
+  return () => {
+    cancelled = true;
+  };
+}, [cleanPhoneFromProfile, user?.email, user?.uid]);
+
   const effectivePhone = useMemo(() => {
     if (DEV_SWITCH_ENABLED && impersonatePhone) return onlyDigits(impersonatePhone);
-    return onlyDigits(cleanPhoneFromProfile);
-  }, [DEV_SWITCH_ENABLED, impersonatePhone, cleanPhoneFromProfile]);
+    return onlyDigits(resolvedPhone || cleanPhoneFromProfile);
+  }, [DEV_SWITCH_ENABLED, impersonatePhone, resolvedPhone, cleanPhoneFromProfile]);
 
   const currentContractVersion = Number(globalConfig?.contractVersion || 1);
   const acceptedVersion = Number(profile?.contractAcceptedVersion || 0);
@@ -383,7 +450,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
 
   const patientName = profile?.name || user?.displayName || "Paciente";
-  const patientPhoneDisplay = formatPhoneBR(cleanPhoneFromProfile);
+  const patientPhoneDisplay = formatPhoneBR(resolvedPhone || cleanPhoneFromProfile);
 
   const mantras = useMemo(() => {
     return [
@@ -561,7 +628,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         return;
       }
 
-      const phone = cleanPhoneFromProfile;
+      const phone = resolvedPhone || cleanPhoneFromProfile;
       if (!phone) {
         showToast("Seu telefone ainda não está no perfil. Peça atualização ao admin.", "error");
         return;
@@ -579,11 +646,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   }
 
   useEffect(() => {
-    if (!cleanPhoneFromProfile) return;
+    if (!(resolvedPhone || cleanPhoneFromProfile)) return;
 
     let unsub = null;
     try {
-      const ref = doc(db, "subscribers", cleanPhoneFromProfile);
+      const ref = doc(db, "subscribers", resolvedPhone || cleanPhoneFromProfile);
       unsub = onSnapshot(ref, (snap) => {
         if (snap.exists()) setNotifHasToken(Boolean(snap.data()?.pushToken));
       });
@@ -592,7 +659,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return () => {
       if (typeof unsub === "function") unsub();
     };
-  }, [cleanPhoneFromProfile]);
+  }, [resolvedPhone, cleanPhoneFromProfile]);
 
   // Agenda
   useEffect(() => {
@@ -713,7 +780,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
       await addDoc(collection(db, "patient_notes"), {
         patientId: user.uid,
-        phone: cleanPhoneFromProfile || "",
+        phone: (resolvedPhone || cleanPhoneFromProfile) || "",
         content,
         createdAt: new Date(),
       });
@@ -772,7 +839,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       const dateLabel = brDateParts(nextAppointment.isoDate || nextAppointment.date).label;
       const time = String(nextAppointment.time || "").trim();
       const prof = nextAppointment.profissional ? ` com ${nextAppointment.profissional}` : "";
-      const serviceLabel = prettyServiceLabel(nextAppointment.serviceType || "");
+      const serviceLabel = prettyServiceLabel(getServiceTypeFromAppointment(nextAppointment));
       const servicePiece = serviceLabel ? ` (${serviceLabel})` : "";
 
       const msg =
@@ -789,7 +856,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       if (nextAppointment.isoDate && nextAppointment.time) {
         const start = new Date(`${nextAppointment.isoDate}T${nextAppointment.time}:00`);
         const end = addMinutes(start, 50);
-        const serviceLabel = prettyServiceLabel(nextAppointment.serviceType || "");
+        const serviceLabel = prettyServiceLabel(getServiceTypeFromAppointment(nextAppointment));
 
         ics = makeIcsDataUrl({
           title: serviceLabel ? `Atendimento (${serviceLabel})` : "Atendimento",
@@ -981,6 +1048,14 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const nextStatusChip = useMemo(() => {
     return statusChipFor(nextAppointment?.status, nextIsConfirmed);
   }, [nextAppointment?.status, nextIsConfirmed]);
+
+  const nextServiceLabel = useMemo(() => {
+    return prettyServiceLabel(getServiceTypeFromAppointment(nextAppointment));
+  }, [nextAppointment]);
+
+  const nextPlaceLabel = useMemo(() => {
+    return String(getLocationFromAppointment(nextAppointment) || "").trim();
+  }, [nextAppointment]);
 
   return (
     <>
@@ -1206,10 +1281,10 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                       </div>
 
                       <div className="text-sm text-slate-500 truncate flex items-center gap-2">
-                        {nextAppointment.serviceType ? (
+                        {nextServiceLabel ? (
                           <span className="inline-flex items-center gap-1">
                             <BriefcaseMedical size={14} className="text-slate-400" />
-                            <b className="text-slate-700">{prettyServiceLabel(nextAppointment.serviceType)}</b>
+                            <b className="text-slate-700">{nextServiceLabel}</b>
                           </span>
                         ) : (
                           <span>
@@ -1217,18 +1292,18 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                           </span>
                         )}
 
-                        {nextAppointment.location ? (
+                        {nextPlaceLabel ? (
                           <>
                             <span className="text-slate-300">•</span>
                             <span className="inline-flex items-center gap-1">
                               <MapPin size={14} className="text-slate-400" />
-                              <span className="text-slate-600">{nextAppointment.location}</span>
+                              <span className="text-slate-600">{nextPlaceLabel}</span>
                             </span>
                           </>
                         ) : null}
                       </div>
 
-                      {nextAppointment.serviceType ? (
+                      {nextServiceLabel ? (
                         <div className="text-[12px] text-slate-500 truncate">
                           Profissional: <b className="text-slate-700">{nextAppointment.profissional || "Não informado"}</b>
                         </div>

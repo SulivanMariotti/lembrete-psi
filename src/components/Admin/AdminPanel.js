@@ -77,7 +77,21 @@ function safeSlug(str, max = 18) {
 }
 
 // ID determinístico para não duplicar agenda a cada sync
-function makeAppointmentId({ phone, isoDate, time, profissional }) {
+// PASSO 6/45: quando existir externalId (ID da planilha), usar como chave principal do documento.
+function makeAppointmentId({ phone, isoDate, time, profissional, externalId }) {
+  const ext = String(externalId || '').trim();
+  if (ext) {
+    const cleanExt = ext
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 120);
+
+    return `ext_${cleanExt || safeSlug(ext, 40)}`.slice(0, 140);
+  }
+
   const p = onlyDigits(phone);
   const d = String(isoDate || '').replace(/[^0-9-]/g, '');
   const t = String(time || '').replace(':', '');
@@ -98,6 +112,8 @@ export default function AdminPanel({
   const [appointments, setAppointments] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasVerified, setHasVerified] = useState(false);
+  const [previewItem, setPreviewItem] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Estado para cadastro manual na agenda
@@ -279,6 +295,7 @@ export default function AdminPanel({
 
       const text = await file.text();
       setCsvInput(text);
+      setHasVerified(false);
       showToast('Planilha carregada.');
     } catch (e) {
       console.error(e);
@@ -290,11 +307,18 @@ export default function AdminPanel({
   const handleClearData = () => {
     setCsvInput('');
     setAppointments([]);
+    setHasVerified(false);
     showToast('Dados limpos.');
   };
 
   // 6. Processar CSV
   const processCsv = () => {
+    if (!csvInput?.trim()) {
+      setHasVerified(false);
+      setAppointments([]);
+      return showToast('Cole ou carregue uma planilha antes de verificar.', 'error');
+    }
+
     const parsed = parseCSV(csvInput, subscribers, {
       msg48h: localConfig.msg48h || '',
       msg24h: localConfig.msg24h || '',
@@ -302,7 +326,16 @@ export default function AdminPanel({
     });
 
     setAppointments(parsed);
-    showToast(`Planilha verificada: ${parsed.length} registros.`);
+    setHasVerified(true);
+
+    const total = parsed.length;
+    const authorized = parsed.filter((a) => a.isSubscribed).length;
+    const notAuthorized = total - authorized;
+    const pendingSends = parsed.filter((a) => a.isSubscribed && a.reminderType).length;
+
+    showToast(
+      `Planilha verificada: ${total} linhas • ${authorized} autorizados • ${notAuthorized} não autorizados • ${pendingSends} disparos pendentes.`
+    );
   };
 
   // 7. Sincronizar agenda no Firestore (✅ upsert + reconciliação: cancela futuros que sumirem do upload)
@@ -352,7 +385,7 @@ export default function AdminPanel({
 
         phonesInUpload.add(phone);
 
-        const id = makeAppointmentId({ phone, isoDate, time, profissional });
+        const id = makeAppointmentId({ phone, isoDate, time, profissional, externalId });
         syncedIds.push(id);
 
         const ref = doc(db, 'appointments', id);
@@ -464,6 +497,7 @@ export default function AdminPanel({
     const newLine = `,${manualEntry.nome},${cleanPhone},${manualEntry.data},${manualEntry.hora},${nomeProfissional},,`;
 
     setCsvInput((prev) => (prev ? `${prev}\n${newLine}` : newLine));
+    setHasVerified(false);
     setManualEntry({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
     setShowManualForm(false);
     showToast('Registro manual adicionado. Clique em Verificar.');
@@ -471,6 +505,9 @@ export default function AdminPanel({
 
   // 9. Enviar lembretes (push)
   const handleSendReminders = async () => {
+    if (!hasVerified) {
+      return showToast('Antes de disparar, clique em "Verificar" para validar a planilha.', 'info');
+    }
     const toSend = filteredAppointments.filter((a) => a.isSubscribed && a.reminderType);
     if (!toSend.length) return showToast('Nenhum disparo disponível para a seleção.', 'info');
 
@@ -722,7 +759,10 @@ export default function AdminPanel({
 
                 <textarea
                   value={csvInput}
-                  onChange={(e) => setCsvInput(e.target.value)}
+                  onChange={(e) => {
+                    setCsvInput(e.target.value);
+                    setHasVerified(false);
+                  }}
                   placeholder={'Cole aqui a planilha CSV:\nID, Nome, Telefone, Data, Hora, Profissional, Serviço, Local\n(ou no formato antigo: Nome, Telefone, Data, Hora, Profissional)'}
                   className="w-full h-full p-4 border border-slate-100 bg-slate-50 rounded-xl text-slate-800 resize-none text-xs font-mono focus:bg-white focus:border-violet-200 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
                 />
@@ -748,7 +788,7 @@ export default function AdminPanel({
                   <Button
                     onClick={handleSendReminders}
                     variant="success"
-                    disabled={isSending}
+                    disabled={isSending || !hasVerified}
                     className="w-full shadow-none ring-0 focus:ring-0 focus:ring-offset-0"
                     icon={isSending ? Loader2 : Bell}
                   >
@@ -790,7 +830,16 @@ export default function AdminPanel({
                   {filteredAppointments.map((app) => (
                     <div
                       key={app.id}
-                      className={`p-4 border rounded-xl flex justify-between items-center transition-all hover:shadow-sm ${
+                      onClick={() => setPreviewItem(app)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setPreviewItem(app);
+                        }
+                      }}
+                      className={`p-4 border rounded-xl flex justify-between items-center transition-all hover:shadow-sm cursor-pointer ${
                         app.reminderType ? 'bg-violet-50 border-violet-100' : 'bg-white border-slate-100 opacity-70'
                       }`}
                     >
@@ -816,6 +865,58 @@ export default function AdminPanel({
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* PASSO 10/45: Prévia da mensagem por linha (sem mudar layout do card) */}
+              {previewItem && (
+                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                      <div className="font-black text-slate-800 flex items-center gap-2">
+                        <Eye size={18} className="text-violet-600" /> Prévia da mensagem
+                      </div>
+                      <button
+                        onClick={() => setPreviewItem(null)}
+                        className="text-slate-400 hover:text-slate-700"
+                        aria-label="Fechar"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <div className="p-5 space-y-3">
+                      <div className="text-sm text-slate-800 font-semibold">{previewItem.nome}</div>
+                      <div className="text-xs text-slate-500">
+                        {previewItem.cleanPhone} • {previewItem.data} {previewItem.hora}
+                        {previewItem.profissional ? ` • ${previewItem.profissional}` : ''}
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Badge
+                          status={previewItem.isSubscribed ? 'confirmed' : 'missing'}
+                          text={previewItem.isSubscribed ? 'Autorizado' : 'Sem cadastro'}
+                        />
+                        {previewItem.reminderType ? (
+                          <Badge status="pending" text={String(previewItem.reminderType).toUpperCase()} />
+                        ) : (
+                          <Badge status="time" text="Sem envio" />
+                        )}
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+                        <div className="text-xs font-bold text-slate-500 uppercase mb-2">Mensagem que será enviada</div>
+                        <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">
+                          {previewItem.messageBody?.trim()
+                            ? previewItem.messageBody
+                            : 'Nenhuma mensagem pendente para esta linha (fora da janela 48h/24h/12h).'}
+                        </pre>
+                      </div>
+
+                      <div className="text-[11px] text-slate-400">
+                        Dica clínica: lembrar não é cobrar — é sustentar o compromisso e favorecer a constância.
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </Card>
@@ -925,7 +1026,7 @@ export default function AdminPanel({
                           <td className="p-3 text-slate-500">{u.email || '-'}</td>
                           <td className="p-3 text-slate-500">{u.phone || '-'}</td>
                           <td className="p-3">
-                            <Badge status={u.pushToken ? 'confirmed' : 'missing'} text={u.pushToken ? 'Ativo' : 'Sem Push'} />
+                            <Badge status={u.pushToken ? 'confirmed' : 'missing'} text={u.pushToken ? 'Push ativo' : 'Sem push'} />
                           </td>
                           <td className="p-3 text-right">
                             <button
