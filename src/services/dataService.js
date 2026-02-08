@@ -1,3 +1,25 @@
+
+
+// PASSO 16/45: normalização de telefone (BR) para reduzir duplicidade/colisão
+// - Mantém somente dígitos
+// - Remove zeros à esquerda
+// - Se vier com 10/11 dígitos (DDD+Número), prefixa 55
+// - Se já vier com 12/13 (55+DDD+Número), mantém
+
+export function normalizePhoneBR(input) {
+  // Canonical: DDD + número (10/11 dígitos), sem prefixo 55
+  let d = String(input || "").replace(/\D/g, "");
+  d = d.replace(/^0+/, "");
+  if (!d) return "";
+
+  // Se vier com 55+DDD+Número (12/13), remove o 55 e mantém DDD+Número
+  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) {
+    d = d.slice(2);
+  }
+
+  // Agora deve ficar 10/11 (DDD + número). Se vier diferente, devolve como está.
+  return d;
+}
 // --- Funções Utilitárias e de Dados ---
 
 // Hash de Segurança para o PIN
@@ -96,28 +118,121 @@ const normalizeService = (raw) => {
 // Novo:   id, nome, tel, data, hora, profissional, serviço, local
 export const parseCSV = (inputText, subscribers, msgConfig) => {
   if (!inputText) return [];
-  const lines = inputText.split("\n").map((l) => String(l || "").trim()).filter(Boolean);
+  const lines = inputText
+    .split("\n")
+    .map((l) => String(l || "").trim())
+    .filter(Boolean);
+
+  const detectDelimiter = (line) => {
+    const c = (line.match(/,/g) || []).length;
+    const s = (line.match(/;/g) || []).length;
+    const t = (line.match(/\t/g) || []).length;
+    if (s > c && s >= t) return ";";
+    if (t > c && t > s) return "\t";
+    return ",";
+  };
+
+  const splitLine = (line, delim) => {
+    // CSV simples com suporte a aspas (não é um parser completo RFC, mas cobre o básico)
+    const out = [];
+    let cur = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+
+      if (ch === '"') {
+        // alterna estado de aspas (suporta "" como escape)
+        const next = line[i + 1];
+        if (inQuotes && next === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+
+      if (!inQuotes && ch === delim) {
+        out.push(cur.trim());
+        cur = "";
+        continue;
+      }
+
+      cur += ch;
+    }
+
+    out.push(cur.trim());
+    return out.map((p) => String(p ?? "").trim());
+  };
+
+  const isHeaderLine = (parts) => {
+    const probe = parts.join(" ").toLowerCase();
+    return (
+      probe.includes("telefone") ||
+      probe.includes("celular") ||
+      probe.includes("phone") ||
+      probe.includes("profissional") ||
+      probe.includes("terapeuta") ||
+      probe.includes("hor") ||
+      probe.includes("data") ||
+      probe.includes("serv") ||
+      probe.includes("local") ||
+      probe.startsWith("id") ||
+      probe.includes("external")
+    );
+  };
+
+  const normalizeHeaderKey = (k) =>
+    String(k || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "");
+
+  const headerToField = (key) => {
+    const k = normalizeHeaderKey(key);
+
+    if (["id", "codigo", "cod", "externalid", "idexterno", "idsessao"].includes(k)) return "externalId";
+    if (["nome", "paciente", "cliente"].includes(k)) return "nome";
+    if (["telefone", "celular", "whatsapp", "fone", "phone"].includes(k)) return "tel";
+    if (["data", "date", "dia"].includes(k)) return "dataStr";
+    if (["hora", "horario", "time"].includes(k)) return "hora";
+    if (["profissional", "terapeuta", "psicologo", "fono", "nutri", "medico"].includes(k)) return "profissional";
+    if (["servico", "servico", "servicotype", "service", "especialidade"].includes(k)) return "serviceType";
+    if (["local", "sala", "unidade", "location"].includes(k)) return "location";
+
+    return null;
+  };
+
+  // Detecta delimiter e header (primeira linha)
+  const firstLine = lines[0] || "";
+  const delim = detectDelimiter(firstLine);
+  const firstParts = splitLine(firstLine, delim);
+
+  let headerMap = null;
+  let dataStartIndex = 0;
+
+  if (isHeaderLine(firstParts)) {
+    headerMap = {};
+    firstParts.forEach((col, i) => {
+      const field = headerToField(col);
+      if (field) headerMap[field] = i;
+    });
+    dataStartIndex = 1;
+  }
+
+  const getBy = (parts, field, fallbackIndex) => {
+    if (headerMap && headerMap[field] !== undefined) {
+      return parts[headerMap[field]] ?? "";
+    }
+    return parts[fallbackIndex] ?? "";
+  };
 
   return lines
+    .slice(dataStartIndex)
     .map((line, idx) => {
-      // separador: , ou ;
-      let parts = line.split(",");
-      if (parts.length < 2 && line.includes(";")) parts = line.split(";");
-
-      parts = parts.map((p) => String(p ?? "").trim());
-
-      // ignora cabeçalho típico
-      const headerProbe = parts.join(" ").toLowerCase();
-      if (
-        headerProbe.includes("telefone") ||
-        headerProbe.includes("profissional") ||
-        headerProbe.startsWith("id ") ||
-        headerProbe.startsWith("id,") ||
-        headerProbe.startsWith("id;")
-      ) {
-        // Se for a primeira linha e parecer header, ignora
-        if (idx === 0) return null;
-      }
+      const parts = splitLine(line, delim);
 
       let externalId = "";
       let nome = "";
@@ -128,18 +243,37 @@ export const parseCSV = (inputText, subscribers, msgConfig) => {
       let serviceType = "";
       let location = "";
 
-      // Novo formato (>= 8 colunas)
-      if (parts.length >= 8) {
-        [externalId, nome, tel, dataStr, hora, profissional, serviceType, location] = parts;
+      if (headerMap) {
+        // Mapeado por cabeçalho
+        externalId = getBy(parts, "externalId", 0);
+        nome = getBy(parts, "nome", 1);
+        tel = getBy(parts, "tel", 2);
+        dataStr = getBy(parts, "dataStr", 3);
+        hora = getBy(parts, "hora", 4);
+        profissional = getBy(parts, "profissional", 5);
+        serviceType = getBy(parts, "serviceType", 6);
+        location = getBy(parts, "location", 7);
       } else {
-        // Formato antigo
-        [nome, tel, dataStr, hora, profissional] = parts;
+        // Sem cabeçalho: mantemos compatibilidade com os dois formatos conhecidos
+        if (parts.length >= 8) {
+          [externalId, nome, tel, dataStr, hora, profissional, serviceType, location] = parts;
+        } else {
+          [nome, tel, dataStr, hora, profissional] = parts;
+        }
       }
 
       if (!nome || !tel) return null;
 
-      const cleanPhone = onlyDigits(tel);
-      const subscriber = subscribers.find((s) => s.phone === cleanPhone);
+      const cleanPhone = normalizePhoneBR(tel);
+
+      // Matching por telefone (padrão)
+      let subscriber = subscribers.find((s) => s.phone === cleanPhone);
+
+      // Fallback por email no CSV (se existir no row) — mantém compatível sem quebrar
+      const maybeEmail = String(getBy(parts, "email", "") || "").toLowerCase().trim();
+      if (!subscriber && maybeEmail) {
+        subscriber = subscribers.find((s) => String(s.email || "").toLowerCase().trim() === maybeEmail);
+      }
 
       const nomeProfissional = profissional ? profissional.trim() : "Profissional";
       const isoDate = normalizeISODate(dataStr);
@@ -192,15 +326,15 @@ export const parseCSV = (inputText, subscribers, msgConfig) => {
       }
 
       return {
-        id: idx, // id interno da lista (UI)
-        externalId: String(externalId || "").trim(), // ID vindo da planilha (se houver)
+        id: idx + dataStartIndex, // id interno da lista (UI)
+        externalId: String(externalId || "").trim(),
         nome,
         cleanPhone,
         data: dataStr,
         isoDate,
         hora: time,
         profissional: nomeProfissional,
-        serviceType: service, // psicologia | fonoaudiologia | nutricao | neuropsicologia | etc
+        serviceType: service,
         location: place,
         isSubscribed: !!subscriber,
         pushToken: subscriber?.pushToken,
@@ -211,3 +345,4 @@ export const parseCSV = (inputText, subscribers, msgConfig) => {
     })
     .filter(Boolean);
 };
+

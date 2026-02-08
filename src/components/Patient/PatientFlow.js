@@ -365,7 +365,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
   const [notifHasToken, setNotifHasToken] = useState(false);
-  const [notifBusy, setNotifBusy] = useState(false);
+  
+  const [appointmentsLastSyncAt, setAppointmentsLastSyncAt] = useState(null);
+const [notifBusy, setNotifBusy] = useState(false);
 
   const [mantraIndex, setMantraIndex] = useState(0);
 
@@ -709,7 +711,28 @@ showToast("Notificações ativadas ✅", "success");
     };
   }, [resolvedPhone, cleanPhoneFromProfile]);
 
-  // Agenda
+  
+
+// PASSO 20/45: buscar última atualização da agenda (server-side) para transparência clínica
+useEffect(() => {
+  const run = async () => {
+    try {
+      if (!user) return;
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/appointments/last-sync", {
+        method: "GET",
+        headers: { authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.appointmentsLastSyncAt) {
+        setAppointmentsLastSyncAt(data.appointmentsLastSyncAt);
+      }
+    } catch (_) {}
+  };
+  run();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [user?.uid]);
+// Agenda
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -1105,13 +1128,15 @@ showToast("Notificações ativadas ✅", "success");
     return String(getLocationFromAppointment(nextAppointment) || "").trim();
   }, [nextAppointment]);
 
-// PASSO 13/45: manutenção automática do token (sem popup)
+// PASSO 14/45: auto-manutenção do token (sem popup)
 // - Só roda quando a permissão já é "granted"
-// - Não dispara requestPermission automaticamente
+// - Não chama Notification.requestPermission automaticamente
+// - Corrige: evita usar vars não definidas (getToken/messaging)
 useEffect(() => {
   const run = async () => {
     try {
       if (!user) return;
+      if (typeof window === "undefined") return;
       if (typeof Notification === "undefined") return;
       if (Notification.permission !== "granted") return;
 
@@ -1119,15 +1144,24 @@ useEffect(() => {
       if (!vapidKey) return;
       if (!("serviceWorker" in navigator)) return;
 
-      const swReg = await navigator.serviceWorker.getRegistration();
+      const { isSupported, getMessaging, getToken } = await import("firebase/messaging");
+      const supported = await isSupported().catch(() => false);
+      if (!supported) return;
+
+      // Usa registration existente; se não existir, tenta registrar o SW padrão do projeto
+      let swReg = await navigator.serviceWorker.getRegistration();
+      if (!swReg) {
+        swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      }
       if (!swReg) return;
 
+      const messaging = getMessaging(app);
       const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg });
       if (!token) return;
 
       // resolve phone do perfil/subscriber
-      const cleanPhoneFromProfile = String(profile?.phone || "").replace(/\D/g, "");
-      let phone = resolvedPhone || cleanPhoneFromProfile;
+      const cleanFromProfile = String(profile?.phone || "").replace(/\D/g, "");
+      let phone = resolvedPhone || cleanFromProfile;
 
       if (!phone) {
         const email = (user?.email || "").toLowerCase().trim();

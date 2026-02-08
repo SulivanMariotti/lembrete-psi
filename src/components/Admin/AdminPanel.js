@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { db } from '../../app/firebase';
-import {
-  collection,
+import {collection,
   addDoc,
   deleteDoc,
   updateDoc,
@@ -10,8 +9,7 @@ import {
   getDocs,
   query,
   where,
-  writeBatch,
-} from 'firebase/firestore';
+  writeBatch, orderBy} from 'firebase/firestore';
 import {
   Send,
   Users,
@@ -77,21 +75,7 @@ function safeSlug(str, max = 18) {
 }
 
 // ID determinístico para não duplicar agenda a cada sync
-// PASSO 6/45: quando existir externalId (ID da planilha), usar como chave principal do documento.
-function makeAppointmentId({ phone, isoDate, time, profissional, externalId }) {
-  const ext = String(externalId || '').trim();
-  if (ext) {
-    const cleanExt = ext
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9_-]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 120);
-
-    return `ext_${cleanExt || safeSlug(ext, 40)}`.slice(0, 140);
-  }
-
+function makeAppointmentId({ phone, isoDate, time, profissional }) {
   const p = onlyDigits(phone);
   const d = String(isoDate || '').replace(/[^0-9-]/g, '');
   const t = String(time || '').replace(':', '');
@@ -109,11 +93,12 @@ export default function AdminPanel({
 }) {
   const [adminTab, setAdminTab] = useState('dashboard');
   const [csvInput, setCsvInput] = useState('');
-  const [appointments, setAppointments] = useState([]);
+  
+  const [hasVerified, setHasVerified] = useState(false);
+  const [hasSynced, setHasSynced] = useState(false);
+const [appointments, setAppointments] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [hasVerified, setHasVerified] = useState(false);
-  const [previewItem, setPreviewItem] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Estado para cadastro manual na agenda
@@ -216,6 +201,14 @@ export default function AdminPanel({
   // --- FUNÇÕES DE AÇÃO ---
 
   // 1. Cadastrar Paciente
+
+// PASSO 23/45: Stepper lógico (Importar→Verificar→Sincronizar→Disparar) — sem mudar layout
+useEffect(() => {
+  setHasVerified(false);
+  setHasSynced(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [csvInput]);
+
   const handleRegisterPatient = async () => {
     if (!newPatient.email || !newPatient.name || !newPatient.phone) {
       return showToast('Preencha todos os campos.', 'error');
@@ -295,7 +288,6 @@ export default function AdminPanel({
 
       const text = await file.text();
       setCsvInput(text);
-      setHasVerified(false);
       showToast('Planilha carregada.');
     } catch (e) {
       console.error(e);
@@ -307,18 +299,11 @@ export default function AdminPanel({
   const handleClearData = () => {
     setCsvInput('');
     setAppointments([]);
-    setHasVerified(false);
     showToast('Dados limpos.');
   };
 
   // 6. Processar CSV
   const processCsv = () => {
-    if (!csvInput?.trim()) {
-      setHasVerified(false);
-      setAppointments([]);
-      return showToast('Cole ou carregue uma planilha antes de verificar.', 'error');
-    }
-
     const parsed = parseCSV(csvInput, subscribers, {
       msg48h: localConfig.msg48h || '',
       msg24h: localConfig.msg24h || '',
@@ -326,7 +311,6 @@ export default function AdminPanel({
     });
 
     setAppointments(parsed);
-    setHasVerified(true);
 
     const total = parsed.length;
     const authorized = parsed.filter((a) => a.isSubscribed).length;
@@ -339,7 +323,85 @@ export default function AdminPanel({
   };
 
   // 7. Sincronizar agenda no Firestore (✅ upsert + reconciliação: cancela futuros que sumirem do upload)
-  const handleSyncSchedule = async () => {
+  
+
+// PASSO 22/45: reconciliação — cancel
+
+// PASSO 22/45: conjunto de IDs do upload atual (docId preferindo externalId quando existir)
+const currentIdsSet = new Set(
+  (processedAppointments || [])
+    .map((a) => String(a.externalId || a.docId || a.id || "").trim())
+    .filter(Boolean)
+);
+  // PASSO 22/45: reconciliação — cancelar futuros removidos do upload (mantém histórico, não apaga passado)
+const chunkArray = (arr, size = 10) => {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
+
+const cancelMissingFutureAppointments = async ({ list, currentIdsSet, uploadId }) => {
+  try {
+    const now = new Date();
+
+    // Telefones presentes no upload (para limitar a busca). Firestore "in" limita 10 itens.
+    const phones = Array.from(
+      new Set(
+        (list || [])
+          .map((a) => String(a.cleanPhone || a.phone || "").replace(/\D/g, ""))
+          .filter(Boolean)
+      )
+    );
+
+    if (!phones.length) return { cancelled: 0, scanned: 0 };
+
+    let cancelled = 0;
+    let scanned = 0;
+
+    for (const phoneChunk of chunkArray(phones, 10)) {
+      const q = query(
+        collection(db, "appointments"),
+        where("phone", "in", phoneChunk),
+        where("startAt", ">=", now),
+        orderBy("startAt", "asc")
+      );
+
+      const snap = await getDocs(q);
+      scanned += snap.size || 0;
+
+      for (const d of snap.docs) {
+        const appt = d.data() || {};
+        const status = String(appt.status || "").toLowerCase();
+        if (status === "cancelled" || status === "done") continue;
+
+        if (currentIdsSet.has(d.id)) continue;
+
+        const externalId = String(appt.externalId || "").trim();
+        if (externalId && currentIdsSet.has(externalId)) continue;
+
+        await updateDoc(doc(db, "appointments", d.id), {
+          status: "cancelled",
+          cancelledBy: "sync",
+          cancelledAt: new Date(),
+          cancelledUploadId: uploadId,
+        });
+        cancelled += 1;
+      }
+    }
+
+    return { cancelled, scanned };
+  } catch (e) {
+    console.error("cancelMissingFutureAppointments failed:", e);
+    return { cancelled: 0, scanned: 0, error: e?.message || String(e) };
+  }
+};
+const handleSyncSchedule = async () => {
+
+if (!hasVerified) {
+  showToast("Antes de sincronizar, clique em Verificar para validar a planilha.", "error");
+  return;
+}
+
     if (!appointments.length) return showToast('Nenhuma agenda para sincronizar.', 'error');
 
     setIsSaving(true);
@@ -372,6 +434,10 @@ export default function AdminPanel({
         const profissional = a.profissional || '';
         const isoDate = a.isoDate || normalizeToISODate(date);
 
+        // PASSO 15/45: timestamp unificado para ordenação/consulta (evita depender de strings)
+        const safeTime = (time || "00:00").trim();
+        const startAt = isoDate ? new Date(`${isoDate}T${safeTime}:00`) : null;
+
         // novos campos (CSV novo; no antigo podem vir vazios)
         const externalId = (a.externalId || '').trim();
         const serviceType = (a.serviceType || '').trim(); // psicologia | fonoaudiologia | ...
@@ -385,7 +451,7 @@ export default function AdminPanel({
 
         phonesInUpload.add(phone);
 
-        const id = makeAppointmentId({ phone, isoDate, time, profissional, externalId });
+        const id = makeAppointmentId({ phone, isoDate, time, profissional });
         syncedIds.push(id);
 
         const ref = doc(db, 'appointments', id);
@@ -397,6 +463,7 @@ export default function AdminPanel({
           date: date || '',
           isoDate,
           time: time || '',
+          startAt: startAt || null,
           profissional: profissional || '',
           externalId: externalId || '',
           serviceType: serviceType || '',
@@ -473,9 +540,18 @@ export default function AdminPanel({
 
       await flushCancel();
 
-      showToast(
+      
+
+// PASSO 22/45: cancela sessões futuras que estavam no Firestore mas não vieram no upload atual
+const recon = await cancelMissingFutureAppointments({ list: processedAppointments, currentIdsSet, uploadId });
+if (recon?.cancelled) {
+  showToast(`Reconciliação: ${recon.cancelled} sessões futuras canceladas (não estavam no upload).`, "info");
+}
+showToast(
         `Agenda sincronizada! (${syncedIds.length} registros) • Reconciliação aplicada (futuros removidos foram cancelados).`
       );
+      setHasSynced(true);
+
     } catch (e) {
       console.error(e);
       showToast('Erro ao sincronizar agenda.', 'error');
@@ -494,10 +570,9 @@ export default function AdminPanel({
     const nomeProfissional = manualEntry.profissional?.trim() || 'Psicólogo(a)';
 
     // Novo formato (com campos vazios de ID/serviço/local), mas continua compatível com o parser antigo
-    const newLine = `,${manualEntry.nome},${cleanPhone},${manualEntry.data},${manualEntry.hora},${nomeProfissional},,`;
+    const newLine = `,${manualEntry.nome},${cleanPhone},${manualEntry.data},${manualEntry.hora},${nomeProfissional},`;
 
     setCsvInput((prev) => (prev ? `${prev}\n${newLine}` : newLine));
-    setHasVerified(false);
     setManualEntry({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
     setShowManualForm(false);
     showToast('Registro manual adicionado. Clique em Verificar.');
@@ -505,9 +580,16 @@ export default function AdminPanel({
 
   // 9. Enviar lembretes (push)
   const handleSendReminders = async () => {
-    if (!hasVerified) {
-      return showToast('Antes de disparar, clique em "Verificar" para validar a planilha.', 'info');
-    }
+
+if (!hasVerified) {
+  showToast("Antes de disparar, clique em Verificar.", "error");
+  return;
+}
+if (!hasSynced) {
+  showToast("Antes de disparar, clique em Sincronizar.", "error");
+  return;
+}
+
     const toSend = filteredAppointments.filter((a) => a.isSubscribed && a.reminderType);
     if (!toSend.length) return showToast('Nenhum disparo disponível para a seleção.', 'info');
 
@@ -759,10 +841,7 @@ export default function AdminPanel({
 
                 <textarea
                   value={csvInput}
-                  onChange={(e) => {
-                    setCsvInput(e.target.value);
-                    setHasVerified(false);
-                  }}
+                  onChange={(e) => setCsvInput(e.target.value)}
                   placeholder={'Cole aqui a planilha CSV:\nID, Nome, Telefone, Data, Hora, Profissional, Serviço, Local\n(ou no formato antigo: Nome, Telefone, Data, Hora, Profissional)'}
                   className="w-full h-full p-4 border border-slate-100 bg-slate-50 rounded-xl text-slate-800 resize-none text-xs font-mono focus:bg-white focus:border-violet-200 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
                 />
@@ -788,7 +867,7 @@ export default function AdminPanel({
                   <Button
                     onClick={handleSendReminders}
                     variant="success"
-                    disabled={isSending || !hasVerified}
+                    disabled={isSending}
                     className="w-full shadow-none ring-0 focus:ring-0 focus:ring-offset-0"
                     icon={isSending ? Loader2 : Bell}
                   >
@@ -830,16 +909,7 @@ export default function AdminPanel({
                   {filteredAppointments.map((app) => (
                     <div
                       key={app.id}
-                      onClick={() => setPreviewItem(app)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setPreviewItem(app);
-                        }
-                      }}
-                      className={`p-4 border rounded-xl flex justify-between items-center transition-all hover:shadow-sm cursor-pointer ${
+                      className={`p-4 border rounded-xl flex justify-between items-center transition-all hover:shadow-sm ${
                         app.reminderType ? 'bg-violet-50 border-violet-100' : 'bg-white border-slate-100 opacity-70'
                       }`}
                     >
@@ -865,58 +935,6 @@ export default function AdminPanel({
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
-
-              {/* PASSO 10/45: Prévia da mensagem por linha (sem mudar layout do card) */}
-              {previewItem && (
-                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-                  <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
-                    <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                      <div className="font-black text-slate-800 flex items-center gap-2">
-                        <Eye size={18} className="text-violet-600" /> Prévia da mensagem
-                      </div>
-                      <button
-                        onClick={() => setPreviewItem(null)}
-                        className="text-slate-400 hover:text-slate-700"
-                        aria-label="Fechar"
-                      >
-                        <X size={18} />
-                      </button>
-                    </div>
-
-                    <div className="p-5 space-y-3">
-                      <div className="text-sm text-slate-800 font-semibold">{previewItem.nome}</div>
-                      <div className="text-xs text-slate-500">
-                        {previewItem.cleanPhone} • {previewItem.data} {previewItem.hora}
-                        {previewItem.profissional ? ` • ${previewItem.profissional}` : ''}
-                      </div>
-                      <div className="flex gap-2 pt-1">
-                        <Badge
-                          status={previewItem.isSubscribed ? 'confirmed' : 'missing'}
-                          text={previewItem.isSubscribed ? 'Autorizado' : 'Sem cadastro'}
-                        />
-                        {previewItem.reminderType ? (
-                          <Badge status="pending" text={String(previewItem.reminderType).toUpperCase()} />
-                        ) : (
-                          <Badge status="time" text="Sem envio" />
-                        )}
-                      </div>
-
-                      <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
-                        <div className="text-xs font-bold text-slate-500 uppercase mb-2">Mensagem que será enviada</div>
-                        <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">
-                          {previewItem.messageBody?.trim()
-                            ? previewItem.messageBody
-                            : 'Nenhuma mensagem pendente para esta linha (fora da janela 48h/24h/12h).'}
-                        </pre>
-                      </div>
-
-                      <div className="text-[11px] text-slate-400">
-                        Dica clínica: lembrar não é cobrar — é sustentar o compromisso e favorecer a constância.
-                      </div>
-                    </div>
-                  </div>
                 </div>
               )}
             </Card>
@@ -1026,7 +1044,7 @@ export default function AdminPanel({
                           <td className="p-3 text-slate-500">{u.email || '-'}</td>
                           <td className="p-3 text-slate-500">{u.phone || '-'}</td>
                           <td className="p-3">
-                            <Badge status={u.pushToken ? 'confirmed' : 'missing'} text={u.pushToken ? 'Push ativo' : 'Sem push'} />
+                            <Badge status={u.pushToken ? 'confirmed' : 'missing'} text={u.pushToken ? 'Ativo' : 'Sem Push'} />
                           </td>
                           <td className="p-3 text-right">
                             <button
