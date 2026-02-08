@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { db } from "../../app/firebase";
+import { app, db } from "../../app/firebase";
 import {
   collection,
   doc,
@@ -39,7 +39,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
   const [noteContent, setNoteContent] = useState("");
   const [toast, setToast] = useState({ msg: "", type: "success" });
-
   const showToast = (msg, type = "success") => setToast({ msg, type });
 
   const cleanPhoneFromProfile = useMemo(() => {
@@ -47,7 +46,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return String(p).replace(/\D/g, "");
   }, [profile]);
 
-  // Contrato (config pública)
   const currentContractVersion = Number(globalConfig?.contractVersion || 1);
   const acceptedVersion = Number(profile?.contractAcceptedVersion || 0);
   const needsContractAcceptance = currentContractVersion > acceptedVersion;
@@ -59,7 +57,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return `https://wa.me/${phone}`;
   }, [globalConfig?.whatsapp]);
 
-  // 1) Garantir users/{uid} e manter listener do perfil
+  // 1) Perfil users/{uid}
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -121,7 +119,57 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [user?.uid, user?.email, user?.displayName]);
 
-  // 2) Agenda (por phone se existir, senão por email)
+  // 2) ✅ Registrar pushToken no subscribers/{phone}
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (loadingProfile) return;
+
+    const phone = cleanPhoneFromProfile;
+    if (!phone) return;
+
+    (async () => {
+      try {
+        if (typeof window === "undefined") return;
+        if (!("Notification" in window)) return;
+
+        const { isSupported, getMessaging, getToken } = await import("firebase/messaging");
+
+        const supported = await isSupported();
+        if (!supported) return;
+
+        // pede permissão
+        if (Notification.permission === "default") {
+          const perm = await Notification.requestPermission();
+          if (perm !== "granted") return;
+        }
+        if (Notification.permission !== "granted") return;
+
+        // registra SW
+        const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+
+        const messaging = getMessaging(app);
+
+        const vapidKey = process.env.NEXT_PUBLIC_VAPID_KEY;
+        if (!vapidKey) {
+          console.warn("NEXT_PUBLIC_VAPID_KEY não configurada");
+          return;
+        }
+
+        const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg });
+        if (!token) return;
+
+        // salva token no subscriber do telefone (rules agora permitem)
+        await updateDoc(doc(db, "subscribers", phone), {
+          pushToken: token,
+          lastSeen: new Date(),
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, [user?.uid, loadingProfile, cleanPhoneFromProfile]);
+
+  // 3) Agenda
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -130,8 +178,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
     const colRef = collection(db, "appointments");
     const phone = cleanPhoneFromProfile;
-    let q = null;
 
+    let q = null;
     if (phone) {
       q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(50));
     } else if (user?.email) {
@@ -164,7 +212,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return () => unsub();
   }, [user?.uid, user?.email, loadingProfile, cleanPhoneFromProfile]);
 
-  // 3) NOTAS (✅ agora por patientId = user.uid)
+  // 4) Notas por patientId
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -218,11 +266,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       const content = (noteContent || "").trim();
       if (!content) return;
 
-      if (!user?.uid) return showToast("Usuário inválido.", "error");
-
       await addDoc(collection(db, "patient_notes"), {
         patientId: user.uid,
-        phone: cleanPhoneFromProfile || "", // opcional (ajuda admin/relatórios)
+        phone: cleanPhoneFromProfile || "",
         content,
         createdAt: new Date(),
       });
@@ -246,7 +292,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     }
   };
 
-  // Loading geral inicial
   if (loadingProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
@@ -271,24 +316,18 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           </div>
 
           <div className="flex gap-2">
-            <Button onClick={onAdminAccess} variant="secondary">
-              Admin
-            </Button>
-            <Button onClick={onLogout} variant="secondary">
-              Sair
-            </Button>
+            <Button onClick={onAdminAccess} variant="secondary">Admin</Button>
+            <Button onClick={onLogout} variant="secondary">Sair</Button>
           </div>
         </div>
 
-        {/* CONTRATO */}
         {needsContractAcceptance && (
           <Card title="Contrato Terapêutico">
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-xl p-4 flex gap-3">
                 <AlertTriangle className="mt-0.5" size={18} />
                 <div className="text-sm">
-                  Identificamos uma <b>nova versão</b> do contrato (v{currentContractVersion}). Para continuar, é
-                  necessário aceitar.
+                  Identificamos uma <b>nova versão</b> do contrato (v{currentContractVersion}). Para continuar, é necessário aceitar.
                 </div>
               </div>
 
@@ -303,45 +342,25 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           </Card>
         )}
 
-        {/* AGENDA */}
         <Card title="Próximos Atendimentos">
           {loadingAppointments ? (
             <div className="text-sm text-slate-400">Carregando agenda...</div>
           ) : appointments.length === 0 ? (
-            <div className="text-sm text-slate-400">
-              Nenhum agendamento encontrado.
-              {!cleanPhoneFromProfile && (
-                <div className="mt-2 text-xs text-slate-400">
-                  Dica: seu perfil ainda não tem telefone registrado, então tentamos buscar por e-mail.
-                </div>
-              )}
-            </div>
+            <div className="text-sm text-slate-400">Nenhum agendamento encontrado.</div>
           ) : (
             <div className="space-y-3">
               {appointments.map((a) => (
-                <div
-                  key={a.id}
-                  className="p-4 rounded-xl border border-slate-100 bg-white flex items-start justify-between gap-4"
-                >
+                <div key={a.id} className="p-4 rounded-xl border border-slate-100 bg-white flex items-start justify-between gap-4">
                   <div className="space-y-1">
                     <div className="font-semibold text-slate-800 flex items-center gap-2">
                       <CalendarCheck size={18} className="text-violet-600" />
                       {a.date || a.isoDate} {a.time ? `• ${a.time}` : ""}
                     </div>
                     <div className="text-sm text-slate-500">
-                      {a.profissional ? (
-                        <>
-                          Profissional: <b>{a.profissional}</b>
-                        </>
-                      ) : (
-                        <span>Profissional não informado</span>
-                      )}
+                      {a.profissional ? <>Profissional: <b>{a.profissional}</b></> : <span>Profissional não informado</span>}
                     </div>
                   </div>
-
-                  {a.reminderType && (
-                    <Badge>{String(a.reminderType).toUpperCase()}</Badge>
-                  )}
+                  {a.reminderType && <Badge>{String(a.reminderType).toUpperCase()}</Badge>}
                 </div>
               ))}
             </div>
@@ -356,7 +375,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           )}
         </Card>
 
-        {/* NOTAS */}
         <Card title="Minhas Notas">
           <div className="space-y-3">
             <div className="flex gap-2">
@@ -366,9 +384,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                 onChange={(e) => setNoteContent(e.target.value)}
                 placeholder="Escreva uma nota rápida..."
               />
-              <Button onClick={handleSaveNote} icon={FileText}>
-                Salvar
-              </Button>
+              <Button onClick={handleSaveNote} icon={FileText}>Salvar</Button>
             </div>
 
             {loadingNotes ? (

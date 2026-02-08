@@ -1,24 +1,26 @@
 import { NextResponse } from "next/server";
 import admin from "firebase-admin";
 
+function getServiceAccount() {
+  const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
+  if (b64) {
+    const json = Buffer.from(b64, "base64").toString("utf-8");
+    return JSON.parse(json);
+  }
+  const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
+  if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var");
+  return JSON.parse(raw);
+}
+
 function initAdmin() {
   if (admin.apps.length) return;
-
-  const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
-  if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT env var");
-
-  const serviceAccount = JSON.parse(raw);
-
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+  const serviceAccount = getServiceAccount();
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 }
 
 function makeUidFromEmail(email) {
-  // UID determinístico para o mesmo email
-  // (evita criar vários usuários diferentes para o mesmo paciente)
   const b64 = Buffer.from(email).toString("base64").replace(/=+$/, "");
-  return `p_${b64}`.slice(0, 28); // 28 chars é seguro para UID
+  return `p_${b64}`.slice(0, 28);
 }
 
 export async function POST(req) {
@@ -32,8 +34,6 @@ export async function POST(req) {
 
     initAdmin();
 
-    // ✅ Validação de autorização:
-    // procura no "subscribers" (que seu Admin cadastra)
     const snap = await admin
       .firestore()
       .collection("subscribers")
@@ -54,7 +54,6 @@ export async function POST(req) {
     const name = subDoc?.name || "";
     const phone = String(subDoc?.phone || "").replace(/\D/g, "");
 
-    // ✅ Garante perfil em users/{uid} (admin SDK bypass rules)
     await admin.firestore().collection("users").doc(uid).set(
       {
         uid,
@@ -67,8 +66,8 @@ export async function POST(req) {
       { merge: true }
     );
 
-    // ✅ Token para login do paciente
-    const token = await admin.auth().createCustomToken(uid, { role: "patient" });
+    // ✅ IMPORTANTE: incluir email como claim no custom token
+    const token = await admin.auth().createCustomToken(uid, { role: "patient", email });
 
     return NextResponse.json({ ok: true, token });
   } catch (e) {
@@ -76,3 +75,4 @@ export async function POST(req) {
     return NextResponse.json({ ok: false, error: e.message || "Erro" }, { status: 500 });
   }
 }
+
