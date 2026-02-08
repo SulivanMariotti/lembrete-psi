@@ -784,8 +784,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
-              <div className="text-lg font-extrabold text-slate-900">Lembretes e organização do seu cuidado</div>
-              <div className="text-sm text-slate-500 mt-1">O segredo da terapia é a constância.</div>
+              <div className="text-lg font-extrabold text-slate-900 truncate">Olá, {patientName}</div>
+              <div className="text-sm text-slate-500 mt-1">Lembretes e organização do seu cuidado — constância terapêutica.</div>
             </div>
 
             <div className="hidden sm:flex gap-2">
@@ -878,10 +878,10 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   <User size={20} />
                 </div>
                 <div className="min-w-0">
-                  <div className="font-black text-slate-900 truncate">{patientName}</div>
-                  <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
+                  <div className="text-xs text-slate-400 uppercase tracking-wider">Seu contato</div>
+                  <div className="text-sm font-bold text-slate-900 flex items-center gap-2 mt-1 truncate">
                     <Phone size={14} className="text-slate-400" />
-                    {patientPhoneDisplay || "Telefone não informado"}
+                    <span className="text-slate-700">{patientPhoneDisplay || "Telefone não informado"}</span>
                   </div>
                 </div>
               </div>
