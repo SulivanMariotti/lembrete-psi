@@ -35,6 +35,9 @@ import {
   Phone,
   LogOut,
   Shield,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 function Skeleton({ className = "" }) {
@@ -215,6 +218,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [notifHasToken, setNotifHasToken] = useState(false);
   const [notifBusy, setNotifBusy] = useState(false);
 
+  // Mantras (psicoeducação)
+  const [mantraIndex, setMantraIndex] = useState(0);
+
   const cleanPhoneFromProfile = useMemo(() => {
     const p = profile?.phone || profile?.phoneNumber || "";
     return onlyDigits(p);
@@ -226,6 +232,41 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
   const clinicWhatsappPhone = useMemo(() => normalizeWhatsappPhone(globalConfig?.whatsapp || ""), [globalConfig?.whatsapp]);
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
+
+  const patientName = profile?.name || user?.displayName || "Paciente";
+  const patientPhoneDisplay = formatPhoneBR(cleanPhoneFromProfile);
+
+  // ✅ Mantras curtos e “clínicos” (baseado no seu manifesto)
+  const mantras = useMemo(() => {
+    return [
+      {
+        title: "O segredo é a constância",
+        text: "A terapia funciona na regularidade. Uma sessão não muda tudo — a continuidade muda.",
+      },
+      {
+        title: "Seu horário é um espaço sagrado",
+        text: "Esse encontro é cuidado ativo. Estar presente sustenta o vínculo e o processo.",
+      },
+      {
+        title: "Faltar interrompe o processo",
+        text: "Não é só perder uma hora: é quebrar a sequência de evolução que você está construindo.",
+      },
+      {
+        title: "Responsabilidade com seu cuidado",
+        text: "Este painel existe para te apoiar. Sua parte principal é comparecer.",
+      },
+    ];
+  }, []);
+
+  // Auto-rotacionar mantras
+  useEffect(() => {
+    const t = setInterval(() => {
+      setMantraIndex((i) => (i + 1) % mantras.length);
+    }, 9000);
+    return () => clearInterval(t);
+  }, [mantras.length]);
+
+  const currentMantra = mantras[mantraIndex] || mantras[0];
 
   // Perfil
   useEffect(() => {
@@ -504,9 +545,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return (notes || []).filter((n) => String(n.content || "").toLowerCase().includes(q));
   }, [notes, noteSearch]);
 
-  const patientName = profile?.name || user?.displayName || "Paciente";
-  const patientPhoneDisplay = formatPhoneBR(cleanPhoneFromProfile);
-
   // Próximo atendimento
   const nextAppointment = useMemo(() => {
     const now = new Date();
@@ -626,7 +664,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const soonRows = applyShowMore(groupedAgenda.soon, 6, showAllSoon);
   const laterRows = applyShowMore(groupedAgenda.later, 6, showAllLater);
 
-  // ✅ Bloco único de Notificações (sem precisar de título do Card)
+  // ✅ Bloco único de Notificações (sem título)
   const notifBlock = useMemo(() => {
     if (typeof window === "undefined") {
       return (
@@ -761,6 +799,53 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </div>
 
+          {/* ✅ Cards rotativos (Psicoeducação) */}
+          <Card>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200 shrink-0">
+                  <Sparkles size={18} />
+                </div>
+
+                <div className="min-w-0">
+                  <div className="font-extrabold text-slate-900 truncate">{currentMantra.title}</div>
+                  <div className="text-sm text-slate-600 mt-1">{currentMantra.text}</div>
+                  <div className="text-[11px] text-slate-400 mt-2">
+                    Lembrete Psi é tecnologia a serviço do vínculo terapêutico.
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 flex items-center gap-1">
+                <button
+                  type="button"
+                  className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center"
+                  onClick={() => setMantraIndex((i) => (i - 1 + mantras.length) % mantras.length)}
+                  aria-label="Anterior"
+                >
+                  <ChevronLeft size={16} className="text-slate-500" />
+                </button>
+                <button
+                  type="button"
+                  className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center"
+                  onClick={() => setMantraIndex((i) => (i + 1) % mantras.length)}
+                  aria-label="Próximo"
+                >
+                  <ChevronRight size={16} className="text-slate-500" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 mt-3">
+              {mantras.map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-1.5 w-6 rounded-full ${i === mantraIndex ? "bg-violet-600" : "bg-slate-200"}`}
+                />
+              ))}
+            </div>
+          </Card>
+
           {/* Card do paciente */}
           <Card>
             <div className="flex items-center justify-between gap-3">
@@ -789,7 +874,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </Card>
 
-          {/* ✅ Notificações (sem título) */}
+          {/* Notificações (sem título) */}
           <Card>{notifBlock}</Card>
 
           {/* Próximo atendimento */}
@@ -850,13 +935,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                     </Button>
                   )}
                 </div>
-
-                <div className="rounded-xl border border-slate-100 bg-white p-3 text-sm text-slate-700">
-                  <b className="text-slate-900">O segredo da terapia é a constância.</b>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Comparecer às sessões sustenta o processo. Faltar pode interromper evoluções importantes — sua presença é o maior investimento em si.
-                  </div>
-                </div>
               </div>
             )}
           </Card>
@@ -887,7 +965,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           {/* AGENDA */}
           <Card title="Agenda">
             <div className="text-sm text-slate-500">
-              Mantida como está. (Se você quiser, no próximo passo eu deixo ainda mais compacta e com “próximas semanas”.)
+              Mantida como está (próximo passo: compactar mais e agrupar por semana/mês como você pediu).
             </div>
           </Card>
 
