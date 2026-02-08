@@ -33,9 +33,9 @@ import {
   ChevronUp,
   User,
   Phone,
+  LogOut,
 } from "lucide-react";
 
-/** Skeleton simples (sem dependências) */
 function Skeleton({ className = "" }) {
   return <div className={`animate-pulse rounded-xl bg-slate-100 ${className}`} />;
 }
@@ -47,30 +47,25 @@ function onlyDigits(v) {
 function formatPhoneBR(raw) {
   const d = onlyDigits(raw);
   if (!d) return "";
-  // 11 dígitos: (11) 99999-9999 | 10 dígitos: (11) 9999-9999
   if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
   return d;
 }
 
 function brDateParts(dateStrOrIso) {
-  // aceita "YYYY-MM-DD" ou "DD/MM/YYYY" ou qualquer string
   const s = String(dateStrOrIso || "").trim();
   if (!s) return { day: "--", mon: "---", label: "" };
 
   let dateObj = null;
 
-  // YYYY-MM-DD
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) dateObj = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
 
-  // DD/MM/YYYY
   if (!dateObj) {
     const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (br) dateObj = new Date(`${br[3]}-${br[2]}-${br[1]}T00:00:00`);
   }
 
-  // fallback (tenta Date)
   if (!dateObj || Number.isNaN(dateObj.getTime())) {
     return { day: "--", mon: "---", label: s };
   }
@@ -83,7 +78,6 @@ function brDateParts(dateStrOrIso) {
 }
 
 function makeIcsDataUrl({ title, description, startISO, endISO }) {
-  // startISO/endISO: "YYYY-MM-DDTHH:mm:00"
   const dt = (iso) => {
     const d = new Date(iso);
     const pad = (n) => String(n).padStart(2, "0");
@@ -139,7 +133,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
   // Notificações
   const [notifSupported, setNotifSupported] = useState(false);
-  const [notifPermission, setNotifPermission] = useState("default"); // default | granted | denied
+  const [notifPermission, setNotifPermission] = useState("default");
   const [notifHasToken, setNotifHasToken] = useState(false);
   const [notifBusy, setNotifBusy] = useState(false);
 
@@ -161,7 +155,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
 
-  // ✅ 1) Perfil users/{uid}
+  // ✅ Perfil
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -222,20 +216,23 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     };
   }, [user?.uid, user?.email, user?.displayName]);
 
-  // ✅ 2) Status de notificações (suporte + permissão)
+  // ✅ Abrir contrato automaticamente se pendente (primeira carga)
+  useEffect(() => {
+    if (loadingProfile) return;
+    if (needsContractAcceptance) setContractOpen(true);
+  }, [loadingProfile, needsContractAcceptance]);
+
+  // ✅ Status de notificações
   useEffect(() => {
     if (typeof window === "undefined") return;
-
     setNotifPermission(Notification?.permission || "default");
     setNotifSupported("Notification" in window && "serviceWorker" in navigator);
 
     const onChange = () => setNotifPermission(Notification.permission || "default");
-    // alguns browsers não disparam evento; ok.
     document?.addEventListener?.("visibilitychange", onChange);
     return () => document?.removeEventListener?.("visibilitychange", onChange);
   }, []);
 
-  // ✅ 3) Registrar pushToken e marcar “ativado”
   async function enableNotificationsAndSaveToken() {
     try {
       if (typeof window === "undefined") return;
@@ -243,7 +240,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
       setNotifBusy(true);
 
-      // pede permissão
       if (Notification.permission === "default") {
         const perm = await Notification.requestPermission();
         setNotifPermission(perm || "default");
@@ -266,14 +262,12 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         return;
       }
 
-      // registra SW
       const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
 
       const messaging = getMessaging(app);
       const vapidKey = process.env.NEXT_PUBLIC_VAPID_KEY;
 
       if (!vapidKey) {
-        console.warn("NEXT_PUBLIC_VAPID_KEY não configurada");
         showToast("VAPID não configurado. Fale com o administrador.", "error");
         return;
       }
@@ -294,7 +288,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
         return;
       }
 
-      // salva token no subscriber do telefone
       await updateDoc(doc(db, "subscribers", phone), {
         pushToken: token,
         lastSeen: new Date(),
@@ -310,36 +303,28 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     }
   }
 
-  // ✅ 4) Checar se já existe token salvo no Firestore (no subscriber)
+  // ✅ acompanhar pushToken do próprio subscriber
   useEffect(() => {
     if (!cleanPhoneFromProfile) return;
 
     let unsub = null;
     try {
-      // se rules não permitirem ler, isso pode falhar silenciosamente; por isso try/catch e fallback
       const ref = doc(db, "subscribers", cleanPhoneFromProfile);
       unsub = onSnapshot(
         ref,
         (snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            setNotifHasToken(Boolean(data?.pushToken));
-          }
+          if (snap.exists()) setNotifHasToken(Boolean(snap.data()?.pushToken));
         },
-        () => {
-          // se não puder ler, ao menos mantém o banner pela permissão do browser
-        }
+        () => {}
       );
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
 
     return () => {
       if (typeof unsub === "function") unsub();
     };
   }, [cleanPhoneFromProfile]);
 
-  // ✅ 5) Agenda (por phone se existir, senão por email)
+  // ✅ Agenda
   useEffect(() => {
     if (!user?.uid) return;
     if (loadingProfile) return;
@@ -350,18 +335,10 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     const phone = cleanPhoneFromProfile;
 
     let q = null;
-
-    if (phone) {
-      // OBS: se o Firebase pedir índice composto (where + orderBy), você já criou via link do console
-      q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(50));
-    } else if (user?.email) {
-      q = query(
-        colRef,
-        where("email", "==", (user.email || "").toLowerCase()),
-        orderBy("isoDate", "asc"),
-        limit(50)
-      );
-    } else {
+    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(50));
+    else if (user?.email)
+      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(50));
+    else {
       setAppointments([]);
       setLoadingAppointments(false);
       return;
@@ -384,14 +361,13 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return () => unsub();
   }, [user?.uid, user?.email, loadingProfile, cleanPhoneFromProfile]);
 
-  // ✅ 6) Notas por patientId
+  // ✅ Notas
   useEffect(() => {
     if (!user?.uid) return;
 
     setLoadingNotes(true);
 
     const qNotes = query(collection(db, "patient_notes"), where("patientId", "==", user.uid));
-
     const unsub = onSnapshot(
       qNotes,
       (snap) => {
@@ -419,13 +395,10 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const handleAcceptContract = async () => {
     try {
       if (!user?.uid) return;
-      const userRef = doc(db, "users", user.uid);
-
-      await updateDoc(userRef, {
+      await updateDoc(doc(db, "users", user.uid), {
         contractAcceptedVersion: currentContractVersion,
         contractAcceptedAt: new Date(),
       });
-
       showToast("Contrato aceito com sucesso!", "success");
     } catch (e) {
       console.error(e);
@@ -471,11 +444,30 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return (notes || []).filter((n) => String(n.content || "").toLowerCase().includes(q));
   }, [notes, noteSearch]);
 
-  // Loading inicial
+  // Loading inicial (skeleton)
   if (loadingProfile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
-        <Loader2 className="w-8 h-8 animate-spin" />
+      <div className="min-h-screen bg-slate-50 p-4">
+        <div className="max-w-5xl mx-auto space-y-4">
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+            <Skeleton className="h-4 w-28 mb-3" />
+            <Skeleton className="h-6 w-64" />
+            <div className="flex gap-2 mt-4">
+              <Skeleton className="h-10 w-28" />
+              <Skeleton className="h-10 w-24" />
+            </div>
+          </div>
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -483,16 +475,15 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const patientName = profile?.name || user?.displayName || "Paciente";
   const patientPhone = formatPhoneBR(cleanPhoneFromProfile);
 
-  const notifBanner = (() => {
-    // Se tiver token salvo no Firestore, ótimo.
-    // Se não tiver, mas permissão é granted, ainda sugere ativar/sincronizar.
+  // ✅ Texto solicitado
+  const notifInlineInfo = (() => {
     if (!notifSupported) {
       return (
-        <div className="bg-slate-50 border border-slate-100 text-slate-600 rounded-2xl p-4 flex items-start gap-3">
-          <AlertTriangle size={18} className="mt-0.5 text-slate-400" />
-          <div className="text-sm">
-            Este dispositivo/navegador pode não suportar notificações.
-            <div className="text-xs text-slate-400 mt-1">Você ainda pode usar WhatsApp para contato.</div>
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-600 flex gap-2">
+          <AlertTriangle size={16} className="mt-0.5 text-slate-400" />
+          <div>
+            Este navegador pode não suportar notificações.
+            <div className="text-xs text-slate-400 mt-1">Você ainda receberá lembretes via WhatsApp (se habilitado).</div>
           </div>
         </div>
       );
@@ -500,11 +491,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
     if (notifHasToken) {
       return (
-        <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-2xl p-4 flex items-start gap-3">
-          <CheckCircle size={18} className="mt-0.5" />
-          <div className="text-sm">
-            Notificações ativadas ✅
-            <div className="text-xs text-emerald-700/70 mt-1">Você receberá lembretes por push neste aparelho.</div>
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-900 flex gap-2">
+          <CheckCircle size={16} className="mt-0.5" />
+          <div>
+            <b>Notificação ativada</b> ✅
+            <div className="text-xs text-emerald-800/70 mt-1">Você receberá lembretes neste aparelho.</div>
           </div>
         </div>
       );
@@ -512,34 +503,29 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
     if (notifPermission === "denied") {
       return (
-        <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-2xl p-4 flex items-start gap-3">
-          <AlertTriangle size={18} className="mt-0.5" />
-          <div className="text-sm">
-            Notificações estão bloqueadas.
-            <div className="text-xs text-amber-800/70 mt-1">
-              Libere nas permissões do navegador para receber lembretes.
-            </div>
+        <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
+          <AlertTriangle size={16} className="mt-0.5" />
+          <div>
+            Notificações bloqueadas.
+            <div className="text-xs text-amber-800/70 mt-1">Libere nas permissões do navegador para receber lembretes.</div>
           </div>
         </div>
       );
     }
 
     return (
-      <div className="bg-violet-50 border border-violet-100 text-violet-900 rounded-2xl p-4 flex items-start justify-between gap-3">
-        <div className="flex gap-3">
-          <Bell size={18} className="mt-0.5 text-violet-700" />
-          <div className="text-sm">
-            Ative as notificações para receber lembretes ✅
-            <div className="text-xs text-violet-800/70 mt-1">
-              Um toque e pronto (recomendado no celular).
-            </div>
+      <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-sm text-violet-900 flex items-center justify-between gap-3">
+        <div className="flex gap-2">
+          <Bell size={16} className="mt-0.5 text-violet-700" />
+          <div>
+            <b>Ative as notificações</b>
+            <div className="text-xs text-violet-800/70 mt-1">Você receberá lembretes neste aparelho.</div>
           </div>
         </div>
-
         <Button
           onClick={enableNotificationsAndSaveToken}
           disabled={notifBusy}
-          className="shrink-0"
+          variant="secondary"
           icon={notifBusy ? Loader2 : Bell}
         >
           {notifBusy ? "Ativando..." : "Ativar"}
@@ -548,87 +534,90 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     );
   })();
 
+  const contractBadge = needsContractAcceptance ? (
+    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-100 text-xs font-semibold">
+      <AlertTriangle size={14} /> Contrato pendente
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100 text-xs font-semibold">
+      <CheckCircle size={14} /> Contrato OK
+    </span>
+  );
+
   return (
     <>
       {toast?.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />}
 
       <div className={`min-h-screen bg-slate-50 ${needsContractAcceptance ? "pb-24" : "pb-10"}`}>
         <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
-          {/* Topo */}
+          {/* Header */}
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
               <div className="text-2xl font-black text-slate-900 flex items-center gap-2">
                 <span>Olá, {patientName}</span> <span className="text-lg">👋</span>
               </div>
-              <div className="text-sm text-slate-500 mt-1">Acompanhe seus próximos atendimentos, contrato e diário.</div>
+              <div className="text-sm text-slate-500 mt-1">Tudo em um só lugar: agenda, contrato e seu diário.</div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="hidden sm:flex gap-2">
               <Button onClick={onAdminAccess} variant="secondary">
                 Admin
               </Button>
-              <Button onClick={onLogout} variant="secondary">
+              <Button onClick={onLogout} variant="secondary" icon={LogOut}>
                 Sair
               </Button>
             </div>
           </div>
 
-          {/* Cartão do paciente */}
+          {/* Cartão do paciente com info de notificações */}
           <Card>
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
-                  <User size={20} />
-                </div>
-                <div>
-                  <div className="font-bold text-slate-800 leading-tight">{patientName}</div>
-                  <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
-                    <span className="inline-flex items-center gap-1">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
+                    <User size={20} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-black text-slate-900 truncate">{patientName}</div>
+                    <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
                       <Phone size={14} className="text-slate-400" />
                       {patientPhone || "Telefone não informado"}
-                    </span>
+                    </div>
                   </div>
                 </div>
+
+                <div className="shrink-0">{contractBadge}</div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  status={needsContractAcceptance ? "unsigned" : "signed"}
-                  text={needsContractAcceptance ? `Contrato pendente (v${currentContractVersion})` : "Contrato ok"}
-                />
-                {whatsappLink && (
-                  <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" variant="secondary" icon={MessageCircle}>
+              {/* ✅ Texto pedido aqui */}
+              {notifInlineInfo}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {whatsappLink ? (
+                  <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle}>
                     WhatsApp
                   </Button>
+                ) : (
+                  <Button disabled variant="secondary" icon={MessageCircle}>
+                    WhatsApp indisponível
+                  </Button>
                 )}
+
+                <Button onClick={onAdminAccess} variant="secondary">
+                  Admin
+                </Button>
+
+                <Button onClick={onLogout} variant="secondary" icon={LogOut}>
+                  Sair
+                </Button>
               </div>
             </div>
           </Card>
 
-          {/* Banner Notificações */}
-          {notifBanner}
-
-          {/* CONTRATO (colapsável) */}
+          {/* CONTRATO */}
           <Card title="Contrato Terapêutico">
             <div className="space-y-3">
-              {needsContractAcceptance ? (
-                <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-xl p-4 flex gap-3">
-                  <AlertTriangle className="mt-0.5" size={18} />
-                  <div className="text-sm">
-                    Existe uma <b>nova versão</b> do contrato (v{currentContractVersion}). Para continuar, é necessário aceitar.
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl p-4 flex gap-3">
-                  <CheckCircle className="mt-0.5" size={18} />
-                  <div className="text-sm">
-                    Contrato aceito ✅
-                    <div className="text-xs text-emerald-700/70 mt-1">Você está com a versão v{acceptedVersion} registrada.</div>
-                  </div>
-                </div>
-              )}
-
               <button
                 type="button"
                 onClick={() => setContractOpen((v) => !v)}
@@ -636,7 +625,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               >
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                   <FileText size={18} className="text-violet-600" />
-                  Ver contrato
+                  {needsContractAcceptance ? "Contrato pendente: toque para ver e aceitar" : "Ver contrato"}
                 </div>
                 {contractOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
               </button>
@@ -658,14 +647,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                 <Skeleton className="h-24" />
               </div>
             ) : appointments.length === 0 ? (
-              <div className="text-sm text-slate-500">
-                Nenhum agendamento encontrado.
-                {!cleanPhoneFromProfile && (
-                  <div className="mt-2 text-xs text-slate-400">
-                    Dica: seu perfil ainda não tem telefone registrado, então tentamos buscar por e-mail.
-                  </div>
-                )}
-              </div>
+              <div className="text-sm text-slate-500">Nenhum agendamento encontrado.</div>
             ) : (
               <div className="space-y-3">
                 {appointments.map((a) => {
@@ -674,7 +656,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   const time = a.time || "";
                   const prof = a.profissional || "Profissional não informado";
 
-                  // ics (duração padrão 50min)
                   let icsUrl = null;
                   try {
                     if (a.isoDate && time) {
@@ -688,9 +669,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                         endISO: end.toISOString(),
                       });
                     }
-                  } catch (_) {
-                    // ignore
-                  }
+                  } catch (_) {}
 
                   return (
                     <div
@@ -753,7 +732,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             )}
           </Card>
 
-          {/* NOTAS (Diário rápido) */}
+          {/* NOTAS */}
           <Card title="Diário rápido">
             <div className="space-y-4">
               <div className="flex items-center gap-2">
@@ -786,18 +765,13 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
               ) : (
                 <div className="space-y-2">
                   {filteredNotes.map((n) => {
-                    const when =
-                      n.createdAt?.seconds
-                        ? new Date(n.createdAt.seconds * 1000).toLocaleString("pt-BR")
-                        : "";
-
+                    const when = n.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString("pt-BR") : "";
                     return (
                       <div key={n.id} className="p-4 rounded-2xl border border-slate-100 bg-white flex items-start justify-between gap-4">
                         <div className="min-w-0">
                           <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">{n.content}</div>
                           {when ? <div className="text-[11px] text-slate-400 mt-2">{when}</div> : null}
                         </div>
-
                         <button
                           type="button"
                           onClick={() => handleDeleteNote(n.id)}
@@ -815,7 +789,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           </Card>
         </div>
 
-        {/* FAB (mobile) */}
+        {/* FAB */}
         <button
           type="button"
           onClick={() => setNoteModalOpen(true)}
@@ -825,7 +799,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           <Plus size={22} />
         </button>
 
-        {/* Rodapé fixo para aceitar contrato (mobile friendly) */}
+        {/* Rodapé aceitar contrato */}
         {needsContractAcceptance && (
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 p-4">
             <div className="max-w-5xl mx-auto flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
@@ -845,11 +819,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100">
               <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                 <div className="font-bold text-slate-800">Nova nota</div>
-                <button
-                  type="button"
-                  onClick={() => setNoteModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
+                <button type="button" onClick={() => setNoteModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                   ✕
                 </button>
               </div>
