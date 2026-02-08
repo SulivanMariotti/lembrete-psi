@@ -38,6 +38,7 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronRight,
+  Calendar,
 } from "lucide-react";
 
 function Skeleton({ className = "" }) {
@@ -162,6 +163,32 @@ function startDateTimeFromAppointment(a) {
   return d;
 }
 
+function startOfWeek(d) {
+  // Semana começando na segunda (PT-BR)
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = date.getDay(); // 0 domingo
+  const diff = (day === 0 ? -6 : 1) - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfWeek(d) {
+  const s = startOfWeek(d);
+  const e = new Date(s);
+  e.setDate(e.getDate() + 6);
+  e.setHours(23, 59, 59, 999);
+  return e;
+}
+
+function weekLabelPT(d) {
+  const s = startOfWeek(d);
+  const e = endOfWeek(d);
+  const ds = s.toLocaleDateString("pt-BR");
+  const de = e.toLocaleDateString("pt-BR");
+  return `Semana ${ds} → ${de}`;
+}
+
 function relativeLabelForDate(dt) {
   if (!dt) return null;
 
@@ -183,6 +210,43 @@ function chipClass(style) {
   if (style === "tomorrow") return "bg-violet-50 border-violet-100 text-violet-900";
   if (style === "future") return "bg-slate-50 border-slate-200 text-slate-700";
   return "bg-amber-50 border-amber-100 text-amber-900";
+}
+
+function AppointmentMiniRow({ a }) {
+  const dateBase = a.isoDate || a.date || "";
+  const { day, mon, label } = brDateParts(dateBase);
+  const time = a.time || "";
+  const prof = a.profissional || "Profissional não informado";
+  const place = a.location || a.sala || "";
+
+  return (
+    <div className="px-3 py-2.5 rounded-2xl border border-slate-100 bg-white flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-11 rounded-2xl border border-slate-100 bg-slate-50 p-2 text-center shrink-0">
+          <div className="text-base font-black text-slate-800 leading-none">{day}</div>
+          <div className="text-[10px] font-bold text-slate-500 mt-1">{mon}</div>
+        </div>
+
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-slate-900 truncate">
+            {label}
+            {time ? <span className="text-slate-500"> • {time}</span> : null}
+          </div>
+          <div className="text-[12px] text-slate-500 truncate">
+            Prof.: <b className="text-slate-700">{prof}</b>
+            {place ? <span className="text-slate-400"> • </span> : null}
+            {place ? <span className="text-slate-500">{place}</span> : null}
+          </div>
+        </div>
+      </div>
+
+      {a.reminderType ? (
+        <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-violet-900 font-semibold shrink-0">
+          {String(a.reminderType).toUpperCase()}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
@@ -208,9 +272,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Agenda UX
-  const [agendaView, setAgendaView] = useState("soon"); // "soon" | "all"
-  const [showAllSoon, setShowAllSoon] = useState(false);
-  const [showAllLater, setShowAllLater] = useState(false);
+  const [agendaView, setAgendaView] = useState("compact"); // "compact" | "all"
+  const [showAllWeeks, setShowAllWeeks] = useState(false);
+  const [showAllMonths, setShowAllMonths] = useState(false);
 
   // Notificações
   const [notifSupported, setNotifSupported] = useState(false);
@@ -218,7 +282,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const [notifHasToken, setNotifHasToken] = useState(false);
   const [notifBusy, setNotifBusy] = useState(false);
 
-  // Mantras (psicoeducação)
+  // Mantras
   const [mantraIndex, setMantraIndex] = useState(0);
 
   const cleanPhoneFromProfile = useMemo(() => {
@@ -236,33 +300,17 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const patientName = profile?.name || user?.displayName || "Paciente";
   const patientPhoneDisplay = formatPhoneBR(cleanPhoneFromProfile);
 
-  // ✅ Mantras curtos e “clínicos” (baseado no seu manifesto)
   const mantras = useMemo(() => {
     return [
-      {
-        title: "O segredo é a constância",
-        text: "A terapia funciona na regularidade. Uma sessão não muda tudo — a continuidade muda.",
-      },
-      {
-        title: "Seu horário é um espaço sagrado",
-        text: "Esse encontro é cuidado ativo. Estar presente sustenta o vínculo e o processo.",
-      },
-      {
-        title: "Faltar interrompe o processo",
-        text: "Não é só perder uma hora: é quebrar a sequência de evolução que você está construindo.",
-      },
-      {
-        title: "Responsabilidade com seu cuidado",
-        text: "Este painel existe para te apoiar. Sua parte principal é comparecer.",
-      },
+      { title: "O segredo é a constância", text: "A terapia funciona na regularidade. A continuidade muda." },
+      { title: "Seu horário é um espaço sagrado", text: "Este encontro é cuidado ativo. Estar presente sustenta o processo." },
+      { title: "Faltar interrompe", text: "Não é só perder uma hora: é quebrar a sequência de evolução que você constrói." },
+      { title: "Responsabilidade com seu cuidado", text: "Este painel te apoia. Sua parte principal é comparecer." },
     ];
   }, []);
 
-  // Auto-rotacionar mantras
   useEffect(() => {
-    const t = setInterval(() => {
-      setMantraIndex((i) => (i + 1) % mantras.length);
-    }, 9000);
+    const t = setInterval(() => setMantraIndex((i) => (i + 1) % mantras.length), 9000);
     return () => clearInterval(t);
   }, [mantras.length]);
 
@@ -335,7 +383,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     if (needsContractAcceptance) setContractOpen(true);
   }, [loadingProfile, needsContractAcceptance]);
 
-  // Status notificações
+  // Notificações - status
   useEffect(() => {
     if (typeof window === "undefined") return;
     setNotifPermission(Notification?.permission || "default");
@@ -408,7 +456,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     }
   }
 
-  // Acompanhar token do próprio subscriber
   useEffect(() => {
     if (!cleanPhoneFromProfile) return;
 
@@ -436,9 +483,9 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     const phone = cleanPhoneFromProfile;
 
     let q = null;
-    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(120));
+    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(200));
     else if (user?.email)
-      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(120));
+      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(200));
     else {
       setAppointments([]);
       setLoadingAppointments(false);
@@ -545,7 +592,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return (notes || []).filter((n) => String(n.content || "").toLowerCase().includes(q));
   }, [notes, noteSearch]);
 
-  // Próximo atendimento
+  // Próximo atendimento (1º futuro)
   const nextAppointment = useMemo(() => {
     const now = new Date();
     const list = (appointments || [])
@@ -600,71 +647,51 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return { label, wa, waDisabled, ics };
   }, [nextAppointment, clinicWhatsappPhone, patientName]);
 
-  // Agrupar agenda (14 dias + depois), com headers por mês
-  const groupedAgenda = useMemo(() => {
+  // ✅ NOVO: Agenda agrupada por semana (até 30 dias) + depois por mês
+  const agendaGroups = useMemo(() => {
     const now = new Date();
-    const in14 = addMinutes(now, 14 * 24 * 60);
+    const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    const items = (appointments || []).map((a) => {
-      const dt = startDateTimeFromAppointment(a);
-      const ts = dt ? dt.getTime() : Number.POSITIVE_INFINITY;
-      const iso = a.isoDate || a.date || "";
-      return { a, ts, month: monthLabelFromIso(iso) };
-    });
+    const items = (appointments || [])
+      .map((a) => {
+        const dt = startDateTimeFromAppointment(a);
+        const ts = dt ? dt.getTime() : Number.POSITIVE_INFINITY;
+        return { a, dt, ts };
+      })
+      .filter((x) => Number.isFinite(x.ts))
+      .sort((x, y) => x.ts - y.ts);
 
-    const sorted = items.filter((x) => Number.isFinite(x.ts)).sort((x, y) => x.ts - y.ts);
+    const upcoming = items.filter((x) => x.ts >= now.getTime());
 
-    const soon = [];
-    const later = [];
-    for (const x of sorted) {
-      if (x.ts <= in14.getTime()) soon.push(x);
-      else later.push(x);
+    const highlights = upcoming.slice(0, 3).map((x) => x.a);
+
+    const weeksMap = new Map();
+    const monthsMap = new Map();
+
+    for (const x of upcoming) {
+      const dt = x.dt;
+      if (!dt) continue;
+
+      if (dt <= in30) {
+        const key = startOfWeek(dt).toISOString();
+        const label = weekLabelPT(dt);
+        if (!weeksMap.has(key)) weeksMap.set(key, { key, label, list: [] });
+        weeksMap.get(key).list.push(x.a);
+      } else {
+        const iso = x.a.isoDate || x.a.date || "";
+        const m = monthLabelFromIso(iso) || "Outros";
+        if (!monthsMap.has(m)) monthsMap.set(m, []);
+        monthsMap.get(m).push(x.a);
+      }
     }
 
-    const splitByMonth = (arr) => {
-      const out = [];
-      let last = "";
-      for (const it of arr) {
-        const m = it.month || "";
-        if (m && m !== last) {
-          out.push({ type: "header", label: m });
-          last = m;
-        }
-        out.push({ type: "item", ...it });
-      }
-      return out;
-    };
+    const weeks = Array.from(weeksMap.values()).sort((a, b) => a.key.localeCompare(b.key));
+    const months = Array.from(monthsMap.entries()).map(([label, list]) => ({ label, list }));
 
-    return {
-      soon: splitByMonth(soon),
-      later: splitByMonth(later),
-    };
+    return { highlights, weeks, months };
   }, [appointments]);
 
-  function applyShowMore(rows, maxItems, showAll) {
-    if (showAll) return rows;
-    let count = 0;
-    const out = [];
-    for (const r of rows) {
-      if (r.type === "header") {
-        out.push(r);
-        continue;
-      }
-      if (count < maxItems) {
-        out.push(r);
-        count++;
-      } else {
-        break;
-      }
-    }
-    while (out.length && out[out.length - 1]?.type === "header") out.pop();
-    return out;
-  }
-
-  const soonRows = applyShowMore(groupedAgenda.soon, 6, showAllSoon);
-  const laterRows = applyShowMore(groupedAgenda.later, 6, showAllLater);
-
-  // ✅ Bloco único de Notificações (sem título)
+  // Notificações bloco (sem título)
   const notifBlock = useMemo(() => {
     if (typeof window === "undefined") {
       return (
@@ -799,7 +826,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </div>
 
-          {/* ✅ Cards rotativos (Psicoeducação) */}
+          {/* Mantra */}
           <Card>
             <div className="flex items-start justify-between gap-3">
               <div className="flex gap-3 min-w-0">
@@ -838,10 +865,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
 
             <div className="flex items-center gap-1 mt-3">
               {mantras.map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-1.5 w-6 rounded-full ${i === mantraIndex ? "bg-violet-600" : "bg-slate-200"}`}
-                />
+                <div key={i} className={`h-1.5 w-6 rounded-full ${i === mantraIndex ? "bg-violet-600" : "bg-slate-200"}`} />
               ))}
             </div>
           </Card>
@@ -874,7 +898,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </Card>
 
-          {/* Notificações (sem título) */}
+          {/* Notificações */}
           <Card>{notifBlock}</Card>
 
           {/* Próximo atendimento */}
@@ -939,6 +963,118 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             )}
           </Card>
 
+          {/* ✅ AGENDA NOVA */}
+          <Card title="Agenda">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="text-xs text-slate-500">Visualização:</div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAgendaView("compact");
+                    setShowAllWeeks(false);
+                    setShowAllMonths(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                    agendaView === "compact"
+                      ? "bg-violet-50 border-violet-100 text-violet-900"
+                      : "bg-white border-slate-200 text-slate-600"
+                  }`}
+                >
+                  Compacta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAgendaView("all");
+                    setShowAllWeeks(true);
+                    setShowAllMonths(true);
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                    agendaView === "all"
+                      ? "bg-violet-50 border-violet-100 text-violet-900"
+                      : "bg-white border-slate-200 text-slate-600"
+                  }`}
+                >
+                  Completa
+                </button>
+              </div>
+            </div>
+
+            {loadingAppointments ? (
+              <div className="space-y-3">
+                <Skeleton className="h-14" />
+                <Skeleton className="h-14" />
+                <Skeleton className="h-14" />
+              </div>
+            ) : appointments.length === 0 ? (
+              <div className="text-sm text-slate-500">Nenhum agendamento encontrado.</div>
+            ) : (
+              <div className="space-y-5">
+                {/* Destaque próximos */}
+                {agendaGroups.highlights.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <Calendar size={14} className="text-slate-400" />
+                      Próximos atendimentos
+                    </div>
+                    {agendaGroups.highlights.map((a) => (
+                      <AppointmentMiniRow key={a.id} a={a} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Por semana */}
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Próximas semanas</div>
+
+                  {(showAllWeeks ? agendaGroups.weeks : agendaGroups.weeks.slice(0, 3)).map((w) => (
+                    <div key={w.key} className="space-y-2">
+                      <div className="text-xs text-slate-400 font-semibold mt-2">{w.label}</div>
+                      {w.list.slice(0, agendaView === "compact" ? 5 : 999).map((a) => (
+                        <AppointmentMiniRow key={a.id} a={a} />
+                      ))}
+                      {agendaView === "compact" && w.list.length > 5 && (
+                        <div className="text-xs text-slate-400">+ {w.list.length - 5} atendimentos nesta semana</div>
+                      )}
+                    </div>
+                  ))}
+
+                  {agendaGroups.weeks.length > 3 && (
+                    <Button variant="secondary" className="w-full" onClick={() => setShowAllWeeks((v) => !v)} icon={CalendarCheck}>
+                      {showAllWeeks ? "Mostrar menos semanas" : "Mostrar mais semanas"}
+                    </Button>
+                  )}
+                </div>
+
+                {/* Depois por mês */}
+                {agendaGroups.months.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Depois</div>
+
+                    {(showAllMonths ? agendaGroups.months : agendaGroups.months.slice(0, 2)).map((m) => (
+                      <div key={m.label} className="space-y-2">
+                        <div className="text-xs text-slate-400 font-semibold mt-2">{m.label}</div>
+                        {m.list.slice(0, agendaView === "compact" ? 4 : 999).map((a) => (
+                          <AppointmentMiniRow key={a.id} a={a} />
+                        ))}
+                        {agendaView === "compact" && m.list.length > 4 && (
+                          <div className="text-xs text-slate-400">+ {m.list.length - 4} atendimentos neste mês</div>
+                        )}
+                      </div>
+                    ))}
+
+                    {agendaGroups.months.length > 2 && (
+                      <Button variant="secondary" className="w-full" onClick={() => setShowAllMonths((v) => !v)}>
+                        {showAllMonths ? "Mostrar menos meses" : "Mostrar mais meses"}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+
           {/* CONTRATO */}
           <Card title="Contrato Terapêutico">
             <div className="space-y-3">
@@ -959,13 +1095,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   {contractText}
                 </div>
               )}
-            </div>
-          </Card>
-
-          {/* AGENDA */}
-          <Card title="Agenda">
-            <div className="text-sm text-slate-500">
-              Mantida como está (próximo passo: compactar mais e agrupar por semana/mês como você pediu).
             </div>
           </Card>
 
