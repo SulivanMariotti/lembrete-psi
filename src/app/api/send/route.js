@@ -7,7 +7,6 @@ function getServiceAccount() {
     const json = Buffer.from(b64, "base64").toString("utf-8");
     return JSON.parse(json);
   }
-
   const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
   if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var");
   return JSON.parse(raw);
@@ -23,16 +22,17 @@ function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
 
+// ✅ Agora pega a mensagem correta do seu parseCSV (messageBody)
 function pickMessage(item) {
-  // tenta campos comuns vindo do parseCSV
   return (
+    item?.messageBody ||              // <-- seu parseCSV
     item?.message ||
     item?.msg ||
     item?.text ||
     item?.body ||
     item?.notificationBody ||
     ""
-  );
+  ).toString().trim();
 }
 
 export async function POST(req) {
@@ -50,37 +50,39 @@ export async function POST(req) {
     const messaging = admin.messaging();
 
     let sent = 0;
-    let skipped = 0;
+    let skippedNoPhone = 0;
+    let skippedNoMessage = 0;
+    let skippedNoToken = 0;
     let errors = [];
 
-    // Envia 1 a 1 (mais fácil de debugar). Depois podemos otimizar para batch.
     for (const item of items) {
       try {
         const phone = onlyDigits(item.cleanPhone || item.phone || "");
         if (!phone) {
-          skipped++;
-          continue;
-        }
-
-        // ✅ Busca token direto do Firestore (fonte de verdade)
-        const subRef = db.collection("subscribers").doc(phone);
-        const subSnap = await subRef.get();
-
-        const token = subSnap.exists ? subSnap.data()?.pushToken : null;
-
-        if (!token) {
-          // não quebra o envio geral; apenas pula esse paciente
-          skipped++;
+          skippedNoPhone++;
           continue;
         }
 
         const messageText = pickMessage(item);
         if (!messageText) {
-          skipped++;
+          skippedNoMessage++;
           continue;
         }
 
-        // Notification + data (data é útil para debug / abrir tela no futuro)
+        // ✅ prioridade: token que já veio do parseCSV (subscribers.pushToken)
+        let token = (item.pushToken || "").toString().trim();
+
+        // ✅ fallback: buscar no Firestore pelo doc subscribers/{phone}
+        if (!token) {
+          const subSnap = await db.collection("subscribers").doc(phone).get();
+          token = subSnap.exists ? (subSnap.data()?.pushToken || "").toString().trim() : "";
+        }
+
+        if (!token) {
+          skippedNoToken++;
+          continue;
+        }
+
         const payload = {
           token,
           notification: {
@@ -105,32 +107,43 @@ export async function POST(req) {
       }
     }
 
-    // Log em history (admin-only)
     const types = [...new Set(items.map((i) => i.reminderType).filter(Boolean))].map(String);
 
     await db.collection("history").add({
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
       count: sent,
-      skipped,
+      skipped: {
+        noPhone: skippedNoPhone,
+        noMessage: skippedNoMessage,
+        noToken: skippedNoToken,
+      },
       types,
-      summary: `Envio push: ${sent} enviados, ${skipped} ignorados.`,
-      errors: errors.slice(0, 10), // limita tamanho do log
+      summary: `Envio push: ${sent} enviados | sem tel: ${skippedNoPhone} | sem msg: ${skippedNoMessage} | sem token: ${skippedNoToken}`,
+      errors: errors.slice(0, 10),
     });
 
     if (sent === 0) {
-      // Mantém a mensagem que você já viu, mas agora com motivo correto
+      // ✅ mensagem mais verdadeira do motivo
+      const reason =
+        skippedNoToken > 0
+          ? "Nenhum token fornecido."
+          : skippedNoMessage > 0
+          ? "Nenhuma mensagem gerada para envio."
+          : "Nada para enviar.";
+
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Nenhum token fornecido.",
-          sent,
-          skipped,
-        },
+        { ok: false, error: reason, sent, skippedNoPhone, skippedNoMessage, skippedNoToken },
         { status: 400 }
       );
     }
 
-    return NextResponse.json({ ok: true, sent, skipped });
+    return NextResponse.json({
+      ok: true,
+      sent,
+      skippedNoPhone,
+      skippedNoMessage,
+      skippedNoToken,
+    });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ ok: false, error: e.message || "Erro" }, { status: 500 });
