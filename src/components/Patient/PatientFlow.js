@@ -45,13 +45,6 @@ function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
 
-/**
- * Normaliza número BR para formato do WhatsApp (E.164 sem +).
- * Aceita:
- * - "5511...." (já ok)
- * - "11...." (adiciona 55)
- * - "+55(11)..." etc (remove caracteres)
- */
 function normalizeWhatsappPhone(raw) {
   const d = onlyDigits(raw);
   if (!d) return "";
@@ -231,11 +224,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const acceptedVersion = Number(profile?.contractAcceptedVersion || 0);
   const needsContractAcceptance = currentContractVersion > acceptedVersion;
 
-  // ✅ WhatsApp da clínica vindo do config/global
-  const clinicWhatsappPhone = useMemo(() => {
-    return normalizeWhatsappPhone(globalConfig?.whatsapp || "");
-  }, [globalConfig?.whatsapp]);
-
+  const clinicWhatsappPhone = useMemo(() => normalizeWhatsappPhone(globalConfig?.whatsapp || ""), [globalConfig?.whatsapp]);
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
 
   // Perfil
@@ -533,7 +522,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
     return upcoming?.a || (list[0]?.a ?? null);
   }, [appointments]);
 
-  // Meta do próximo atendimento (chip + WhatsApp + ics)
   const nextMeta = useMemo(() => {
     if (!nextAppointment) return { label: null, wa: null, waDisabled: true, ics: null };
 
@@ -548,7 +536,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       const time = String(nextAppointment.time || "").trim();
       const prof = nextAppointment.profissional ? ` com ${nextAppointment.profissional}` : "";
 
-      // ✅ confirmação de presença (sem reagendar/cancelar)
       const msg =
         `Olá! Sou ${patientName}. ` +
         `Confirmo minha presença no atendimento${prof} no dia ${dateLabel}${time ? ` às ${time}` : ""}. ` +
@@ -639,8 +626,17 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const soonRows = applyShowMore(groupedAgenda.soon, 6, showAllSoon);
   const laterRows = applyShowMore(groupedAgenda.later, 6, showAllLater);
 
-  // ✅ Banner de notificação APENAS para erro/limitação (sem duplicar “receberá no aparelho”)
-  const notifBanner = useMemo(() => {
+  // ✅ Bloco único de Notificações
+  const notifBlock = useMemo(() => {
+    if (typeof window === "undefined") {
+      return (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-600 flex gap-2">
+          <Loader2 size={16} className="mt-0.5 animate-spin text-slate-400" />
+          <div>Carregando status de notificações…</div>
+        </div>
+      );
+    }
+
     if (!notifSupported) {
       return (
         <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-600 flex gap-2">
@@ -653,70 +649,52 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
       );
     }
 
-    if (notifPermission === "denied") {
+    if (notifHasToken) {
       return (
-        <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
-          <AlertTriangle size={16} className="mt-0.5" />
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-900 flex gap-2">
+          <CheckCircle size={16} className="mt-0.5" />
           <div>
-            Notificações bloqueadas no navegador.
-            <div className="text-xs text-amber-800/70 mt-1">Libere as permissões para receber lembretes neste aparelho.</div>
+            <b>Notificações ativas neste aparelho</b> ✅
+            <div className="text-xs text-emerald-800/70 mt-1">Você receberá lembretes neste dispositivo.</div>
           </div>
         </div>
       );
     }
 
-    return null;
-  }, [notifSupported, notifPermission]);
+    if (notifPermission === "denied") {
+      return (
+        <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
+          <AlertTriangle size={16} className="mt-0.5" />
+          <div>
+            Notificações bloqueadas.
+            <div className="text-xs text-amber-800/70 mt-1">Libere as permissões do navegador para ativar.</div>
+          </div>
+        </div>
+      );
+    }
 
-  // ✅ Checklist: aqui é o ÚNICO lugar onde aparece “receberá neste aparelho”
-  const checklist = useMemo(() => {
-    const notifOk = Boolean(notifHasToken);
-    const contractOk = !needsContractAcceptance;
-    const nextOk = Boolean(nextAppointment);
-
-    return [
-      {
-        key: "notif",
-        title: "Notificações",
-        ok: notifOk,
-        helper: notifOk ? "Ativadas neste aparelho" : "Ative para receber lembretes",
-        action:
-          !notifOk && notifSupported && notifPermission !== "denied"
-            ? { label: notifBusy ? "Ativando..." : "Ativar", onClick: enableNotificationsAndSaveToken, icon: Bell }
-            : null,
-      },
-      {
-        key: "contract",
-        title: "Contrato",
-        ok: contractOk,
-        helper: contractOk ? "Aceito" : "Pendente (necessário aceitar)",
-        action: !contractOk ? { label: "Abrir", onClick: () => setContractOpen(true), icon: FileText } : null,
-      },
-      {
-        key: "next",
-        title: "Próximo atendimento",
-        ok: nextOk,
-        helper: nextOk
-          ? `${brDateParts(nextAppointment.isoDate || nextAppointment.date).label}${nextAppointment.time ? ` • ${nextAppointment.time}` : ""}`
-          : "Nenhum encontrado",
-        action: null,
-      },
-    ];
-  }, [
-    notifHasToken,
-    needsContractAcceptance,
-    nextAppointment,
-    notifSupported,
-    notifPermission,
-    notifBusy,
-  ]);
+    // default/granted sem token
+    return (
+      <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-sm text-violet-900 flex items-center justify-between gap-3">
+        <div className="flex gap-2">
+          <Bell size={16} className="mt-0.5 text-violet-700" />
+          <div>
+            <b>Ative as notificações</b>
+            <div className="text-xs text-violet-800/70 mt-1">Para receber lembretes neste aparelho.</div>
+          </div>
+        </div>
+        <Button onClick={enableNotificationsAndSaveToken} disabled={notifBusy} variant="secondary" icon={notifBusy ? Loader2 : Bell}>
+          {notifBusy ? "Ativando..." : "Ativar"}
+        </Button>
+      </div>
+    );
+  }, [notifSupported, notifHasToken, notifPermission, notifBusy]);
 
   if (loadingProfile) {
     return (
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-5xl mx-auto space-y-4">
           <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-            <Skeleton className="h-4 w-28 mb-3" />
             <Skeleton className="h-6 w-64" />
             <div className="flex gap-2 mt-4">
               <Skeleton className="h-10 w-28" />
@@ -724,14 +702,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </div>
           <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
-            <Skeleton className="h-5 w-40" />
             <Skeleton className="h-20 w-full" />
             <Skeleton className="h-20 w-full" />
-          </div>
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
-            <Skeleton className="h-5 w-32" />
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-14 w-full" />
           </div>
         </div>
       </div>
@@ -748,10 +720,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
-              <div className="text-2xl font-black text-slate-900 flex items-center gap-2">
-                <span>Olá, {patientName}</span> <span className="text-lg">👋</span>
-              </div>
-              <div className="text-sm text-slate-500 mt-1">Lembretes e organização do seu cuidado.</div>
+              <div className="text-lg font-extrabold text-slate-900">Lembretes e organização do seu cuidado</div>
+              <div className="text-sm text-slate-500 mt-1">O segredo da terapia é a constância.</div>
             </div>
 
             <div className="hidden sm:flex gap-2">
@@ -792,48 +762,7 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
             </div>
           </div>
 
-          {/* ✅ Banner só quando houver problema */}
-          {notifBanner}
-
-          {/* Checklist (único lugar do status “no aparelho”) */}
-          <Card title="Checklist rápido">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {checklist.map((it) => (
-                <div key={it.key} className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-extrabold text-slate-900">{it.title}</div>
-                    {it.ok ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border bg-emerald-50 border-emerald-100 text-emerald-900 font-semibold">
-                        <CheckCircle size={14} /> OK
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border bg-amber-50 border-amber-100 text-amber-900 font-semibold">
-                        <AlertTriangle size={14} /> Pendente
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="text-xs text-slate-500 mt-2">{it.helper}</div>
-
-                  {it.action ? (
-                    <div className="mt-3">
-                      <Button
-                        variant="secondary"
-                        className="w-full"
-                        icon={it.action.icon}
-                        onClick={it.action.onClick}
-                        disabled={it.key === "notif" && notifBusy}
-                      >
-                        {it.action.label}
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Card paciente */}
+          {/* Card do paciente */}
           <Card>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-4 min-w-0">
@@ -859,6 +788,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                 </span>
               )}
             </div>
+          </Card>
+
+          {/* ✅ Notificações (único bloco) */}
+          <Card title="Notificações">
+            {notifBlock}
           </Card>
 
           {/* Próximo atendimento */}
@@ -920,16 +854,11 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
                   )}
                 </div>
 
-                {/* Microtexto alinhado à sua diretriz clínica (constância) */}
                 <div className="rounded-xl border border-slate-100 bg-white p-3 text-sm text-slate-700">
                   <b className="text-slate-900">O segredo da terapia é a constância.</b>
                   <div className="text-xs text-slate-500 mt-1">
                     Comparecer às sessões sustenta o processo. Faltar pode interromper evoluções importantes — sua presença é o maior investimento em si.
                   </div>
-                </div>
-
-                <div className="text-xs text-slate-400">
-                  O WhatsApp aqui é apenas para <b>confirmar presença</b>.
                 </div>
               </div>
             )}
