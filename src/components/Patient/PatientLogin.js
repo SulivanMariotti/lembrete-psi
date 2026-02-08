@@ -32,17 +32,21 @@ export default function PatientLogin({ onAdminAccess }) {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-3">
-        {/* Cabeçalho compacto (Lembrete Psi maior) */}
+        {/* Cabeçalho compacto (marca grande no mobile) */}
         <div className="text-center px-2">
-          <div className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border border-violet-100 bg-violet-50 text-violet-900 font-extrabold shadow-sm">
-            <Sparkles size={16} />
-            <span className="text-sm sm:text-base tracking-wide">Lembrete Psi</span>
+          <div className="flex items-center justify-center gap-2 text-violet-700">
+            <div className="w-9 h-9 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
+              <Sparkles size={18} />
+            </div>
+            <div className="text-left">
+              <div className="text-[22px] sm:text-[26px] font-extrabold text-slate-900 leading-none">
+                Lembrete Psi
+              </div>
+              <div className="text-xs sm:text-sm text-slate-500 mt-0.5">Constância terapêutica</div>
+            </div>
           </div>
 
-          <div className="mt-2 text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
-            Constância terapêutica
-          </div>
-          <div className="mt-1 text-sm text-slate-500">
+          <div className="mt-2 text-sm text-slate-500">
             Seu painel para lembretes, agenda e registro rápido.
           </div>
         </div>
@@ -73,7 +77,7 @@ export default function PatientLogin({ onAdminAccess }) {
               {loading ? "Entrando..." : "Entrar"}
             </Button>
 
-            {/* O que tem no painel (mais compacto) */}
+            {/* O que tem no painel (compacto) */}
             <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
               <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                 <Info size={14} className="text-slate-400" />
@@ -121,7 +125,7 @@ export default function PatientLogin({ onAdminAccess }) {
           </div>
         </Card>
 
-        {/* Rodapé mínimo (mais curto) */}
+        {/* Rodapé mínimo */}
         <div className="text-center text-xs text-slate-400">
           Painel focado em <b>lembretes e constância</b>.
           <div className="mt-1 inline-flex items-center gap-2 justify-center">
@@ -133,3 +137,4 @@ export default function PatientLogin({ onAdminAccess }) {
     </div>
   );
 }
+
