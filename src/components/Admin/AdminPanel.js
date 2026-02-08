@@ -114,6 +114,8 @@ const [appointments, setAppointments] = useState([]);
   // Estado para cadastro de Novo Paciente (Whitelist)
   const [newPatient, setNewPatient] = useState({ name: '', email: '', phone: '' });
   const [showUserModal, setShowUserModal] = useState(false);
+  // Edição (sem mudar layout): ao clicar na linha do paciente abre o mesmo modal com dados preenchidos
+  const [editingPatient, setEditingPatient] = useState(null);
 
   const [filterProf, setFilterProf] = useState('Todos');
 
@@ -209,43 +211,100 @@ useEffect(() => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [csvInput]);
 
+    const closePatientModal = () => {
+    setShowUserModal(false);
+    setEditingPatient(null);
+    setNewPatient({ name: '', email: '', phone: '' });
+  };
+
+  const openEditPatientModal = (u) => {
+    const prevPhone = String(u?.phoneCanonical || u?.phone || '');
+    const prevEmail = String(u?.email || '');
+    setNewPatient({
+      name: String(u?.name || ''),
+      email: String(u?.email || ''),
+      phone: prevPhone,
+    });
+    setEditingPatient({
+      previousPhoneCanonical: prevPhone,
+      previousEmail: prevEmail,
+    });
+    setShowUserModal(true);
+  };
+
   const handleRegisterPatient = async () => {
     if (!newPatient.email || !newPatient.name || !newPatient.phone) {
       return showToast('Preencha todos os campos.', 'error');
     }
 
     try {
-      const cleanPhone = onlyDigits(newPatient.phone);
-      const userRef = doc(db, 'subscribers', cleanPhone);
+      const adminSecret = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '';
+      if (!adminSecret) {
+        return showToast('Falta configurar NEXT_PUBLIC_ADMIN_PANEL_SECRET (admin).', 'error');
+      }
 
-      await setDoc(
-        userRef,
-        {
-          name: newPatient.name.trim(),
-          email: newPatient.email.trim().toLowerCase(),
-          phone: cleanPhone,
-          role: 'patient',
-          createdAt: new Date(),
-          lastSeen: null,
-          pushToken: null,
+      const payload = {
+        name: newPatient.name.trim(),
+        email: newPatient.email.trim().toLowerCase(),
+        phone: newPatient.phone,
+        ...(editingPatient?.previousPhoneCanonical
+          ? { previousPhoneCanonical: editingPatient.previousPhoneCanonical }
+          : {}),
+        ...(editingPatient?.previousEmail ? { previousEmail: editingPatient.previousEmail } : {}),
+      };
+
+      const res = await fetch('/api/admin/patient/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': adminSecret,
         },
-        { merge: true }
-      );
+        body: JSON.stringify(payload),
+      });
 
-      showToast('Paciente cadastrado e autorizado com sucesso!');
-      setNewPatient({ name: '', email: '', phone: '' });
-      setShowUserModal(false);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.ok) {
+        const msg = data?.error || 'Erro ao salvar paciente.';
+        return showToast(msg, 'error');
+      }
+
+      showToast(editingPatient ? 'Paciente atualizado com sucesso!' : 'Paciente cadastrado e autorizado com sucesso!');
+      closePatientModal();
     } catch (e) {
       console.error(e);
-      showToast('Erro ao cadastrar paciente.', 'error');
+      showToast('Erro ao salvar paciente.', 'error');
     }
   };
 
+
   // 2. Remover Paciente
-  const handleRemovePatient = async (phone) => {
+  const handleRemovePatient = async (u) => {
     try {
-      await deleteDoc(doc(db, 'subscribers', phone));
-      showToast('Paciente removido.');
+      const phoneCanonical = String(u?.phoneCanonical || u?.phone || '').trim();
+      const email = String(u?.email || '').trim().toLowerCase();
+
+      const res = await fetch('/api/admin/patient/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '',
+        },
+        body: JSON.stringify({
+          phoneCanonical,
+          email,
+          reason: 'admin_ui_remove',
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.ok) {
+        showToast(data?.error || 'Erro ao remover paciente.', 'error');
+        return;
+      }
+
+      showToast('Paciente desativado.');
     } catch (e) {
       console.error(e);
       showToast('Erro ao remover paciente.', 'error');
@@ -960,7 +1019,7 @@ if (!hasSynced) {
                   Exportar
                 </Button>
 
-                <Button onClick={() => setShowUserModal(true)} icon={UserPlus}>
+                <Button onClick={() => { setEditingPatient(null); setNewPatient({ name: '', email: '', phone: '' }); setShowUserModal(true); }} icon={UserPlus}>
                   Novo paciente
                 </Button>
               </div>
@@ -971,9 +1030,9 @@ if (!hasSynced) {
                   <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
                     <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                       <div className="font-black text-slate-800 flex items-center gap-2">
-                        <UserPlus size={18} className="text-violet-600" /> Cadastrar paciente
+                        <UserPlus size={18} className="text-violet-600" /> {editingPatient ? 'Editar paciente' : 'Cadastrar paciente'}
                       </div>
-                      <button onClick={() => setShowUserModal(false)} className="text-slate-400 hover:text-slate-700">
+                      <button onClick={closePatientModal} className="text-slate-400 hover:text-slate-700">
                         <X size={18} />
                       </button>
                     </div>
@@ -1010,7 +1069,7 @@ if (!hasSynced) {
                       </div>
 
                       <Button onClick={handleRegisterPatient} icon={UserPlus} className="w-full mt-4 py-3 shadow-lg">
-                        Cadastrar e Autorizar
+                        {editingPatient ? 'Salvar alterações' : 'Cadastrar e Autorizar'}
                       </Button>
                     </div>
                   </div>
@@ -1032,6 +1091,7 @@ if (!hasSynced) {
                   <tbody>
                     {subscribers
                       .filter((u) => {
+                        if (String(u?.status || '').toLowerCase() === 'inactive') return false;
                         if (!searchTerm?.trim()) return true;
                         const q = searchTerm.trim().toLowerCase();
                         const n = (u.name || '').toLowerCase();
@@ -1039,7 +1099,7 @@ if (!hasSynced) {
                         return n.includes(q) || p.includes(q);
                       })
                       .map((u) => (
-                        <tr key={u.phone} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                        <tr key={u.phone} onClick={() => openEditPatientModal(u)} className="border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer">
                           <td className="p-3 font-semibold text-slate-800">{u.name || '-'}</td>
                           <td className="p-3 text-slate-500">{u.email || '-'}</td>
                           <td className="p-3 text-slate-500">{u.phone || '-'}</td>
@@ -1048,7 +1108,7 @@ if (!hasSynced) {
                           </td>
                           <td className="p-3 text-right">
                             <button
-                              onClick={() => handleRemovePatient(u.phone)}
+                              onClick={(e) => { e.stopPropagation(); handleRemovePatient(u); }}
                               className="text-red-500 hover:text-red-700 inline-flex items-center gap-1 text-xs font-semibold"
                               title="Remover"
                             >
