@@ -1,56 +1,61 @@
-import { useState, useEffect } from 'react';
-import { db } from '../app/firebase'; // Ajuste o caminho se necessário
-import { collection, onSnapshot, query, orderBy, where, limit, doc } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import { db } from '../app/firebase';
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  doc,
+  onSnapshot as onDocSnapshot,
+} from 'firebase/firestore';
 
-export function useData() {
+export function useData(isAdmin) {
   const [subscribers, setSubscribers] = useState([]);
   const [historyLogs, setHistoryLogs] = useState([]);
-  const [dbAppointments, setDbAppointments] = useState([]);
-  const [globalConfig, setGlobalConfig] = useState({});
+  const [appointments, setAppointments] = useState([]);
+  const [globalConfig, setGlobalConfig] = useState(null);
 
   useEffect(() => {
-    if (!db) return;
-
-    try {
-      // 1. Ouvinte de Configuração Global
-      const unsubConfig = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
-        if (docSnap.exists()) {
-            setGlobalConfig(docSnap.data());
-        }
-      });
-
-      // 2. Ouvinte de Pacientes (Subscribers)
-      const qUsers = query(collection(db, "users"), orderBy("createdAt", "desc"));
-      const unsubUsers = onSnapshot(qUsers, (snapshot) => {
-        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setSubscribers(list);
-      }, (err) => console.error("Erro Users:", err));
-
-      // 3. Ouvinte de Histórico
-      const qHist = query(collection(db, "history"), orderBy("sentAt", "desc"), limit(50));
-      const unsubHist = onSnapshot(qHist, (snapshot) => {
-        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setHistoryLogs(list);
-      });
-
-      // 4. Ouvinte de Agendamentos Futuros
-      const todayIso = new Date().toISOString().split('T')[0];
-      const qApps = query(collection(db, "appointments"), where("isoDate", ">=", todayIso));
-      const unsubApps = onSnapshot(qApps, (snapshot) => {
-          const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setDbAppointments(list);
-      });
-
-      return () => { 
-        unsubConfig(); 
-        unsubUsers(); 
-        unsubHist(); 
-        unsubApps(); 
-      };
-    } catch (e) {
-      console.error("Erro nos listeners:", e);
+    if (!isAdmin) {
+      // evita manter listeners abertos quando não é admin
+      setSubscribers([]);
+      setHistoryLogs([]);
+      setAppointments([]);
+      setGlobalConfig(null);
+      return;
     }
-  }, []);
 
-  return { subscribers, historyLogs, dbAppointments, globalConfig };
+    // SUBSCRIBERS
+    const unsubSubscribers = onSnapshot(collection(db, 'subscribers'), (snap) => {
+      setSubscribers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+
+    // HISTORY (ordena por sentAt)
+    const historyQ = query(collection(db, 'history'), orderBy('sentAt', 'desc'));
+    const unsubHistory = onSnapshot(historyQ, (snap) => {
+      setHistoryLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+
+    // APPOINTMENTS
+    const appQ = query(collection(db, 'appointments'));
+    const unsubAppointments = onSnapshot(appQ, (snap) => {
+      setAppointments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+
+    // CONFIG (doc)
+    const configRef = doc(db, 'config', 'global');
+    const unsubConfig = onDocSnapshot(configRef, (docSnap) => {
+      if (docSnap.exists()) setGlobalConfig(docSnap.data());
+      else setGlobalConfig(null);
+    });
+
+    return () => {
+      unsubSubscribers?.();
+      unsubHistory?.();
+      unsubAppointments?.();
+      unsubConfig?.();
+    };
+  }, [isAdmin]);
+
+  return { subscribers, historyLogs, appointments, globalConfig };
 }

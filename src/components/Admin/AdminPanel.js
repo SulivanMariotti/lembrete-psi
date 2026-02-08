@@ -1,600 +1,966 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { db } from '../../app/firebase'; 
-import { collection, addDoc, deleteDoc, updateDoc, setDoc, doc } from 'firebase/firestore';
-// CORREÇÃO: Lista completa de ícones para evitar erros de "not defined"
-import { 
-  Send, Users, Upload, FileSpreadsheet, Mail, Trash2, Search, UserMinus, Eye, 
-  Settings, History, Save, LayoutDashboard, Download, Activity, PlusCircle, 
-  Filter, CalendarCheck, LogOut, RotateCcw, FileText, Bell, Loader2, CloudUpload, 
-  Smartphone, User, UserPlus, Info, X, CheckCircle 
+import { db } from '../../app/firebase';
+import {
+  collection,
+  addDoc,
+  deleteDoc,
+  updateDoc,
+  setDoc,
+  doc,
+} from 'firebase/firestore';
+import {
+  Send,
+  Users,
+  Upload,
+  FileSpreadsheet,
+  Mail,
+  Trash2,
+  Search,
+  UserMinus,
+  Eye,
+  Settings,
+  History,
+  Save,
+  LayoutDashboard,
+  Download,
+  Activity,
+  PlusCircle,
+  Filter,
+  CalendarCheck,
+  LogOut,
+  RotateCcw,
+  FileText,
+  Bell,
+  Loader2,
+  CloudUpload,
+  Smartphone,
+  User,
+  UserPlus,
+  Info,
+  X,
+  CheckCircle,
 } from 'lucide-react';
 import { Button, Card, Badge, StatCard } from '../DesignSystem';
 import { parseCSV } from '../../services/dataService';
 
-export default function AdminPanel({ onLogout, subscribers, historyLogs, dbAppointments, showToast, globalConfig }) {
+function onlyDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+// aceita: "2026-02-07" | "07/02/2026" | "07-02-2026"
+function normalizeToISODate(dateStr) {
+  const s = String(dateStr || '').trim();
+  if (!s) return '';
+
+  // YYYY-MM-DD (ou YYYY/MM/DD)
+  const isoLike = s.match(/^(\d{4})[/-](\d{2})[/-](\d{2})$/);
+  if (isoLike) return `${isoLike[1]}-${isoLike[2]}-${isoLike[3]}`;
+
+  // DD/MM/YYYY (ou DD-MM-YYYY)
+  const brLike = s.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
+  if (brLike) return `${brLike[3]}-${brLike[2]}-${brLike[1]}`;
+
+  return '';
+}
+
+function safeSlug(str, max = 18) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+    .slice(0, max);
+}
+
+// ID determinístico para não duplicar agenda a cada sync
+function makeAppointmentId({ phone, isoDate, time, profissional }) {
+  const p = onlyDigits(phone);
+  const d = String(isoDate || '').replace(/[^0-9-]/g, '');
+  const t = String(time || '').replace(':', '');
+  const prof = safeSlug(profissional, 12);
+  return `${p}_${d}_${t}_${prof || 'prof'}`.slice(0, 140);
+}
+
+export default function AdminPanel({
+  onLogout,
+  subscribers,
+  historyLogs,
+  dbAppointments,
+  showToast,
+  globalConfig,
+}) {
   const [adminTab, setAdminTab] = useState('dashboard');
   const [csvInput, setCsvInput] = useState('');
   const [appointments, setAppointments] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Estado para cadastro manual na agenda
-  const [manualEntry, setManualEntry] = useState({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
+  const [manualEntry, setManualEntry] = useState({
+    nome: '',
+    telefone: '',
+    data: '',
+    hora: '',
+    profissional: '',
+  });
   const [showManualForm, setShowManualForm] = useState(false);
-  
+
   // Estado para cadastro de Novo Paciente (Whitelist)
   const [newPatient, setNewPatient] = useState({ name: '', email: '', phone: '' });
-  const [showUserModal, setShowUserModal] = useState(false); // Modal de Novo Paciente
-  
+  const [showUserModal, setShowUserModal] = useState(false);
+
   const [filterProf, setFilterProf] = useState('Todos');
-  
+
   // Configuração Local
   const [localConfig, setLocalConfig] = useState({
-      msg48h: '', msg24h: '', msg12h: '', whatsapp: '', contractText: '', contractVersion: 1
+    msg48h: '',
+    msg24h: '',
+    msg12h: '',
+    whatsapp: '',
+    contractText: '',
+    contractVersion: 1,
   });
+
+  // Mapa rápido de subscribers por telefone
+  const subscribersByPhone = useMemo(() => {
+    const m = new Map();
+    (subscribers || []).forEach((s) => {
+      const p = onlyDigits(s?.phone);
+      if (p) m.set(p, s);
+    });
+    return m;
+  }, [subscribers]);
 
   // Carrega configuração global
   useEffect(() => {
-    if (globalConfig) setLocalConfig(prev => ({ ...prev, ...globalConfig }));
+    if (globalConfig) setLocalConfig((prev) => ({ ...prev, ...globalConfig }));
   }, [globalConfig]);
 
+  // Carrega agenda do Firestore (cache do app)
+  useEffect(() => {
+    if (Array.isArray(dbAppointments) && dbAppointments.length > 0) {
+      setAppointments(dbAppointments);
+    }
+  }, [dbAppointments]);
+
   // --- CÁLCULOS ---
-  const activeUsersCount = subscribers.filter(u => {
+  const activeUsersCount = subscribers.filter((u) => {
     if (!u.lastSeen?.seconds) return false;
-    const diffDays = (new Date() - new Date(u.lastSeen.seconds * 1000)) / (1000 * 60 * 60 * 24);
+    const diffDays =
+      (new Date() - new Date(u.lastSeen.seconds * 1000)) / (1000 * 60 * 60 * 24);
     return diffDays <= 30;
   }).length;
 
   const totalMessagesSent = historyLogs.reduce((acc, curr) => acc + (curr.count || 0), 0);
 
+  // Lista de profissionais (para filtro)
+  const professionalsList = useMemo(() => {
+    const set = new Set(['Todos']);
+    appointments.forEach((a) => {
+      if (a.profissional) set.add(a.profissional);
+    });
+    return Array.from(set);
+  }, [appointments]);
+
+  // CSV parseado e enriquecido
+  const processedAppointments = useMemo(() => {
+    const msgConfig = {
+      msg48h: localConfig.msg48h || '',
+      msg24h: localConfig.msg24h || '',
+      msg12h: localConfig.msg12h || '',
+    };
+    return parseCSV(csvInput, subscribers, msgConfig);
+  }, [csvInput, subscribers, localConfig.msg48h, localConfig.msg24h, localConfig.msg12h]);
+
+  // Filtragem por profissional + busca
+  const filteredAppointments = useMemo(() => {
+    let arr = processedAppointments;
+
+    if (filterProf !== 'Todos') {
+      arr = arr.filter((a) => (a.profissional || '').toLowerCase() === filterProf.toLowerCase());
+    }
+
+    if (searchTerm?.trim()) {
+      const q = searchTerm.trim().toLowerCase();
+      arr = arr.filter((a) => {
+        const nome = (a.nome || '').toLowerCase();
+        const tel = (a.cleanPhone || a.phone || '').toLowerCase();
+        return nome.includes(q) || tel.includes(q);
+      });
+    }
+
+    return arr;
+  }, [processedAppointments, filterProf, searchTerm]);
+
   // --- FUNÇÕES DE AÇÃO ---
 
-  // 1. Cadastrar Paciente (Whitelist)
+  // 1. Cadastrar Paciente
   const handleRegisterPatient = async () => {
-    if (!newPatient.email || !newPatient.name || !newPatient.phone) return showToast("Preencha todos os campos.", "error");
+    if (!newPatient.email || !newPatient.name || !newPatient.phone) {
+      return showToast('Preencha todos os campos.', 'error');
+    }
 
     try {
-        await setDoc(doc(db, "whitelisted_patients", newPatient.email.trim().toLowerCase()), {
-            email: newPatient.email.trim().toLowerCase(),
-            fullName: newPatient.name,
-            phone: newPatient.phone.replace(/\D/g, ''), 
-            createdAt: new Date(),
-            createdBy: 'admin'
-        });
-        showToast("Paciente cadastrado e autorizado!");
-        setNewPatient({ name: '', email: '', phone: '' });
-        setShowUserModal(false);
+      const cleanPhone = onlyDigits(newPatient.phone);
+      const userRef = doc(db, 'subscribers', cleanPhone);
+
+      await setDoc(
+        userRef,
+        {
+          name: newPatient.name.trim(),
+          email: newPatient.email.trim().toLowerCase(),
+          phone: cleanPhone,
+          role: 'patient',
+          createdAt: new Date(),
+          lastSeen: null,
+          pushToken: null,
+        },
+        { merge: true }
+      );
+
+      showToast('Paciente cadastrado e autorizado com sucesso!');
+      setNewPatient({ name: '', email: '', phone: '' });
+      setShowUserModal(false);
     } catch (e) {
-        showToast("Erro ao cadastrar: " + e.message, "error");
+      console.error(e);
+      showToast('Erro ao cadastrar paciente.', 'error');
     }
   };
 
-  // 2. Processar CSV
-  const processCsv = (inputText = csvInput) => {
-     const processed = parseCSV(inputText, subscribers, localConfig);
-     setAppointments(processed);
+  // 2. Remover Paciente
+  const handleRemovePatient = async (phone) => {
+    try {
+      await deleteDoc(doc(db, 'subscribers', phone));
+      showToast('Paciente removido.');
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao remover paciente.', 'error');
+    }
   };
 
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setCsvInput(e.target.result);
-      processCsv(e.target.result);
-    };
-    reader.readAsText(file);
+  // 3. Export CSV da base
+  const handleExportCSV = () => {
+    try {
+      const header = 'Nome,Email,Telefone,Último Acesso\n';
+      const rows = subscribers
+        .map((u) => {
+          const last = u.lastSeen?.seconds ? new Date(u.lastSeen.seconds * 1000).toLocaleString() : '';
+          return `"${u.name || ''}","${u.email || ''}","${u.phone || ''}","${last}"`;
+        })
+        .join('\n');
+
+      const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `pacientes_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao exportar CSV.', 'error');
+    }
   };
 
-  const handleAddManual = () => {
-    const { nome, telefone, data, hora, profissional } = manualEntry;
-    if (!nome || !telefone || !data || !hora) return showToast("Campos obrigatórios vazios.", "error");
-    
-    const newLine = `${nome},${telefone},${data},${hora},${profissional || ''}`;
-    const newInput = csvInput ? (csvInput + '\n' + newLine) : newLine;
-    setCsvInput(newInput);
-    processCsv(newInput);
-    setManualEntry({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
-    setShowManualForm(false);
-    showToast("Agendamento adicionado!");
+  // 4. Carregar arquivo CSV
+  const handleFileUpload = async (event) => {
+    try {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const text = await file.text();
+      setCsvInput(text);
+      showToast('Planilha carregada.');
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao carregar planilha.', 'error');
+    }
   };
 
+  // 5. Limpar dados
   const handleClearData = () => {
     setCsvInput('');
     setAppointments([]);
-    setFilterProf('Todos');
+    showToast('Dados limpos.');
   };
 
-  // 3. Enviar Lembretes
+  // 6. Processar CSV
+  const processCsv = () => {
+    const parsed = parseCSV(csvInput, subscribers, {
+      msg48h: localConfig.msg48h || '',
+      msg24h: localConfig.msg24h || '',
+      msg12h: localConfig.msg12h || '',
+    });
+
+    setAppointments(parsed);
+    showToast(`Planilha verificada: ${parsed.length} registros.`);
+  };
+
+  // 7. Sincronizar agenda no Firestore (✅ normaliza phone + isoDate e evita duplicar)
+  const handleSyncSchedule = async () => {
+    if (!appointments.length) return showToast('Nenhuma agenda para sincronizar.', 'error');
+
+    setIsSaving(true);
+    try {
+      const tasks = appointments.map(async (a) => {
+        const phone = onlyDigits(a.cleanPhone || a.phone || '');
+        const date = a.data || a.date || '';
+        const time = a.hora || a.time || '';
+        const profissional = a.profissional || '';
+        const isoDate = a.isoDate || normalizeToISODate(date);
+
+        // tenta anexar email (quando existir no subscriber)
+        const sub = subscribersByPhone.get(phone);
+        const email = (a.email || sub?.email || '').toLowerCase();
+
+        if (!phone || !isoDate) {
+          // não bloqueia tudo; apenas pula registros ruins
+          return null;
+        }
+
+        const id = makeAppointmentId({ phone, isoDate, time, profissional });
+        const ref = doc(db, 'appointments', id);
+
+        await setDoc(
+          ref,
+          {
+            nome: a.nome || '',
+            email: email || '',
+            phone,
+            date: date || '',
+            isoDate,
+            time: time || '',
+            profissional: profissional || '',
+            createdAt: new Date(),
+            source: 'admin_sync',
+          },
+          { merge: true }
+        );
+
+        return id;
+      });
+
+      const results = await Promise.all(tasks);
+      const okCount = results.filter(Boolean).length;
+
+      showToast(`Agenda sincronizada! (${okCount} registros)`);
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao sincronizar agenda.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 8. Adicionar manual (apenas no estado local)
+  const handleAddManual = () => {
+    if (!manualEntry.nome || !manualEntry.telefone || !manualEntry.data || !manualEntry.hora) {
+      return showToast('Preencha Nome, Telefone, Data e Hora.', 'error');
+    }
+
+    const cleanPhone = onlyDigits(manualEntry.telefone);
+    const nomeProfissional = manualEntry.profissional?.trim() || 'Psicólogo(a)';
+
+    const newLine = `${manualEntry.nome},${cleanPhone},${manualEntry.data},${manualEntry.hora},${nomeProfissional}`;
+
+    setCsvInput((prev) => (prev ? `${prev}\n${newLine}` : newLine));
+    setManualEntry({ nome: '', telefone: '', data: '', hora: '', profissional: '' });
+    setShowManualForm(false);
+    showToast('Registro manual adicionado. Clique em Verificar.');
+  };
+
+  // 9. Enviar lembretes (push)
   const handleSendReminders = async () => {
-    const targets = filteredAppointments.filter(a => a.isSubscribed && a.pushToken && a.reminderType);
-    if (targets.length === 0) return showToast("Nenhum lembrete pendente.", "error");
-    if (!confirm(`Confirmar envio de ${targets.length} lembretes?`)) return;
+    const toSend = filteredAppointments.filter((a) => a.isSubscribed && a.reminderType);
+    if (!toSend.length) return showToast('Nenhum disparo disponível para a seleção.', 'info');
 
     setIsSending(true);
-    let successCount = 0;
     try {
-        const promises = targets.map(async (target) => {
-            const response = await fetch('/api/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tokens: [target.pushToken], 
-                    title: 'Lembrete Psi 🧠',
-                    body: target.messageBody,
-                    link: 'https://agenda.msgflow.app.br'
-                })
-            });
-            const data = await response.json();
-            if (data.success) {
-                // Atualiza nome se necessário
-                const subscriber = subscribers.find(s => s.phone === target.cleanPhone);
-                if (subscriber && (!subscriber.name || subscriber.name !== target.nome)) {
-                     updateDoc(doc(db, "users", subscriber.id), { name: target.nome }).catch(console.error);
-                }
-                return 1;
-            }
-            return 0;
-        });
+      const response = await fetch('/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: toSend }),
+      });
 
-        const results = await Promise.all(promises);
-        successCount = results.reduce((a, b) => a + b, 0);
-        
-        if (successCount > 0) {
-            await addDoc(collection(db, "history"), {
-                sentAt: new Date(), count: successCount, types: [...new Set(targets.map(t => t.reminderType))], summary: `${successCount} mensagens enviadas.`
-            });
-        }
-        showToast(`Sucesso! ${successCount} mensagens.`);
-    } catch (error) {
-      showToast("Erro no envio: " + error.message, "error");
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Falha no disparo.');
+      }
+
+      showToast(`Lembretes enviados: ${data?.sent || toSend.length}`);
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao enviar lembretes.', 'error');
     } finally {
       setIsSending(false);
     }
   };
 
-  // 4. Sincronizar Agenda
-  const handleSyncSchedule = async () => {
-    if (appointments.length === 0) return showToast("Lista vazia.", "error");
-    if(!confirm("Deseja sincronizar esta agenda com o banco de dados?")) return;
-    
+  // 10. Salvar configurações globais
+  const saveConfig = async (publishNewVersion = false) => {
     setIsSaving(true);
     try {
-        const promises = appointments.map(async (app) => {
-            if (!app.isoDate || !app.hora) return;
-            const docId = `${app.cleanPhone}_${app.isoDate}_${app.hora.replace(':','')}`;
-            await setDoc(doc(db, "appointments", docId), {
-                phone: app.cleanPhone, 
-                patientName: app.nome, 
-                date: app.data, 
-                isoDate: app.isoDate, 
-                time: app.hora, 
-                professional: app.profissional, 
-                createdAt: new Date()
-            });
-        });
-        await Promise.all(promises);
-        showToast("Agenda sincronizada com sucesso!");
-    } catch (error) { 
-        showToast("Erro ao salvar: " + error.message, "error"); 
-    } finally { 
-        setIsSaving(false); 
+      const ref = doc(db, 'config', 'global');
+      const payload = {
+        msg48h: localConfig.msg48h || '',
+        msg24h: localConfig.msg24h || '',
+        msg12h: localConfig.msg12h || '',
+        whatsapp: localConfig.whatsapp || '',
+        contractText: localConfig.contractText || '',
+        contractVersion: publishNewVersion
+          ? Number(localConfig.contractVersion || 1) + 1
+          : Number(localConfig.contractVersion || 1),
+        updatedAt: new Date(),
+      };
+
+      await setDoc(ref, payload, { merge: true });
+
+      setLocalConfig((prev) => ({
+        ...prev,
+        contractVersion: payload.contractVersion,
+      }));
+
+      showToast(publishNewVersion ? 'Nova versão publicada!' : 'Configurações salvas!');
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao salvar configurações.', 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
-
-  // 5. Salvar Configurações
-  const saveConfig = async (incrementVersion = false) => {
-    const newConfig = { ...localConfig };
-    if (incrementVersion) {
-        newConfig.contractVersion = (Number(newConfig.contractVersion) || 1) + 1;
-    }
-    
-    try {
-        await setDoc(doc(db, "settings", "global"), newConfig);
-        showToast(incrementVersion ? "Termos atualizados!" : "Configurações salvas!");
-    } catch (error) { 
-        showToast("Erro ao salvar: " + error.message, "error"); 
-    }
-  };
-
-  // Exportar CSV
-  const handleExportCSV = () => {
-    const headers = "Nome,Telefone,Data Cadastro,Ultimo Acesso\n";
-    const rows = subscribers.map(u => {
-        const joined = u.createdAt?.seconds ? new Date(u.createdAt.seconds * 1000).toLocaleDateString() : '';
-        const seen = u.lastSeen?.seconds ? new Date(u.lastSeen.seconds * 1000).toLocaleDateString() : '';
-        return `${u.name || ''},${u.phone},${joined},${seen}`;
-    }).join("\n");
-    
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pacientes.csv`;
-    a.click();
-  };
-
-  // Ações de Usuário
-  const handleDeleteUser = async (uid, phone) => { 
-      if(confirm(`Tem certeza que deseja apagar o paciente ${phone}?`)) {
-        try {
-            await deleteDoc(doc(db, "users", uid));
-            showToast("Paciente removido.");
-        } catch (e) { showToast("Erro ao remover.", "error"); }
-      }
-  };
-
-  const handleResetPin = async (uid) => {
-    if(confirm("Resetar PIN deste paciente?")) {
-        await updateDoc(doc(db, "users", uid), { pin: null });
-        showToast("PIN resetado.");
-    }
-  };
-  
-  // Filtros
-  const professionalsList = useMemo(() => ['Todos', ...new Set(appointments.map(a => a.profissional))], [appointments]);
-  const filteredAppointments = useMemo(() => filterProf === 'Todos' ? appointments : appointments.filter(a => a.profissional === filterProf), [appointments, filterProf]);
-
-  // Navegação
-  const tabs = [
-    { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
-    { id: 'uploads', label: 'Disparos', icon: Send },
-    { id: 'users', label: 'Pacientes', icon: Users },
-    { id: 'history', label: 'Histórico', icon: History },
-    { id: 'config', label: 'Configuração', icon: Settings },
-  ];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-10">
-        
-        {/* HEADER & MENU */}
-        <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 tracking-tight">
-            <LayoutDashboard className="text-violet-600"/> 
-            <span>Painel Permittá</span>
-          </h1>
-          
-          <div className="flex gap-1 bg-slate-100 p-1.5 rounded-xl overflow-x-auto shadow-inner no-scrollbar">
-            {tabs.map(tab => {
-                const Icon = tab.icon;
-                const isActive = adminTab === tab.id;
-                return (
-                    <button 
-                        key={tab.id} 
-                        onClick={() => setAdminTab(tab.id)} 
-                        className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-200 flex items-center gap-2 ${
-                            isActive 
-                            ? 'bg-white text-violet-700 shadow-sm' 
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-                        }`}
-                    >
-                        <Icon size={16} strokeWidth={isActive ? 2.5 : 2} />
-                        {tab.label}
-                    </button>
-                );
-            })}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Sidebar */}
+      <div className="lg:col-span-3">
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 sticky top-4">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider">Painel</div>
+              <div className="text-lg font-black text-slate-900">Admin</div>
+            </div>
+            <button
+              onClick={onLogout}
+              className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1"
+            >
+              <LogOut size={14} /> Sair
+            </button>
           </div>
-          <button onClick={onLogout} className="text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors p-2.5 rounded-full" title="Sair"><LogOut size={20}/></button>
+
+          <div className="space-y-2">
+            <button
+              onClick={() => setAdminTab('dashboard')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                adminTab === 'dashboard'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-200'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <LayoutDashboard size={18} /> Dashboard
+            </button>
+
+            <button
+              onClick={() => setAdminTab('schedule')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                adminTab === 'schedule'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-200'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <CalendarCheck size={18} /> Agenda
+            </button>
+
+            <button
+              onClick={() => setAdminTab('users')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                adminTab === 'users'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-200'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Users size={18} /> Pacientes
+            </button>
+
+            <button
+              onClick={() => setAdminTab('history')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                adminTab === 'history'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-200'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <History size={18} /> Histórico
+            </button>
+
+            <button
+              onClick={() => setAdminTab('config')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                adminTab === 'config'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-200'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Settings size={18} /> Configurações
+            </button>
+          </div>
         </div>
+      </div>
 
-        {/* 1. DASHBOARD */}
+      {/* Conteúdo */}
+      <div className="lg:col-span-9 space-y-6">
+        {/* DASHBOARD */}
         {adminTab === 'dashboard' && (
-             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="grid md:grid-cols-4 gap-6">
-                    <StatCard title="Total Pacientes" value={subscribers.length} icon={Users} colorClass="bg-blue-100 text-blue-600" />
-                    <StatCard title="Pacientes Ativos (30d)" value={activeUsersCount} icon={Activity} colorClass="bg-emerald-100 text-emerald-600" />
-                    <StatCard title="Total Envios" value={totalMessagesSent} icon={Send} colorClass="bg-purple-100 text-purple-600" />
-                    <StatCard title="Agendamentos Futuros" value={dbAppointments.length} icon={CalendarCheck} colorClass="bg-orange-100 text-orange-600" />
-                </div>
-                <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-8 text-white shadow-xl shadow-violet-200 flex flex-col md:flex-row justify-between items-center gap-6">
-                    <div>
-                        <h2 className="text-2xl font-bold mb-1">Gestão Diária</h2>
-                        <p className="text-violet-100 opacity-90">Carregue a planilha e dispare os lembretes para os pacientes.</p>
-                    </div>
-                    <Button onClick={() => setAdminTab('uploads')} variant="white" className="px-8 py-3 shadow-lg">Começar Disparos</Button>
-                </div>
-                <Card title="Próximas Sessões Sincronizadas">
-                     {dbAppointments.length === 0 ? (
-                        <p className="text-center text-slate-400 py-12 flex flex-col items-center gap-2">
-                             <CalendarCheck size={32} className="opacity-20"/>
-                             Nenhuma sessão sincronizada no banco de dados.
-                        </p>
-                     ) : (
-                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                             {dbAppointments.sort((a,b) => a.isoDate.localeCompare(b.isoDate)).slice(0, 10).map(app => (
-                                 <div key={app.id} className="flex justify-between items-center p-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                                     <div className="flex flex-col">
-                                         <span className="font-bold text-slate-700 text-sm">{app.patientName}</span>
-                                         <span className="text-xs text-slate-400">{app.date} às {app.time}</span>
-                                     </div>
-                                     <Badge status={'pending'} text={'Agendado'} />
-                                 </div>
-                             ))}
-                         </div>
-                     )}
-                </Card>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <StatCard title="Pacientes Ativos (30 dias)" value={activeUsersCount} icon={Activity} />
+              <StatCard title="Pacientes Cadastrados" value={subscribers.length} icon={Users} />
+              <StatCard title="Mensagens Enviadas" value={totalMessagesSent} icon={Mail} />
             </div>
+
+            <Card title="Resumo" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="text-sm text-slate-600 space-y-2">
+                <p className="flex items-center gap-2">
+                  <CheckCircle size={16} className="text-violet-500" />
+                  Carregue a planilha, clique em <b>Verificar</b> e dispare os lembretes.
+                </p>
+                <p className="flex items-center gap-2">
+                  <CheckCircle size={16} className="text-violet-500" />
+                  Cadastre pacientes na aba <b>Pacientes</b> para autorizá-los no app.
+                </p>
+                <p className="flex items-center gap-2">
+                  <CheckCircle size={16} className="text-violet-500" />
+                  Ajuste modelos de mensagem e contrato em <b>Configurações</b>.
+                </p>
+              </div>
+            </Card>
+          </>
         )}
 
-        {/* 2. DISPAROS (UPLOADS) */}
-        {adminTab === 'uploads' && (
-            <div className="grid md:grid-cols-2 gap-6 h-[650px] animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <Card title="1. Carregar Agenda">
-                    <div className="flex flex-col h-full gap-4">
-                        {showManualForm ? (
-                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm shadow-inner">
-                                 <h4 className="font-bold text-slate-700 mb-3 text-xs uppercase tracking-wider">Novo Agendamento</h4>
-                                 <div className="space-y-3">
-                                     <input placeholder="Nome" className="w-full p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200" value={manualEntry.nome} onChange={e=>setManualEntry({...manualEntry, nome: e.target.value})} />
-                                     <input placeholder="Tel (com DDD)" className="w-full p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200" value={manualEntry.telefone} onChange={e=>setManualEntry({...manualEntry, telefone: e.target.value})} />
-                                     <div className="flex gap-2">
-                                         <input type="date" className="w-1/2 p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200" value={manualEntry.data} onChange={e=>setManualEntry({...manualEntry, data: e.target.value})} />
-                                         <input type="time" className="w-1/2 p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200" value={manualEntry.hora} onChange={e=>setManualEntry({...manualEntry, hora: e.target.value})} />
-                                     </div>
-                                     <input placeholder="Profissional (opcional)" className="w-full p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200" value={manualEntry.profissional} onChange={e=>setManualEntry({...manualEntry, profissional: e.target.value})} />
-                                 </div>
-                                 <div className="flex gap-2 mt-4">
-                                     <Button onClick={handleAddManual} variant="success" className="flex-1 text-xs">Adicionar</Button>
-                                     <Button onClick={()=>setShowManualForm(false)} variant="secondary" className="flex-1 text-xs">Cancelar</Button>
-                                 </div>
-                             </div>
-                        ) : (
-                             <div className="flex gap-3">
-                                <Button onClick={()=>setShowManualForm(true)} variant="secondary" icon={PlusCircle} className="flex-1">Manual</Button>
-                                <Button onClick={handleSyncSchedule} variant="primary" icon={CloudUpload} className="flex-1" disabled={isSaving || appointments.length === 0}>Sincronizar</Button>
-                             </div>
-                        )}
-                        <textarea 
-                            value={csvInput} 
-                            onChange={(e) => setCsvInput(e.target.value)} 
-                            placeholder="Cole aqui a planilha CSV:&#10;Nome, Telefone, Data, Hora, Profissional" 
-                            className="w-full h-full p-4 border border-slate-100 bg-slate-50 rounded-xl text-slate-800 resize-none text-xs font-mono focus:bg-white focus:border-violet-200 focus:ring-2 focus:ring-violet-100 outline-none transition-all" 
+        {/* AGENDA */}
+        {adminTab === 'schedule' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card title="1. Importar Agenda" className="h-[600px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex flex-col h-full gap-4">
+                {showManualForm ? (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                        <PlusCircle size={16} className="text-violet-500" />
+                        Adicionar manual
+                      </div>
+                      <button onClick={() => setShowManualForm(false)} className="text-slate-400 hover:text-slate-700">
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      <input
+                        placeholder="Nome"
+                        className="w-full p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200"
+                        value={manualEntry.nome}
+                        onChange={(e) => setManualEntry({ ...manualEntry, nome: e.target.value })}
+                      />
+                      <input
+                        placeholder="Telefone (DDD + Número)"
+                        className="w-full p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200"
+                        value={manualEntry.telefone}
+                        onChange={(e) => setManualEntry({ ...manualEntry, telefone: e.target.value })}
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          className="w-1/2 p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200"
+                          value={manualEntry.data}
+                          onChange={(e) => setManualEntry({ ...manualEntry, data: e.target.value })}
                         />
-                        <div className="flex gap-3">
-                            <label className="flex-1 cursor-pointer">
-                                <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:text-slate-800 shadow-sm transition-all text-sm h-full">
-                                    <Upload size={18}/> Carregar Planilha
-                                </div>
-                                <input type="file" onChange={handleFileUpload} className="hidden" />
-                            </label>
-                            <Button onClick={handleClearData} variant="danger" icon={Trash2} />
-                            <Button onClick={() => processCsv()} className="flex-1" icon={Send}>Verificar</Button>
-                        </div>
-                    </div>
-                </Card>
-
-                <Card title="2. Envios Pendentes">
-                    {/* ✅ BOTÃO MOVIDO PARA LOGO ABAIXO DO TÍTULO */}
-                    <div className="mb-4">
-                         {filteredAppointments.filter(a => a.isSubscribed && a.reminderType).length > 0 ? (
-                            <Button
-                            onClick={handleSendReminders}
-                            variant="success"
-                            disabled={isSending}
-                            className="w-full shadow-none ring-0 focus:ring-0 focus:ring-offset-0"
-                            icon={isSending ? Loader2 : Bell}
-                            >
-                            {isSending ? "Enviando..." : "Disparar Lembretes"}
-                            </Button>
-                                ) : (
-                                    <p className="text-center text-xs text-slate-400">Nenhum disparo disponível para a seleção.</p>
-                                )}
-                                </div>
-
-                    <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b border-slate-50">
-                        <Filter size={14} className="text-slate-400 mt-1.5 ml-2"/> 
-                        {professionalsList.map(prof => (
-                            <button key={prof} onClick={()=>setFilterProf(prof)} className={`text-xs px-3 py-1.5 rounded-full transition-all ${filterProf===prof ? 'bg-violet-600 text-white shadow-md shadow-violet-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                {prof}
-                            </button>
-                        ))}
+                        <input
+                          type="time"
+                          className="w-1/2 p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200"
+                          value={manualEntry.hora}
+                          onChange={(e) => setManualEntry({ ...manualEntry, hora: e.target.value })}
+                        />
+                      </div>
+                      <input
+                        placeholder="Profissional (opcional)"
+                        className="w-full p-2.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200"
+                        value={manualEntry.profissional}
+                        onChange={(e) => setManualEntry({ ...manualEntry, profissional: e.target.value })}
+                      />
                     </div>
 
-                    {filteredAppointments.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
-                            <div className="bg-slate-50 p-4 rounded-full mb-3"><FileSpreadsheet size={32}/></div>
-                            <p className="text-sm">Nenhum dado importado.</p>
-                        </div>
-                    ) : (
-                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-slate-200">
-                            {filteredAppointments.map(app => (
-                                <div key={app.id} className={`p-4 border rounded-xl flex justify-between items-center transition-all hover:shadow-sm ${app.reminderType ? 'bg-violet-50 border-violet-100' : 'bg-white border-slate-100 opacity-70'}`}>
-                                    <div>
-                                        <span className="font-bold text-slate-700 block text-sm mb-0.5">{app.nome}</span>
-                                        <span className="text-xs text-slate-400 flex items-center gap-1"><CalendarCheck size={10}/> {app.data} - {app.hora}</span>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-1.5">
-                                        <Badge status={app.isSubscribed ? 'match' : 'missing'} text={app.isSubscribed ? 'App' : 'Sem App'} /> 
-                                        {app.reminderType && <span className="text-xs text-violet-600 font-bold flex gap-1 bg-white px-2 py-0.5 rounded-full border border-violet-100 shadow-sm"><Mail size={10} className="mt-0.5"/> {app.reminderType}</span>}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                    <div className="flex gap-2 mt-4">
+                      <Button onClick={handleAddManual} variant="success" className="flex-1 text-xs">
+                        Adicionar
+                      </Button>
+                      <Button onClick={() => setShowManualForm(false)} variant="secondary" className="flex-1 text-xs">
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => setShowManualForm(true)}
+                      variant="secondary"
+                      icon={PlusCircle}
+                      className="flex-1"
+                    >
+                      Manual
+                    </Button>
+                    <Button
+                      onClick={handleSyncSchedule}
+                      variant="primary"
+                      icon={CloudUpload}
+                      className="flex-1"
+                      disabled={isSaving || appointments.length === 0}
+                    >
+                      {isSaving ? 'Sincronizando...' : 'Sincronizar'}
+                    </Button>
+                  </div>
+                )}
 
-                    {/* ❌ REMOVIDO O RODAPÉ ANTIGO DO BOTÃO (agora fica no topo) */}
-                </Card>
-            </div>
+                <textarea
+                  value={csvInput}
+                  onChange={(e) => setCsvInput(e.target.value)}
+                  placeholder={'Cole aqui a planilha CSV:\nNome, Telefone, Data, Hora, Profissional'}
+                  className="w-full h-full p-4 border border-slate-100 bg-slate-50 rounded-xl text-slate-800 resize-none text-xs font-mono focus:bg-white focus:border-violet-200 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
+                />
+
+                <div className="flex gap-3">
+                  <label className="flex-1 cursor-pointer">
+                    <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:text-slate-800 shadow-sm transition-all text-sm h-full">
+                      <Upload size={18} /> Carregar Planilha
+                    </div>
+                    <input type="file" onChange={handleFileUpload} className="hidden" />
+                  </label>
+                  <Button onClick={handleClearData} variant="danger" icon={Trash2} />
+                  <Button onClick={() => processCsv()} className="flex-1" icon={Send}>
+                    Verificar
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="2. Envios Pendentes" className="h-[600px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="mb-4">
+                {filteredAppointments.filter((a) => a.isSubscribed && a.reminderType).length > 0 ? (
+                  <Button
+                    onClick={handleSendReminders}
+                    variant="success"
+                    disabled={isSending}
+                    className="w-full shadow-none ring-0 focus:ring-0 focus:ring-offset-0"
+                    icon={isSending ? Loader2 : Bell}
+                  >
+                    {isSending ? 'Enviando...' : 'Disparar Lembretes'}
+                  </Button>
+                ) : (
+                  <p className="text-center text-xs text-slate-400">
+                    Nenhum disparo disponível para a seleção.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b border-slate-50">
+                <Filter size={14} className="text-slate-400 mt-1.5 ml-2" />
+                {professionalsList.map((prof) => (
+                  <button
+                    key={prof}
+                    onClick={() => setFilterProf(prof)}
+                    className={`text-xs px-3 py-1.5 rounded-full transition-all ${
+                      filterProf === prof
+                        ? 'bg-violet-600 text-white shadow-md shadow-violet-200'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {prof}
+                  </button>
+                ))}
+              </div>
+
+              {filteredAppointments.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
+                  <div className="bg-slate-50 p-4 rounded-full mb-3">
+                    <FileSpreadsheet size={32} />
+                  </div>
+                  <p className="text-sm">Nenhum dado importado.</p>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-slate-200">
+                  {filteredAppointments.map((app) => (
+                    <div
+                      key={app.id}
+                      className={`p-4 border rounded-xl flex justify-between items-center transition-all hover:shadow-sm ${
+                        app.reminderType ? 'bg-violet-50 border-violet-100' : 'bg-white border-slate-100 opacity-70'
+                      }`}
+                    >
+                      <div>
+                        <span className="font-bold text-slate-700 block text-sm mb-0.5">{app.nome}</span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                          <CalendarCheck size={10} /> {app.data} - {app.hora}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <Badge status={app.isSubscribed ? 'match' : 'missing'} text={app.isSubscribed ? 'App' : 'Sem App'} />
+                        {app.reminderType && (
+                          <span className="text-xs text-violet-600 font-bold flex gap-1 bg-white px-2 py-0.5 rounded-full border border-violet-100 shadow-sm">
+                            <Mail size={10} className="mt-0.5" /> {app.reminderType}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
         )}
 
-        {/* 3. USUÁRIOS */}
+        {/* USUÁRIOS */}
         {adminTab === 'users' && (
-            <Card title="Base de Pacientes Cadastrados" className="h-[650px] animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex flex-col h-full">
-                    {/* Botões de Topo */}
-                    <div className="flex gap-3 mb-6">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
-                            <input 
-                                type="text" 
-                                placeholder="Pesquisar por nome ou telefone..." 
-                                className="w-full pl-10 p-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100 transition-all text-slate-700" 
-                                value={searchTerm} 
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                        {/* BOTÃO NOVO PACIENTE (Reintegrado na aba Pacientes) */}
-                        <Button onClick={() => setShowUserModal(true)} variant="success" icon={UserPlus}>Novo</Button>
-                        <Button onClick={handleExportCSV} variant="secondary" icon={Download}>CSV</Button>
-                    </div>
-
-                    {/* Modal de Novo Paciente (Whitelist) */}
-                    {showUserModal && (
-                        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                            <div className="bg-white rounded-xl w-full max-w-md shadow-2xl overflow-hidden">
-                                <div className="bg-violet-600 p-4 text-white flex justify-between items-center">
-                                    <h3 className="font-bold flex items-center gap-2"><UserPlus size={20}/> Novo Paciente</h3>
-                                    <button onClick={() => setShowUserModal(false)}><X size={20} className="hover:text-violet-200"/></button>
-                                </div>
-                                <div className="p-6 space-y-4">
-                                    <div className="bg-violet-50 p-4 rounded-lg text-sm text-violet-800 border border-violet-100 flex items-start gap-2">
-                                        <Info size={16} className="mt-0.5 flex-shrink-0"/>
-                                        <span>Este cadastro autoriza o paciente a entrar no App usando o e-mail abaixo.</span>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Nome Completo</label>
-                                        <input 
-                                            className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700" 
-                                            value={newPatient.name} 
-                                            onChange={e => setNewPatient({...newPatient, name: e.target.value})} 
-                                            placeholder="Ex: João Silva" 
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">E-mail (Login)</label>
-                                        <input 
-                                            className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700" 
-                                            value={newPatient.email} 
-                                            onChange={e => setNewPatient({...newPatient, email: e.target.value})} 
-                                            placeholder="paciente@email.com" 
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Celular (WhatsApp)</label>
-                                        <input 
-                                            className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700" 
-                                            value={newPatient.phone} 
-                                            onChange={e => setNewPatient({...newPatient, phone: e.target.value})} 
-                                            placeholder="11999998888" 
-                                        />
-                                    </div>
-                                    <Button onClick={handleRegisterPatient} icon={UserPlus} className="w-full mt-4 py-3 shadow-lg">Cadastrar e Autorizar</Button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="flex-1 overflow-y-auto border border-slate-100 rounded-xl">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-slate-500 font-medium sticky top-0 z-10">
-                                <tr>
-                                    <th className="px-4 py-3 border-b border-slate-100">Paciente</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">E-mail</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">Telefone</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">Contrato</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">Último Acesso</th>
-                                    <th className="px-4 py-3 border-b border-slate-100 text-right">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                                {subscribers.filter(u => (u.phone || '').includes(searchTerm) || (u.name || '').toLowerCase().includes(searchTerm.toLowerCase())).map(user => (
-                                    <tr key={user.id} className="hover:bg-violet-50/50 transition-colors">
-                                        <td className="px-4 py-3 font-medium text-slate-800">{user.name || <span className="text-slate-400 italic">Sem nome</span>}</td>
-                                        <td className="px-4 py-3 text-slate-500">{user.email || '-'}</td>
-                                        <td className="px-4 py-3 font-mono text-slate-500">{user.phone}</td>
-                                        <td className="px-4 py-3">
-                                            {Number(user.acceptedTermsVersion) === Number(localConfig.contractVersion) 
-                                                ? <Badge status="confirmed" text={`v${user.acceptedTermsVersion}`} />
-                                                : <Badge status="missing" text="Pendente" />
-                                            }
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-500">{user.lastSeen?.seconds ? new Date(user.lastSeen.seconds * 1000).toLocaleDateString() : '-'}</td>
-                                        <td className="px-4 py-3 text-right flex justify-end gap-2">
-                                            <button onClick={() => handleResetPin(user.id)} className="text-orange-400 hover:text-orange-600 hover:bg-orange-50 p-2 rounded-lg transition-colors" title="Resetar PIN"><RotateCcw size={16}/></button>
-                                            <button onClick={() => handleDeleteUser(user.id, user.phone)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Remover"><UserMinus size={16}/></button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+          <Card title="Base de Pacientes Cadastrados" className="h-[650px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col h-full">
+              <div className="flex gap-3 mb-6">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por nome ou telefone."
+                    className="w-full pl-10 p-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100 transition-all text-slate-700"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </div>
-            </Card>
+                <Button onClick={() => setShowUserModal(true)} variant="success" icon={UserPlus}>
+                  Novo
+                </Button>
+                <Button onClick={handleExportCSV} variant="secondary" icon={Download}>
+                  CSV
+                </Button>
+              </div>
+
+              {showUserModal && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                  <div className="bg-white rounded-xl w-full max-w-md shadow-2xl overflow-hidden">
+                    <div className="bg-violet-600 p-4 text-white flex justify-between items-center">
+                      <h3 className="font-bold flex items-center gap-2">
+                        <UserPlus size={20} /> Novo Paciente
+                      </h3>
+                      <button onClick={() => setShowUserModal(false)}>
+                        <X size={20} className="hover:text-violet-200" />
+                      </button>
+                    </div>
+                    <div className="p-6 space-y-4">
+                      <div className="bg-violet-50 p-4 rounded-lg text-sm text-violet-800 border border-violet-100 flex items-start gap-2">
+                        <Info size={16} className="mt-0.5 flex-shrink-0" />
+                        <span>Este cadastro autoriza o paciente a entrar no App usando o e-mail abaixo.</span>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Nome Completo</label>
+                        <input
+                          className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
+                          value={newPatient.name}
+                          onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })}
+                          placeholder="Ex: João Silva"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">E-mail (Login)</label>
+                        <input
+                          className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
+                          value={newPatient.email}
+                          onChange={(e) => setNewPatient({ ...newPatient, email: e.target.value })}
+                          placeholder="paciente@email.com"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Celular (WhatsApp)</label>
+                        <input
+                          className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
+                          value={newPatient.phone}
+                          onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
+                          placeholder="11999998888"
+                        />
+                      </div>
+
+                      <Button onClick={handleRegisterPatient} icon={UserPlus} className="w-full mt-4 py-3 shadow-lg">
+                        Cadastrar e Autorizar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto border border-slate-100 rounded-xl">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
+                    <tr>
+                      <th className="p-3 text-xs font-bold text-slate-500 uppercase">Nome</th>
+                      <th className="p-3 text-xs font-bold text-slate-500 uppercase">Email</th>
+                      <th className="p-3 text-xs font-bold text-slate-500 uppercase">Telefone</th>
+                      <th className="p-3 text-xs font-bold text-slate-500 uppercase">Status</th>
+                      <th className="p-3 text-xs font-bold text-slate-500 uppercase text-right">Ações</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {subscribers
+                      .filter((u) => {
+                        if (!searchTerm?.trim()) return true;
+                        const q = searchTerm.trim().toLowerCase();
+                        const n = (u.name || '').toLowerCase();
+                        const p = (u.phone || '').toLowerCase();
+                        return n.includes(q) || p.includes(q);
+                      })
+                      .map((u) => (
+                        <tr key={u.phone} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                          <td className="p-3 font-semibold text-slate-800">{u.name || '-'}</td>
+                          <td className="p-3 text-slate-500">{u.email || '-'}</td>
+                          <td className="p-3 text-slate-500">{u.phone || '-'}</td>
+                          <td className="p-3">
+                            <Badge status={u.pushToken ? 'confirmed' : 'missing'} text={u.pushToken ? 'Ativo' : 'Sem Push'} />
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              onClick={() => handleRemovePatient(u.phone)}
+                              className="text-red-500 hover:text-red-700 inline-flex items-center gap-1 text-xs font-semibold"
+                              title="Remover"
+                            >
+                              <UserMinus size={14} /> Remover
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+
+                {subscribers.length === 0 && (
+                  <div className="text-center py-20 text-slate-300">Nenhum paciente cadastrado.</div>
+                )}
+              </div>
+            </div>
+          </Card>
         )}
 
-        {/* 4. HISTÓRICO */}
+        {/* HISTÓRICO */}
         {adminTab === 'history' && (
-            <Card title="Histórico de Envios" className="h-[600px] animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex-1 overflow-y-auto pr-2">
-                    {historyLogs.length === 0 ? <div className="text-center py-20 text-slate-300">Nenhum envio registado ainda.</div> : (
-                        <div className="space-y-4">
-                            {historyLogs.map(log => (
-                                <div key={log.id} className="p-5 border border-slate-100 rounded-2xl flex justify-between items-center bg-white shadow-sm hover:shadow-md transition-shadow">
-                                    <div>
-                                        <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                                            <CalendarCheck size={16} className="text-violet-400"/>
-                                            {log.sentAt?.seconds ? new Date(log.sentAt.seconds * 1000).toLocaleString() : '-'}
-                                        </div>
-                                        <div className="text-xs text-slate-500 mt-1 ml-6">{log.summary}</div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        {log.types?.map(t => (
-                                            <span key={t} className="bg-violet-50 text-violet-700 border border-violet-100 px-3 py-1 rounded-full text-xs font-semibold">{t}</span>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
+          <Card title="Histórico de Envios" className="h-[600px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex-1 overflow-y-auto pr-2">
+              {historyLogs.length === 0 ? (
+                <div className="text-center py-20 text-slate-300">Nenhum envio registado ainda.</div>
+              ) : (
+                <div className="space-y-4">
+                  {historyLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="p-5 border border-slate-100 rounded-2xl flex justify-between items-center bg-white shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      <div>
+                        <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                          <CalendarCheck size={16} className="text-violet-400" />
+                          {log.sentAt?.seconds ? new Date(log.sentAt.seconds * 1000).toLocaleString() : '-'}
                         </div>
-                    )}
-                </div>
-            </Card>
-        )}
-
-        {/* 5. CONFIGURAÇÃO */}
-        {adminTab === 'config' && (
-             <Card title="Configurações do Sistema" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                 <div className="space-y-8 max-w-2xl mx-auto py-4 overflow-y-auto h-full pr-4">
-                     
-                     <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                        <label className="block text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Smartphone size={16}/> WhatsApp da Clínica</label>
-                        <input value={localConfig.whatsapp} onChange={e => setLocalConfig({...localConfig, whatsapp: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-200 transition-all" placeholder="5511..." />
-                        <p className="text-xs text-slate-400 mt-2">Usado para o botão de contacto no painel do paciente.</p>
-                     </div>
-                     
-                     <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                        <div className="flex justify-between mb-3 items-center">
-                             <label className="block text-sm font-bold text-slate-700 flex items-center gap-2"><FileText size={16}/> Contrato Terapêutico</label>
-                             <span className="text-xs bg-white border border-slate-200 px-3 py-1 rounded-full text-slate-500 font-mono">v{localConfig.contractVersion}</span>
-                        </div>
-                        <textarea value={localConfig.contractText} onChange={e => setLocalConfig({...localConfig, contractText: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl h-40 text-slate-700 text-sm leading-relaxed resize-none focus:ring-2 focus:ring-violet-200 outline-none" placeholder="Escreva os termos aqui..." />
-                        <div className="flex gap-3 mt-4">
-                             <Button onClick={() => saveConfig(false)} variant="secondary" className="flex-1 text-xs">Salvar Rascunho</Button>
-                             <Button onClick={() => saveConfig(true)} className="flex-1 text-xs shadow-none" icon={CloudUpload}>Publicar Nova Versão</Button>
-                        </div>
-                        <p className="text-[11px] text-slate-400 mt-2 text-center">* Publicar uma nova versão exigirá novo aceite de todos os pacientes.</p>
-                     </div>
-
-                     <div className="space-y-6 pt-4 border-t border-slate-100">
-                        <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wider text-center">Modelos de Mensagem</h4>
-                        
-                        {['msg48h', 'msg24h', 'msg12h'].map((key) => (
-                            <div key={key}>
-                                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">{key.replace('msg', '')} Antes</label>
-                                <textarea 
-                                    value={localConfig[key]} 
-                                    onChange={e => setLocalConfig({...localConfig, [key]: e.target.value})} 
-                                    className="w-full p-3 border border-slate-200 rounded-xl h-24 text-slate-700 text-sm resize-none focus:ring-2 focus:ring-violet-200 outline-none" 
-                                />
-                            </div>
+                        <div className="text-xs text-slate-500 mt-1 ml-6">{log.summary}</div>
+                      </div>
+                      <div className="flex gap-2">
+                        {log.types?.map((t) => (
+                          <span
+                            key={t}
+                            className="bg-violet-50 text-violet-700 border border-violet-100 px-3 py-1 rounded-full text-xs font-semibold"
+                          >
+                            {t}
+                          </span>
                         ))}
-                     </div>
-                     <div className="sticky bottom-0 bg-white pt-4 border-t border-slate-100">
-                        <Button onClick={() => saveConfig(false)} icon={Save} className="w-full py-4 text-lg shadow-xl">Salvar Todas as Configurações</Button>
-                     </div>
-                 </div>
-             </Card>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
         )}
+
+        {/* CONFIGURAÇÃO */}
+        {adminTab === 'config' && (
+          <Card title="Configurações do Sistema" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="space-y-8 max-w-2xl mx-auto py-4 overflow-y-auto h-full pr-4">
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <label className="block text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <Smartphone size={16} /> WhatsApp da Clínica
+                </label>
+                <input
+                  value={localConfig.whatsapp}
+                  onChange={(e) => setLocalConfig({ ...localConfig, whatsapp: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-200 transition-all"
+                  placeholder="5511..."
+                />
+                <p className="text-xs text-slate-400 mt-2">Usado para o botão de contato no painel do paciente.</p>
+              </div>
+
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <div className="flex justify-between mb-3 items-center">
+                  <label className="block text-sm font-bold text-slate-700 flex items-center gap-2">
+                    <FileText size={16} /> Contrato Terapêutico
+                  </label>
+                  <span className="text-xs bg-white border border-slate-200 px-3 py-1 rounded-full text-slate-500 font-mono">
+                    v{localConfig.contractVersion}
+                  </span>
+                </div>
+                <textarea
+                  value={localConfig.contractText}
+                  onChange={(e) => setLocalConfig({ ...localConfig, contractText: e.target.value })}
+                  className="w-full p-4 border border-slate-200 rounded-xl h-40 text-slate-700 text-sm leading-relaxed resize-none focus:ring-2 focus:ring-violet-200 outline-none"
+                  placeholder="Escreva os termos aqui."
+                />
+                <div className="flex gap-3 mt-4">
+                  <Button onClick={() => saveConfig(false)} variant="secondary" className="flex-1 text-xs">
+                    Salvar Rascunho
+                  </Button>
+                  <Button onClick={() => saveConfig(true)} className="flex-1 text-xs shadow-none" icon={CloudUpload}>
+                    Publicar Nova Versão
+                  </Button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2 text-center">
+                  * Publicar uma nova versão exigirá novo aceite de todos os pacientes.
+                </p>
+              </div>
+
+              <div className="space-y-6 pt-4 border-t border-slate-100">
+                <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wider text-center">
+                  Modelos de Mensagem
+                </h4>
+
+                {['msg48h', 'msg24h', 'msg12h'].map((key) => (
+                  <div key={key}>
+                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">
+                      {key.replace('msg', '')} Antes
+                    </label>
+                    <textarea
+                      value={localConfig[key]}
+                      onChange={(e) => setLocalConfig({ ...localConfig, [key]: e.target.value })}
+                      className="w-full p-3 border border-slate-200 rounded-xl h-24 text-slate-700 text-sm resize-none focus:ring-2 focus:ring-violet-200 outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="sticky bottom-0 bg-white pt-4 border-t border-slate-100">
+                <Button onClick={() => saveConfig(false)} icon={Save} className="w-full py-4 text-lg shadow-xl">
+                  Salvar Todas as Configurações
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

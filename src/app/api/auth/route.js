@@ -1,25 +1,44 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import admin from "firebase-admin";
 
-export async function POST(request) {
+function initAdmin() {
+  if (admin.apps.length) return;
+
+  const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
+  if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT env var");
+
+  const serviceAccount = JSON.parse(raw);
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
+
+export async function POST(req) {
   try {
-    const { password } = await request.json();
-    
-    // Use an environment variable for the admin password on the server side
-    // In .env.local, set ADMIN_PASSWORD=YourSecurePassword
-    // This keeps the password out of the client-side bundle.
-    const adminPassword = process.env.ADMIN_PASSWORD;
+    const body = await req.json();
+    const password = body?.password || "";
 
-    if (!adminPassword) {
-        console.error("ADMIN_PASSWORD not set in environment variables");
-        return NextResponse.json({ success: false, error: "Configuration error" }, { status: 500 });
+    if (!process.env.ADMIN_PASSWORD) {
+      return NextResponse.json({ ok: false, error: "ADMIN_PASSWORD not set" }, { status: 500 });
     }
 
-    if (password === adminPassword) {
-      return NextResponse.json({ success: true });
-    } else {
-      return NextResponse.json({ success: false }, { status: 401 });
+    if (password !== process.env.ADMIN_PASSWORD) {
+      return NextResponse.json({ ok: false, error: "Senha inválida" }, { status: 401 });
     }
-  } catch (error) {
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+
+    const adminUid = process.env.ADMIN_UID;
+    if (!adminUid) {
+      return NextResponse.json({ ok: false, error: "ADMIN_UID not set" }, { status: 500 });
+    }
+
+    initAdmin();
+
+    const token = await admin.auth().createCustomToken(adminUid, { role: "admin" });
+
+    return NextResponse.json({ ok: true, token });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ ok: false, error: e.message || "Erro" }, { status: 500 });
   }
 }

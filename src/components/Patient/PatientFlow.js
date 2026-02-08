@@ -1,501 +1,399 @@
-import React, { useState, useEffect } from 'react';
-import { db, messaging } from '../../app/firebase';
-import { collection, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapshot, getDoc, addDoc } from 'firebase/firestore';
-import { getToken } from 'firebase/messaging';
-import { Smartphone, Bell, User, LogOut, CheckCircle, Info, StickyNote, Trash2, Shield, ScrollText, FileSignature, X, MessageCircle, HeartPulse, LifeBuoy, Calendar, Activity, Loader2, Lightbulb, BookOpen, ChevronRight, Sparkles, Lock } from 'lucide-react';
-import { Button, Toast } from '../DesignSystem';
-import { getDayName } from '../../services/dataService';
+"use client";
 
-// --- CONTEÚDO ESTÁTICO (Mantras e Cards) ---
-const MANTRAS = [
-  "A constância é um dos principais fatores de evolução terapêutica.",
-  "Cada sessão conta.",
-  "Estar presente também é uma forma de cuidado.",
-  "Mesmo em dias difíceis, a presença importa.",
-  "Seu processo merece seu tempo.",
-  "A continuidade constrói resultados.",
-  "Terapia é um compromisso com você mesmo."
-];
+import React, { useEffect, useMemo, useState } from "react";
+import { db } from "../../app/firebase";
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  where,
+  orderBy,
+  limit,
+  updateDoc,
+  setDoc,
+  addDoc,
+  deleteDoc,
+} from "firebase/firestore";
 
-const EDUCATION_CARDS = [
-  { id: 1, title: "O que é constância terapêutica?", content: "A terapia é um processo contínuo.\n\nA presença regular ajuda a manter o vínculo, o ritmo e a profundidade do trabalho terapêutico.\n\nConstância não é perfeição. É continuidade." },
-  { id: 2, title: "Por que a constância é tão importante?", content: "Cada sessão se conecta com a anterior.\n\nQuando há constância, o processo avança com mais clareza e segurança.\n\nA evolução acontece no conjunto, não em encontros isolados." },
-  { id: 3, title: "O que acontece quando falto?", content: "Uma ausência pode interromper o fluxo do processo terapêutico.\n\nRetomar é possível, mas exige um tempo de readaptação.\n\nPor isso, estar presente faz toda a diferença." },
-  { id: 4, title: "Estar presente em dias difíceis", content: "Nem todos os dias são bons — e tudo bem.\n\nA sessão não precisa ser perfeita para ser importante.\n\nMuitas vezes, é justamente nos dias difíceis que a terapia mais ajuda." },
-  { id: 5, title: "Terapia não é só falar", content: "Às vezes a sessão é silenciosa. Às vezes é confusa. Às vezes parece não render.\n\nAinda assim, ela faz parte do processo.\n\nNem todo avanço é visível no momento." },
-  { id: 6, title: "Como aproveitar melhor a sessão", content: "Você pode:\n• Observar pensamentos ao longo da semana\n• Anotar algo que queira lembrar\n• Chegar como estiver, sem preparo especial\n\nNão existe “jeito certo” de fazer terapia." },
-  { id: 7, title: "O compromisso com a sessão", content: "A sessão é um compromisso com você mesmo.\n\nEla reserva um tempo para cuidado, reflexão e presença.\n\nManter esse compromisso ajuda a fortalecer o processo terapêutico." },
-  { id: 8, title: "Quando parece que nada acontece", content: "É comum sentir que a terapia está “parada”.\n\nIsso não significa que ela não esteja funcionando.\n\nAlguns processos acontecem de forma silenciosa e gradual, como uma semente germinando." },
-  { id: 9, title: "A importância da regularidade", content: "A regularidade cria segurança.\n\nEla permite que o processo se desenvolva com mais profundidade e continuidade.\n\nPequenos encontros frequentes constroem grandes mudanças ao longo do tempo." },
-  { id: 10, title: "A terapia é um processo", content: "A terapia não é um evento pontual.\n\nEla é um caminho construído passo a passo.\n\nCada sessão é uma parte fundamental desse percurso." },
-  { id: 11, title: "Presença como forma de cuidado", content: "Estar presente é uma forma de cuidado consigo mesmo.\n\nMesmo quando não há vontade, a presença mantém o espaço aberto para o processo.\n\nCuidar também é continuar." },
-  { id: 12, title: "Constância não é cobrança", content: "Constância não é rigidez. Não é culpa. Não é punição.\n\nÉ um convite contínuo ao cuidado e ao compromisso com o próprio processo de cura." }
-];
+import { Button, Card, Badge, Toast } from "../DesignSystem";
+import {
+  CalendarCheck,
+  CheckCircle,
+  AlertTriangle,
+  MessageCircle,
+  FileText,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig }) {
-  const [view, setView] = useState('landing'); // Começa na Landing (Tela Inicial)
-  const [phone, setPhone] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState({ msg: '', type: '' });
-  const [notificationPermission, setNotificationPermission] = useState('default');
-  
-  const [myApps, setMyAppointments] = useState([]);
-  const [myNotes, setMyNotes] = useState([]);
-  const [showContract, setShowContract] = useState(false);
-  const [showSOS, setShowSOS] = useState(false);
-  const [showLibrary, setShowLibrary] = useState(false); 
-  const [showProfile, setShowProfile] = useState(false);
-  
-  // Estado para edição do perfil (quando falta telefone)
-  const [profileName, setProfileName] = useState('');
-  const [profilePhone, setProfilePhone] = useState('');
-  const [newPin, setNewPin] = useState(''); // Mantido para compatibilidade visual
-  
-  const [noteContent, setNoteContent] = useState('');
-  
-  // Conteúdos Rotativos
-  const [dailyCard, setDailyCard] = useState(null);
-  const [dailyMantra, setDailyMantra] = useState("");
+  const [profile, setProfile] = useState(null);
+  const [appointments, setAppointments] = useState([]);
+  const [notes, setNotes] = useState([]);
 
-  const config = globalConfig || {};
-  const showToast = (msg, type) => setToast({ msg, type });
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingAppointments, setLoadingAppointments] = useState(true);
+  const [loadingNotes, setLoadingNotes] = useState(true);
 
-  // 1. Inicialização e Carregamento de Dados do Usuário
+  const [noteContent, setNoteContent] = useState("");
+  const [toast, setToast] = useState({ msg: "", type: "success" });
+
+  const showToast = (msg, type = "success") => setToast({ msg, type });
+
+  const cleanPhoneFromProfile = useMemo(() => {
+    const p = profile?.phone || profile?.phoneNumber || "";
+    return String(p).replace(/\D/g, "");
+  }, [profile]);
+
+  // Contrato (config pública)
+  const currentContractVersion = Number(globalConfig?.contractVersion || 1);
+  const acceptedVersion = Number(profile?.contractAcceptedVersion || 0);
+  const needsContractAcceptance = currentContractVersion > acceptedVersion;
+
+  const whatsappLink = useMemo(() => {
+    const raw = globalConfig?.whatsapp || "";
+    const phone = String(raw).replace(/\D/g, "");
+    if (!phone) return null;
+    return `https://wa.me/${phone}`;
+  }, [globalConfig?.whatsapp]);
+
+  // 1) Garantir users/{uid} e manter listener do perfil
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      setNotificationPermission(Notification.permission);
-    }
+    if (!user?.uid) return;
 
-    // Mantra e Card (Protegidos)
-    try {
-        const today = new Date().toDateString();
-        let mantraToShow = localStorage.getItem('psi_mantra_text');
-        const savedMantraDate = localStorage.getItem('psi_mantra_date');
-        
-        if (savedMantraDate !== today || !mantraToShow) {
-            mantraToShow = MANTRAS[Math.floor(Math.random() * MANTRAS.length)];
-            localStorage.setItem('psi_mantra_date', today);
-            localStorage.setItem('psi_mantra_text', mantraToShow);
-        }
-        setDailyMantra(mantraToShow);
+    let cancelled = false;
+    let unsubProfile = null;
 
-        let cardToShow;
-        const savedCardDate = localStorage.getItem('psi_daily_card_date');
-        const savedCardId = localStorage.getItem('psi_daily_card_id');
-        if (savedCardDate === today && savedCardId) {
-            cardToShow = EDUCATION_CARDS.find(c => c.id === Number(savedCardId));
-        }
-        if (!cardToShow) {
-            const randomIndex = Math.floor(Math.random() * EDUCATION_CARDS.length);
-            cardToShow = EDUCATION_CARDS[randomIndex];
-            localStorage.setItem('psi_daily_card_date', today);
-            localStorage.setItem('psi_daily_card_id', cardToShow.id);
-        }
-        setDailyCard(cardToShow);
-    } catch (e) {
-        console.error("Erro localStorage:", e);
-    }
-
-    // Carregar Perfil do Firestore
-    const loadUserProfile = async () => {
-      if (!user) return;
+    (async () => {
       try {
-        const userDocRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userDocRef);
+        setLoadingProfile(true);
 
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          const userPhone = userData.phone; 
-          
-          // Preenche estados de perfil
-          setProfileName(userData.name || '');
-          setProfilePhone(userPhone || '');
-          setPhone(userPhone || '');
+        const userRef = doc(db, "users", user.uid);
+        const snap = await getDoc(userRef);
 
-          if (userPhone) {
-              // Se tem telefone, carrega tudo normal
-              fetchAgenda(userPhone);
-              const unsubNotes = subscribeNotes(userPhone);
-              
-              if (!userData.acceptedTermsVersion || userData.acceptedTermsVersion < (config.contractVersion || 1)) {
-                  setShowContract(true);
-              }
-
-              // Atualiza último acesso
-              updateDoc(userDocRef, { lastSeen: new Date() }).catch(console.error);
-
-              setLoading(false);
-              // IMPORTANTE: Mantém view 'landing' para mostrar os avisos primeiro
-              return () => unsubNotes();
-          } else {
-              // Se NÃO tem telefone (não estava na whitelist), força abrir modal de perfil
-              setShowProfile(true);
-              showToast("Por favor, complete seu cadastro para ver a agenda.", "info");
-              setLoading(false);
-          }
+        if (!snap.exists()) {
+          await setDoc(
+            userRef,
+            {
+              uid: user.uid,
+              email: (user.email || "").toLowerCase(),
+              name: user.displayName || "",
+              phone: "",
+              role: "patient",
+              createdAt: new Date(),
+              lastSeen: new Date(),
+              contractAcceptedVersion: 0,
+              contractAcceptedAt: null,
+            },
+            { merge: true }
+          );
         } else {
-           // Se documento não existir, cria um básico
-           await addDoc(collection(db, "users"), { 
-               uid: user.uid, 
-               email: user.email, 
-               role: 'patient', 
-               createdAt: new Date() 
-           });
-           setShowProfile(true);
-           showToast("Bem-vindo! Preencha seus dados.", "info");
-           setLoading(false);
+          await setDoc(userRef, { lastSeen: new Date() }, { merge: true });
         }
-      } catch (error) {
-        console.error("Erro ao carregar perfil:", error);
-        setLoading(false);
+
+        if (cancelled) return;
+
+        unsubProfile = onSnapshot(
+          userRef,
+          (docSnap) => {
+            if (docSnap.exists()) setProfile({ id: docSnap.id, ...docSnap.data() });
+            else setProfile(null);
+            setLoadingProfile(false);
+          },
+          (err) => {
+            console.error(err);
+            setLoadingProfile(false);
+            showToast("Erro ao carregar perfil.", "error");
+          }
+        );
+      } catch (e) {
+        console.error(e);
+        setLoadingProfile(false);
+        showToast("Erro ao inicializar perfil.", "error");
       }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (typeof unsubProfile === "function") unsubProfile();
     };
+  }, [user?.uid, user?.email, user?.displayName]);
 
-    loadUserProfile();
-  }, [user, config.contractVersion]);
+  // 2) Agenda (por phone se existir, senão por email)
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (loadingProfile) return;
 
-  const fetchAgenda = async (rawPhone) => {
-      if (!rawPhone) return;
-      try {
-          const q = query(collection(db, "appointments"), where("phone", "==", rawPhone));
-          const snap = await getDocs(q);
-          const apps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          
-          const today = new Date().toISOString().split('T')[0];
-          
-          // BLINDAGEM: Filtra dados inválidos
-          const validApps = apps.filter(a => {
-              return a.isoDate && typeof a.isoDate === 'string' && a.date && a.isoDate >= today;
-          });
-          
-          setMyAppointments(validApps.sort((a,b) => a.isoDate.localeCompare(b.isoDate)));
-      } catch (error) {
-          console.error("Erro agenda:", error);
-          setMyAppointments([]);
+    setLoadingAppointments(true);
+
+    const colRef = collection(db, "appointments");
+    const phone = cleanPhoneFromProfile;
+    let q = null;
+
+    if (phone) {
+      q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(50));
+    } else if (user?.email) {
+      q = query(
+        colRef,
+        where("email", "==", (user.email || "").toLowerCase()),
+        orderBy("isoDate", "asc"),
+        limit(50)
+      );
+    } else {
+      setAppointments([]);
+      setLoadingAppointments(false);
+      return;
+    }
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setAppointments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoadingAppointments(false);
+      },
+      (err) => {
+        console.error(err);
+        setAppointments([]);
+        setLoadingAppointments(false);
+        showToast("Erro ao carregar agenda.", "error");
       }
-  };
+    );
 
-  const subscribeNotes = (rawPhone) => {
-      if (!rawPhone) return () => {};
-      const q = query(collection(db, "patient_notes"), where("phone", "==", rawPhone));
-      return onSnapshot(q, (snap) => setMyNotes(snap.docs.map(d => ({id: d.id, ...d.data()}))));
-  };
+    return () => unsub();
+  }, [user?.uid, user?.email, loadingProfile, cleanPhoneFromProfile]);
+
+  // 3) NOTAS (✅ agora por patientId = user.uid)
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    setLoadingNotes(true);
+
+    const qNotes = query(collection(db, "patient_notes"), where("patientId", "==", user.uid));
+
+    const unsub = onSnapshot(
+      qNotes,
+      (snap) => {
+        const arr = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const ta = a.createdAt?.seconds ? a.createdAt.seconds : 0;
+            const tb = b.createdAt?.seconds ? b.createdAt.seconds : 0;
+            return tb - ta;
+          });
+        setNotes(arr);
+        setLoadingNotes(false);
+      },
+      (err) => {
+        console.error(err);
+        setNotes([]);
+        setLoadingNotes(false);
+        showToast("Erro ao carregar notas.", "error");
+      }
+    );
+
+    return () => unsub();
+  }, [user?.uid]);
 
   const handleAcceptContract = async () => {
-      if(user) {
-          await updateDoc(doc(db, "users", user.uid), { acceptedTermsVersion: config.contractVersion || 1 });
-          setShowContract(false);
-      }
-  };
-  
-  const handleSaveNote = async () => {
-      if(!noteContent.trim()) return;
-      if(!phone) {
-          showToast("Complete seu perfil primeiro.", "error");
-          return;
-      }
-      await addDoc(collection(db, "patient_notes"), { phone: phone, content: noteContent, createdAt: new Date() });
-      setNoteContent('');
-      showToast("Nota salva!");
-  };
-
-  const handleDeleteNote = async (id) => { if(confirm("Apagar?")) await deleteDoc(doc(db, "patient_notes", id)); };
-  
-  const handleLogout = () => { 
-    localStorage.removeItem('psi_user_phone'); 
-    setPhone(''); 
-    setView('landing'); 
-    if (onLogout) onLogout();
-  };
-
-  // Salvar perfil manualmente (nome/telefone)
-  const handleSaveProfile = async () => {
-      if(!profilePhone || profilePhone.length < 10) return showToast("Telefone inválido (DDD+Número)", "error");
-      const cleanPhone = profilePhone.replace(/\D/g, '');
-      
-      try {
-          await updateDoc(doc(db, "users", user.uid), { 
-              name: profileName,
-              phone: cleanPhone 
-          });
-          
-          setPhone(cleanPhone);
-          fetchAgenda(cleanPhone);
-          subscribeNotes(cleanPhone); 
-          
-          showToast("Dados atualizados!");
-          setShowProfile(false);
-      } catch(e) {
-          console.error(e);
-          showToast("Erro ao salvar dados.", "error");
-      }
-  };
-
-  const handleChangePin = async () => {
-      showToast("Função desativada temporariamente.", "info");
-      setShowProfile(false);
-  };
-
-  const handleRequestNotification = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
     try {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
-      if (permission === 'granted' && messaging && user) {
-        const token = await getToken(messaging, { vapidKey: 'BDYKoBDPNh4Q0SoSaY7oSXGz2fgVqGkJZWRgCMMeryqj-Jk7_csF0oJapZWhkSa9SEjgfYf6x3thWNZ4QttknZM' });
-        if (token) {
-            await updateDoc(doc(db, "users", user.uid), { pushToken: token });
-            showToast("Lembretes ativados!");
-        }
-      }
-    } catch (error) { console.error(error); }
+      if (!user?.uid) return;
+      const userRef = doc(db, "users", user.uid);
+
+      await updateDoc(userRef, {
+        contractAcceptedVersion: currentContractVersion,
+        contractAcceptedAt: new Date(),
+      });
+
+      showToast("Contrato aceito com sucesso!", "success");
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao aceitar contrato.", "error");
+    }
   };
 
-  // --- Renderização ---
+  const handleSaveNote = async () => {
+    try {
+      const content = (noteContent || "").trim();
+      if (!content) return;
 
-  if (loading) {
-      return (
-          <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
-              <Loader2 className="w-8 h-8 animate-spin" />
-          </div>
-      );
+      if (!user?.uid) return showToast("Usuário inválido.", "error");
+
+      await addDoc(collection(db, "patient_notes"), {
+        patientId: user.uid,
+        phone: cleanPhoneFromProfile || "", // opcional (ajuda admin/relatórios)
+        content,
+        createdAt: new Date(),
+      });
+
+      setNoteContent("");
+      showToast("Nota salva!", "success");
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao salvar nota.", "error");
+    }
+  };
+
+  const handleDeleteNote = async (id) => {
+    try {
+      if (!confirm("Apagar esta nota?")) return;
+      await deleteDoc(doc(db, "patient_notes", id));
+      showToast("Nota apagada.", "success");
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao apagar nota.", "error");
+    }
+  };
+
+  // Loading geral inicial
+  if (loadingProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-violet-600">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
   }
-
-  // TELA INICIAL (LANDING)
-  if (view === 'landing') {
-      return (
-          <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-slate-50">
-               {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
-               <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-lg space-y-6 relative">
-                   <div className="w-16 h-16 bg-violet-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-violet-200">
-                       <Bell className="text-white w-8 h-8"/>
-                   </div>
-                   
-                   <div>
-                        <h1 className="text-2xl font-bold text-slate-900">Lembrete Psi</h1>
-                        <p className="text-slate-500 mt-2">Nunca mais esqueça o horário da sua terapia.</p>
-                   </div>
-                   
-                   <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 text-left relative overflow-hidden">
-                          <div className="flex items-center gap-2 mb-2 text-indigo-700">
-                              <Sparkles size={16} />
-                              <h4 className="font-bold text-xs uppercase tracking-wider">Para hoje</h4>
-                          </div>
-                          <p className="text-sm text-slate-700 font-medium italic leading-relaxed">
-                              "{dailyMantra}"
-                          </p>
-                    </div>
-                   
-                   <div className="space-y-2">
-                        <Button onClick={() => setView('dashboard')} icon={Smartphone} className="w-full py-4 text-lg">Acessar Meu Painel</Button>
-                        <p className="text-[10px] text-slate-400">Funciona direto no navegador.</p>
-                   </div>
-                   
-                   <div className="pt-3 border-t border-slate-100 space-y-2">
-                        <button onClick={onAdminAccess} className="text-xs text-slate-400 hover:text-violet-600 underline flex items-center justify-center gap-1 mx-auto">
-                            <Lock size={12}/> Acesso da Clínica (Admin)
-                        </button>
-                        <button onClick={onLogout} className="text-xs text-slate-400 hover:text-red-500 underline flex items-center justify-center gap-1 mx-auto">
-                            <LogOut size={12}/> Sair
-                        </button>
-                   </div>
-               </div>
-          </div>
-      );
-  }
-
-  // DASHBOARD
-  const nextApp = myApps[0];
-  const recurrenceText = nextApp && nextApp.date ? `Toda ${getDayName(nextApp.date)} às ${nextApp.time}` : "Aguardando agendamento";
 
   return (
-      <div className="min-h-screen bg-violet-50 p-4 flex flex-col">
-          {toast.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({})} />}
-          
-          {/* HEADER */}
-          <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-2">
-                  <div className="bg-white p-1.5 rounded-full shadow-sm"><User className="text-violet-600 w-5 h-5"/></div>
-                  <div><h2 className="font-bold text-slate-800 text-sm">Meu Espaço</h2></div>
-              </div>
-              <div className="flex gap-2">
-                 <button onClick={() => setShowLibrary(true)} className="bg-indigo-500 p-2 rounded-full text-white shadow hover:bg-indigo-600 transition" title="Biblioteca"><BookOpen size={16}/></button>
-                 <button onClick={() => setShowContract(true)} className="bg-violet-100 p-2 rounded-full text-violet-600 shadow hover:bg-violet-200 transition"><ScrollText size={16}/></button>
-                 <button onClick={() => setShowSOS(true)} className="bg-rose-500 p-2 rounded-full text-white shadow hover:bg-rose-600 transition"><LifeBuoy size={16}/></button>
-                 <button onClick={() => setView('landing')} className="bg-white p-2 rounded-full text-slate-400 shadow hover:text-slate-600 transition" title="Voltar"><X size={16}/></button>
-              </div>
+    <>
+      {toast?.msg && (
+        <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />
+      )}
+
+      <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
+            <div className="text-xl font-black text-slate-900">
+              Olá, {profile?.name || user?.displayName || "Paciente"} 👋
+            </div>
           </div>
 
-          {notificationPermission === 'default' && (
-             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-6 flex flex-col gap-3">
-                <div className="flex items-start gap-3">
-                   <div className="bg-blue-100 p-1.5 rounded-full flex-shrink-0"><Bell size={16} className="text-blue-600" /></div>
-                   <div>
-                      <h4 className="font-bold text-blue-800 text-sm">Ativar Lembretes</h4>
-                      <p className="text-xs text-blue-600 mt-1 leading-tight">Para receber os avisos das sessões.</p>
-                   </div>
-                </div>
-                <Button onClick={handleRequestNotification} variant="primary" className="w-full text-xs py-2">Ativar Agora</Button>
-             </div>
-          )}
-
-          <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-violet-500 mb-4 flex gap-3 items-center">
-             <div className="bg-violet-100 p-1.5 rounded-full flex-shrink-0"><Activity size={16} className="text-violet-600" /></div>
-             <div>
-                <h4 className="font-bold text-slate-800 text-xs">O segredo é a constância</h4>
-                <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">Faltas podem interromper seu progresso.</p>
-             </div>
+          <div className="flex gap-2">
+            <Button onClick={onAdminAccess} variant="secondary">
+              Admin
+            </Button>
+            <Button onClick={onLogout} variant="secondary">
+              Sair
+            </Button>
           </div>
+        </div>
 
-          {dailyCard && (
-              <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 mb-4 relative overflow-hidden shadow-sm">
-                  <div className="relative z-10">
-                      <div className="flex items-center gap-1.5 mb-1.5 text-indigo-700">
-                          <Lightbulb size={14} />
-                          <h4 className="font-bold text-xs uppercase tracking-wider">Reflexão do Dia</h4>
-                      </div>
-                      <h3 className="text-sm font-bold text-slate-800 mb-1 leading-snug">{dailyCard.title}</h3>
-                      <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap mb-2 line-clamp-3">{dailyCard.content}</p>
-                      <button onClick={() => setShowLibrary(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1 group">Ler mais <ChevronRight size={10} className="group-hover:translate-x-1 transition-transform"/></button>
-                  </div>
-                  <div className="absolute -right-3 -bottom-3 opacity-5 text-indigo-600"><BookOpen size={80}/></div>
-              </div>
-          )}
-
-          {nextApp ? (
-            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl shadow-md p-4 mb-4 text-white relative overflow-hidden">
-                <div className="relative z-10">
-                    <p className="text-violet-100 text-[10px] font-medium uppercase tracking-wider mb-0.5">Seu Horário Fixo</p>
-                    <h3 className="text-lg font-bold mb-1">{recurrenceText}</h3>
-                    <div className="flex items-center gap-1.5 text-xs opacity-90"><User size={12}/> <span>{nextApp.professional || 'Psicoterapia'}</span></div>
+        {/* CONTRATO */}
+        {needsContractAcceptance && (
+          <Card title="Contrato Terapêutico">
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-xl p-4 flex gap-3">
+                <AlertTriangle className="mt-0.5" size={18} />
+                <div className="text-sm">
+                  Identificamos uma <b>nova versão</b> do contrato (v{currentContractVersion}). Para continuar, é
+                  necessário aceitar.
                 </div>
-                <div className="absolute -right-6 -bottom-10 w-24 h-24 bg-white opacity-10 rounded-full"></div>
+              </div>
+
+              <div className="p-4 border border-slate-100 rounded-xl bg-slate-50 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">
+                {globalConfig?.contractText || "Contrato não configurado."}
+              </div>
+
+              <Button onClick={handleAcceptContract} icon={CheckCircle} className="w-full">
+                Aceitar Contrato
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* AGENDA */}
+        <Card title="Próximos Atendimentos">
+          {loadingAppointments ? (
+            <div className="text-sm text-slate-400">Carregando agenda...</div>
+          ) : appointments.length === 0 ? (
+            <div className="text-sm text-slate-400">
+              Nenhum agendamento encontrado.
+              {!cleanPhoneFromProfile && (
+                <div className="mt-2 text-xs text-slate-400">
+                  Dica: seu perfil ainda não tem telefone registrado, então tentamos buscar por e-mail.
+                </div>
+              )}
             </div>
           ) : (
-             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 text-center text-slate-500 border border-slate-200 text-xs"><Calendar className="mx-auto mb-1 opacity-20" size={24}/>Nenhum horário fixo identificado.</div>
-          )}
-
-          <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 mb-4 flex gap-2">
-              <Info className="text-amber-600 w-4 h-4 flex-shrink-0 mt-0.5" />
-              <p className="text-[10px] text-amber-800 leading-relaxed">Este horário é válido como sessão semanal recorrente.</p>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-slate-200">
-             <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm"><StickyNote size={16} className="text-violet-600"/> Anotações</h3>
-             <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} className="w-full p-2 border rounded-lg text-xs mb-2 h-16 resize-none text-slate-900 focus:ring-1 focus:ring-violet-200 outline-none" placeholder="Lembrete para a sessão..." />
-             <Button onClick={handleSaveNote} className="w-full text-xs py-2">Salvar</Button>
-             {myNotes.length > 0 && (
-                 <div className="mt-3 space-y-2">
-                     {myNotes.slice(0, 3).map(n => (
-                         <div key={n.id} className="bg-slate-50 p-2 rounded border border-slate-100 text-xs text-slate-700 flex justify-between relative group">
-                             <span className="whitespace-pre-wrap line-clamp-2">{n.content}</span>
-                             <button onClick={() => handleDeleteNote(n.id)} className="text-slate-300 hover:text-red-500 pl-2"><Trash2 size={12}/></button>
-                         </div>
-                     ))}
-                 </div>
-             )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto pb-4">
-              <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-xs uppercase text-slate-500"><Calendar size={14}/> Datas Confirmadas</h3>
-              {myApps.length > 0 ? (
-                  <div className="space-y-2">
-                      {myApps.map(app => (
-                          <div key={app.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
-                              <div className="bg-slate-100 text-slate-600 w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                                  <span className="font-bold text-xs">{app.date ? app.date.split('/')[0] : '--'}</span>
-                                  {/* Formata a data se for válida */}
-                                  <span className="text-[8px] uppercase">
-                                      {app.isoDate ? new Date(app.isoDate).toLocaleString('pt-BR', { month: 'short' }).replace('.','') : ''}
-                                  </span>
-                              </div>
-                              <div>
-                                  <p className="font-bold text-slate-700 text-xs">Sessão Agendada</p>
-                                  <p className="text-[10px] text-slate-500">{app.date} às {app.time}</p>
-                              </div>
-                          </div>
-                      ))}
-                  </div>
-              ) : (
-                  <div className="text-center py-2 text-slate-400 text-[10px]">Nenhuma data específica carregada.</div>
-              )}
-          </div>
-
-          {/* --- MODAIS --- */}
-          
-          {showLibrary && (
-              <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                  <div className="bg-white rounded-xl w-full max-w-md h-[80vh] flex flex-col shadow-2xl overflow-hidden">
-                      <div className="bg-indigo-600 p-3 text-white flex justify-between items-center">
-                          <h3 className="font-bold flex items-center gap-2 text-sm"><BookOpen size={18}/> Biblioteca Terapêutica</h3>
-                          <button onClick={() => setShowLibrary(false)}><X size={18} className="hover:text-indigo-200"/></button>
-                      </div>
-                      <div className="p-3 overflow-y-auto space-y-3 bg-slate-50 flex-1">
-                          {EDUCATION_CARDS.map((card, index) => (
-                              <div key={card.id} className={`p-4 rounded-xl border shadow-sm ${index % 2 === 0 ? 'bg-white border-slate-200' : 'bg-indigo-50 border-indigo-100'}`}>
-                                  <h4 className="font-bold text-indigo-700 mb-1 text-sm">{card.title}</h4>
-                                  <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed">{card.content}</p>
-                              </div>
-                          ))}
-                      </div>
-                  </div>
-              </div>
-          )}
-
-          {showSOS && (
-              <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                  <div className="bg-white rounded-xl w-full max-w-sm overflow-hidden shadow-2xl">
-                      <div className="bg-rose-500 p-3 text-white flex justify-between items-center">
-                          <h3 className="font-bold flex items-center gap-2 text-sm"><LifeBuoy size={18}/> Apoio Emocional</h3>
-                          <button onClick={() => setShowSOS(false)}><X size={18} className="hover:text-rose-100"/></button>
-                      </div>
-                      <div className="p-5 space-y-3">
-                          <p className="text-xs text-slate-600 text-center mb-2">Se você está passando por um momento difícil, não hesite em pedir ajuda.</p>
-                          <a href="tel:188" className="flex items-center justify-between p-3 bg-rose-50 border border-rose-100 rounded-xl hover:bg-rose-100 transition-colors">
-                              <div className="flex flex-col"><span className="font-bold text-rose-700 text-sm">Ligar 188</span><span className="text-[10px] text-rose-500">CVV - Centro de Valorização da Vida</span></div><Smartphone size={20} className="text-rose-500" />
-                          </a>
-                          <div className="border-t border-slate-100 pt-3 mt-1">
-                               <p className="text-[10px] text-slate-500 text-center mb-2">Contato da Clínica</p>
-                               <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="w-full bg-green-500 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-green-600 transition-colors text-sm font-medium">
-                                   <MessageCircle size={16} /> Chamar no WhatsApp
-                               </a>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-          )}
-          
-          {showContract && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl w-full max-w-sm overflow-hidden h-[80vh] flex flex-col"><div className="bg-violet-600 p-3 text-white"><h3 className="font-bold text-sm">Termos e Combinados</h3></div><div className="p-5 overflow-y-auto flex-1 whitespace-pre-wrap text-xs text-slate-700 leading-relaxed">{config.contractText || "Carregando termos..."}</div><div className="p-3 border-t"><Button onClick={handleAcceptContract} variant="success" className="text-sm py-2">Li e Aceito</Button></div></div></div>}
-
-          {/* Modal de Perfil / Meus Dados */}
-          {showProfile && (
-            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
-                    <h3 className="font-bold mb-4 text-slate-800 text-sm flex items-center gap-2"><User size={18}/> Meus Dados</h3>
-                    <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700 mb-4 border border-blue-100">
-                        Por favor, confirme seu nome e WhatsApp para sincronizarmos sua agenda.
+            <div className="space-y-3">
+              {appointments.map((a) => (
+                <div
+                  key={a.id}
+                  className="p-4 rounded-xl border border-slate-100 bg-white flex items-start justify-between gap-4"
+                >
+                  <div className="space-y-1">
+                    <div className="font-semibold text-slate-800 flex items-center gap-2">
+                      <CalendarCheck size={18} className="text-violet-600" />
+                      {a.date || a.isoDate} {a.time ? `• ${a.time}` : ""}
                     </div>
-                    
-                    <div className="space-y-3">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 mb-1">Nome</label>
-                            <input value={profileName} onChange={e=>setProfileName(e.target.value)} className="w-full p-2.5 border rounded text-slate-900 text-sm"/>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 mb-1">WhatsApp (DDD + Número)</label>
-                            <input value={profilePhone} onChange={e=>setProfilePhone(formatPhone(e.target.value))} className="w-full p-2.5 border rounded text-slate-900 text-sm" placeholder="11999998888"/>
-                        </div>
+                    <div className="text-sm text-slate-500">
+                      {a.profissional ? (
+                        <>
+                          Profissional: <b>{a.profissional}</b>
+                        </>
+                      ) : (
+                        <span>Profissional não informado</span>
+                      )}
                     </div>
-                    
-                    <div className="mt-6 flex gap-2">
-                        <Button onClick={handleSaveProfile} className="flex-1 text-sm py-2">Salvar e Continuar</Button>
-                        <button onClick={()=>setShowProfile(false)} className="flex-1 text-xs text-slate-400 hover:text-slate-600">Cancelar</button>
-                    </div>
+                  </div>
+
+                  {a.reminderType && (
+                    <Badge>{String(a.reminderType).toUpperCase()}</Badge>
+                  )}
                 </div>
+              ))}
             </div>
           )}
 
-          <a href={`https://wa.me/${config.whatsapp || '551141163129'}`} target="_blank" className="fixed bottom-6 right-6 bg-green-500 text-white p-3 rounded-full shadow-lg z-40"><MessageCircle size={28}/></a>
+          {whatsappLink && (
+            <div className="mt-4">
+              <Button as="a" href={whatsappLink} target="_blank" rel="noreferrer" icon={MessageCircle} className="w-full">
+                Falar no WhatsApp
+              </Button>
+            </div>
+          )}
+        </Card>
+
+        {/* NOTAS */}
+        <Card title="Minhas Notas">
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <input
+                className="flex-1 p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="Escreva uma nota rápida..."
+              />
+              <Button onClick={handleSaveNote} icon={FileText}>
+                Salvar
+              </Button>
+            </div>
+
+            {loadingNotes ? (
+              <div className="text-sm text-slate-400">Carregando notas...</div>
+            ) : notes.length === 0 ? (
+              <div className="text-sm text-slate-400">Nenhuma nota ainda.</div>
+            ) : (
+              <div className="space-y-2">
+                {notes.map((n) => (
+                  <div key={n.id} className="p-3 rounded-xl border border-slate-100 bg-slate-50 flex justify-between gap-3">
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{n.content}</div>
+                    <button
+                      onClick={() => handleDeleteNote(n.id)}
+                      className="text-slate-400 hover:text-red-500 transition"
+                      title="Apagar nota"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
       </div>
+    </>
   );
 }
