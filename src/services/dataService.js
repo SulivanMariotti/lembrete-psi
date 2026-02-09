@@ -95,28 +95,32 @@ const normalizeTime = (raw) => {
   return t;
 };
 
-const normalizeService = (raw) => {
-  const s = String(raw || "").trim();
-  if (!s) return "";
-  const low = s.toLowerCase();
+const normalizeService = (raw, fallbackText = "") => {
+  const primary = String(raw || "").trim();
+  const probe = (primary || String(fallbackText || "")).trim();
+  if (!probe) return "Sessão";
 
-  // normalizações comuns
-  if (low.includes("psico")) return "psicologia";
-  if (low.includes("fono")) return "fonoaudiologia";
-  if (low.includes("nutri")) return "nutricao";
-  if (low.includes("neuro")) return "neuropsicologia";
+  const low = probe.toLowerCase();
 
-  // fallback: slug simples
-  return low
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, "_");
+  // inferências comuns (mantém rótulos legíveis para UI/WhatsApp/.ics)
+  if (low.includes("aba")) return "ABA";
+  if (low.includes("psico")) return "Psicologia";
+  if (low.includes("fono")) return "Fonoaudiologia";
+  if (low.includes("nutri")) return "Nutrição";
+  if (low.includes("neuro")) return "Neuropsicologia";
+  if (low.includes("terapia ocup")) return "Terapia Ocupacional";
+
+  // Se o CSV trouxe um serviço explícito, preserva (com ajuste leve)
+  if (primary) return primary;
+
+  // Se não deu para inferir, fallback seguro
+  return "Sessão";
 };
 
 // Processamento de CSV (aceita formato antigo e novo)
 // Antigo: nome, tel, data, hora, profissional
 // Novo:   id, nome, tel, data, hora, profissional, serviço, local
-export const parseCSV = (inputText, subscribers, msgConfig) => {
+export const parseCSV = (inputText, subscribers, msgConfig = {}) => {
   if (!inputText) return [];
   const lines = inputText
     .split("\n")
@@ -131,6 +135,18 @@ export const parseCSV = (inputText, subscribers, msgConfig) => {
     if (t > c && t > s) return "\t";
     return ",";
   };
+
+
+  // Offsets configuráveis (em horas) para 3 mensagens.
+  // Padrão clínico: 48h, 24h e 12h.
+  const offsets = Array.isArray(msgConfig.reminderOffsetsHours)
+    ? msgConfig.reminderOffsetsHours.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  const [offset1, offset2, offset3] = (offsets.length === 3 ? offsets : [48, 24, 12])
+    // garante ordem decrescente (ex.: 48,24,12) mesmo se vier bagunçado
+    .slice()
+    .sort((a, b) => b - a);
+
 
   const splitLine = (line, delim) => {
     // CSV simples com suporte a aspas (não é um parser completo RFC, mas cobre o básico)
@@ -278,8 +294,9 @@ export const parseCSV = (inputText, subscribers, msgConfig) => {
       const nomeProfissional = profissional ? profissional.trim() : "Profissional";
       const isoDate = normalizeISODate(dataStr);
       const time = normalizeTime(hora);
-      const service = normalizeService(serviceType);
-      const place = String(location || "").trim();
+      const rowText = parts.join(" ");
+      const service = normalizeService(serviceType, rowText);
+      const place = String(location || "").trim() || "Clínica";
 
       let timeLabel = "Data Inválida";
       let reminderType = null;
@@ -293,32 +310,38 @@ export const parseCSV = (inputText, subscribers, msgConfig) => {
 
           if (diffHours < 0) {
             timeLabel = "Já passou";
-          } else if (diffHours <= 12) {
-            timeLabel = "Faltam < 12h";
-            reminderType = "12h";
-            messageBody = msgConfig.msg12h
-              .replace("{nome}", String(nome).split(" ")[0])
-              .replace("{data}", dataStr)
-              .replace("{hora}", time)
-              .replace("{profissional}", nomeProfissional);
-          } else if (diffHours <= 30) {
-            timeLabel = "Faltam ~24h";
-            reminderType = "24h";
-            messageBody = msgConfig.msg24h
-              .replace("{nome}", String(nome).split(" ")[0])
-              .replace("{data}", dataStr)
-              .replace("{hora}", time)
-              .replace("{profissional}", nomeProfissional);
-          } else if (diffHours <= 54) {
-            timeLabel = "Faltam ~48h";
-            reminderType = "48h";
-            messageBody = msgConfig.msg48h
-              .replace("{nome}", String(nome).split(" ")[0])
-              .replace("{data}", dataStr)
-              .replace("{hora}", time)
-              .replace("{profissional}", nomeProfissional);
           } else {
-            timeLabel = `Faltam ${Math.round(diffHours / 24)} dias`;
+            // Janela de tolerância para a rotina do admin (disparo diário/por lote).
+            // Ex.: offset2=24 => aceitamos até 24h + 6h como "janela do 24h".
+            const tol = 6;
+
+            if (diffHours <= (offset3 + tol)) {
+              timeLabel = `Faltam ~${offset3}h`;
+              reminderType = "slot3";
+              messageBody = (msgConfig.msg12h || "")
+                .replace("{nome}", String(nome).split(" ")[0])
+                .replace("{data}", dataStr)
+                .replace("{hora}", time)
+                .replace("{profissional}", nomeProfissional);
+            } else if (diffHours <= (offset2 + tol)) {
+              timeLabel = `Faltam ~${offset2}h`;
+              reminderType = "slot2";
+              messageBody = (msgConfig.msg24h || "")
+                .replace("{nome}", String(nome).split(" ")[0])
+                .replace("{data}", dataStr)
+                .replace("{hora}", time)
+                .replace("{profissional}", nomeProfissional);
+            } else if (diffHours <= (offset1 + tol)) {
+              timeLabel = `Faltam ~${offset1}h`;
+              reminderType = "slot1";
+              messageBody = (msgConfig.msg48h || "")
+                .replace("{nome}", String(nome).split(" ")[0])
+                .replace("{data}", dataStr)
+                .replace("{hora}", time)
+                .replace("{profissional}", nomeProfissional);
+            } else {
+              timeLabel = `Faltam ${Math.round(diffHours / 24)} dias`;
+            }
           }
         } catch (e) {
           timeLabel = "Erro Data";
@@ -340,9 +363,11 @@ export const parseCSV = (inputText, subscribers, msgConfig) => {
         pushToken: subscriber?.pushToken,
         timeLabel,
         reminderType,
-        messageBody,
+      reminderOffsetHours: reminderType === "slot1" ? offset1 : reminderType === "slot2" ? offset2 : reminderType === "slot3" ? offset3 : null,
+      messageBody,
       };
     })
     .filter(Boolean);
 };
+
 

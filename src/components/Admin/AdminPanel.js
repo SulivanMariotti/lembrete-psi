@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect , useRef} from 'react';
 import { db } from '../../app/firebase';
 import {collection,
   addDoc,
@@ -49,6 +49,22 @@ function onlyDigits(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
+// phoneCanonical: DDD + número (10/11), SEM 55
+function normalizePhoneCanonical(input) {
+  let d = onlyDigits(input).replace(/^0+/, '');
+  if (!d) return '';
+  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+  return d;
+}
+
+// phoneE164: 55 + canônico
+function phoneToE164(phoneCanonical) {
+  const c = normalizePhoneCanonical(phoneCanonical);
+  if (!c) return '';
+  if (c.length === 10 || c.length === 11) return `55${c}`;
+  return c;
+}
+
 // aceita: "2026-02-07" | "07/02/2026" | "07-02-2026"
 function normalizeToISODate(dateStr) {
   const s = String(dateStr || '').trim();
@@ -64,6 +80,14 @@ function normalizeToISODate(dateStr) {
 
   return '';
 }
+
+function formatISOToBR(iso) {
+  const s = String(iso || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 
 function safeSlug(str, max = 18) {
   return String(str || '')
@@ -92,12 +116,15 @@ export default function AdminPanel({
   globalConfig,
 }) {
   const [adminTab, setAdminTab] = useState('dashboard');
-  const [csvInput, setCsvInput] = useState('');
+    const fileInputRef = useRef(null);
+const [csvInput, setCsvInput] = useState('');
   
   const [hasVerified, setHasVerified] = useState(false);
   const [hasSynced, setHasSynced] = useState(false);
+  const [lastUploadId, setLastUploadId] = useState(null);
 const [appointments, setAppointments] = useState([]);
   const [isSending, setIsSending] = useState(false);
+  const [sendPreview, setSendPreview] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -121,6 +148,10 @@ const [appointments, setAppointments] = useState([]);
 
   // Configuração Local
   const [localConfig, setLocalConfig] = useState({
+    reminderOffsetsHours: [48, 24, 12],
+    msg1: '',
+    msg2: '',
+    msg3: '',
     msg48h: '',
     msg24h: '',
     msg12h: '',
@@ -133,7 +164,7 @@ const [appointments, setAppointments] = useState([]);
   const subscribersByPhone = useMemo(() => {
     const m = new Map();
     (subscribers || []).forEach((s) => {
-      const p = onlyDigits(s?.phone);
+      const p = normalizePhoneCanonical(s?.phoneCanonical || s?.phone);
       if (p) m.set(p, s);
     });
     return m;
@@ -141,7 +172,15 @@ const [appointments, setAppointments] = useState([]);
 
   // Carrega configuração global
   useEffect(() => {
-    if (globalConfig) setLocalConfig((prev) => ({ ...prev, ...globalConfig }));
+    if (!globalConfig) return;
+    setLocalConfig((prev) => ({
+      ...prev,
+      ...globalConfig,
+      // Compatibilidade: se ainda estiver salvo como msg48h/msg24h/msg12h, preenche msg1/msg2/msg3
+      msg1: globalConfig?.msg1 ?? globalConfig?.msg48h ?? prev.msg1 ?? '',
+      msg2: globalConfig?.msg2 ?? globalConfig?.msg24h ?? prev.msg2 ?? '',
+      msg3: globalConfig?.msg3 ?? globalConfig?.msg12h ?? prev.msg3 ?? '',
+    }));
   }, [globalConfig]);
 
   // Carrega agenda do Firestore (cache do app)
@@ -173,14 +212,55 @@ const [appointments, setAppointments] = useState([]);
   // CSV parseado e enriquecido
   const processedAppointments = useMemo(() => {
     const msgConfig = {
-      msg48h: localConfig.msg48h || '',
-      msg24h: localConfig.msg24h || '',
-      msg12h: localConfig.msg12h || '',
+      msg1: localConfig.msg1 || localConfig.msg48h || '',
+        msg2: localConfig.msg2 || localConfig.msg24h || '',
+        msg3: localConfig.msg3 || localConfig.msg12h || '',
+        // Mantém compatibilidade com versões antigas do disparo
+        msg48h: localConfig.msg1 || localConfig.msg48h || '',
+        msg24h: localConfig.msg2 || localConfig.msg24h || '',
+        msg12h: localConfig.msg3 || localConfig.msg12h || '',
     };
     return parseCSV(csvInput, subscribers, msgConfig);
   }, [csvInput, subscribers, localConfig.msg48h, localConfig.msg24h, localConfig.msg12h]);
 
-  // Filtragem por profissional + busca
+  
+  // PASSO 27/45 — Resumo da Verificação (sem mudar layout: apenas texto/contadores)
+  const verificationSummary = useMemo(() => {
+    if (!hasVerified) return null;
+
+    const total = processedAppointments.length;
+
+    const phones = new Set();
+    let firstISO = null;
+    let lastISO = null;
+
+    let fallbackServiceCount = 0;
+
+    processedAppointments.forEach((a) => {
+      const p = normalizePhoneCanonical(a?.cleanPhone || a?.phoneCanonical || a?.phone || '');
+      if (p) phones.add(p);
+
+      const iso = String(a?.isoDate || '').trim();
+      if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        if (!firstISO || iso < firstISO) firstISO = iso;
+        if (!lastISO || iso > lastISO) lastISO = iso;
+      }
+
+      if (String(a?.serviceType || '').trim() === 'Sessão') fallbackServiceCount += 1;
+    });
+
+    return {
+      total,
+      uniquePatients: phones.size,
+      firstISO,
+      lastISO,
+      dateFrom: firstISO ? formatISOToBR(firstISO) : '—',
+      dateTo: lastISO ? formatISOToBR(lastISO) : '—',
+      fallbackServiceCount,
+    };
+  }, [hasVerified, processedAppointments]);
+
+// Filtragem por profissional + busca
   const filteredAppointments = useMemo(() => {
     let arr = processedAppointments;
 
@@ -341,6 +421,11 @@ useEffect(() => {
 
   // 4. Carregar arquivo CSV
   const handleFileUpload = async (event) => {
+    // Nova importação: reseta preview e validações
+    resetSendState();
+    setHasVerified(false);
+    setHasSynced(false);
+
     try {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -356,6 +441,12 @@ useEffect(() => {
 
   // 5. Limpar dados
   const handleClearData = () => {
+    // Reset completo do pipeline (para permitir reimportar o MESMO arquivo e limpar preview)
+    resetSendState();
+    setHasVerified(false);
+    setHasSynced(false);
+    if (fileInputRef?.current) fileInputRef.current.value = '';
+
     setCsvInput('');
     setAppointments([]);
     showToast('Dados limpos.');
@@ -370,6 +461,10 @@ useEffect(() => {
     });
 
     setAppointments(parsed);
+
+    // PASSO 26/45 fix: marcar como verificado para liberar Sincronizar
+    setHasVerified(true);
+    setHasSynced(false);
 
     const total = parsed.length;
     const authorized = parsed.filter((a) => a.isSubscribed).length;
@@ -467,6 +562,7 @@ if (!hasVerified) {
 
     // uploadId ajuda auditoria e reconciliação (snapshot do estado atual)
     const uploadId = `upload_${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    setLastUploadId(uploadId);
 
     try {
       const todayIso = new Date().toISOString().slice(0, 10);
@@ -487,7 +583,9 @@ if (!hasVerified) {
       };
 
       for (const a of appointments) {
-        const phone = onlyDigits(a.cleanPhone || a.phone || '');
+        const phoneCanonical = normalizePhoneCanonical(a.cleanPhone || a.phone || '');
+        const phoneE164 = phoneToE164(phoneCanonical);
+        const phone = phoneCanonical;
         const date = a.data || a.date || '';
         const time = a.hora || a.time || '';
         const profissional = a.profissional || '';
@@ -519,6 +617,8 @@ if (!hasVerified) {
           nome: a.nome || '',
           email: email || '',
           phone,
+          phoneCanonical,
+          phoneE164,
           date: date || '',
           isoDate,
           time: time || '',
@@ -609,6 +709,29 @@ if (recon?.cancelled) {
 showToast(
         `Agenda sincronizada! (${syncedIds.length} registros) • Reconciliação aplicada (futuros removidos foram cancelados).`
       );
+      // PASSO 27/45 — Registrar resumo do upload no history (server-side)
+      try {
+        const adminSecret = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '';
+        if (adminSecret && verificationSummary?.total) {
+          await fetch('/api/admin/appointments/sync-summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
+            body: JSON.stringify({
+              uploadId,
+              totalAppointments: verificationSummary.total,
+              uniquePatients: verificationSummary.uniquePatients,
+              dateRange: {
+                firstISO: verificationSummary.firstISO || null,
+                lastISO: verificationSummary.lastISO || null,
+              },
+              fallbackServiceCount: verificationSummary.fallbackServiceCount || 0,
+            }),
+          }).catch(() => null);
+        }
+      } catch (_) {
+        // não bloquear sincronização por falha de log
+      }
+
       setHasSynced(true);
 
     } catch (e) {
@@ -637,43 +760,244 @@ showToast(
     showToast('Registro manual adicionado. Clique em Verificar.');
   };
 
-  // 9. Enviar lembretes (push)
-  const handleSendReminders = async () => {
 
-if (!hasVerified) {
-  showToast("Antes de disparar, clique em Verificar.", "error");
-  return;
-}
-if (!hasSynced) {
-  showToast("Antes de disparar, clique em Sincronizar.", "error");
-  return;
-}
+  const inactivePhoneSet = useMemo(() => {
+    const set = new Set();
+    (subscribers || []).forEach((s) => {
+      if (String(s?.status || '').toLowerCase() === 'inactive') {
+        const p = String(s?.phoneCanonical || s?.phone || '').replace(/\D/g, '');
+        if (p) set.add(p.startsWith('55') && (p.length === 12 || p.length === 13) ? p.slice(2) : p);
+      }
+    });
+    return set;
+  }, [subscribers]);
 
-    const toSend = filteredAppointments.filter((a) => a.isSubscribed && a.reminderType);
-    if (!toSend.length) return showToast('Nenhum disparo disponível para a seleção.', 'info');
+    // 9. Enviar lembretes (push) — PASSO 28/45: PREVIEW (não envia)
+  const generateSendPreview = async () => {
+    if (!hasVerified) {
+      showToast("Antes de disparar, clique em Verificar.", "error");
+      return;
+    }
+    if (!hasSynced) {
+      showToast("Antes de disparar, clique em Sincronizar.", "error");
+      return;
+    }
 
-    setIsSending(true);
+    const onlyDigits = (v) => String(v || "").replace(/\D/g, "");
+    const toCanonical = (v) => {
+      let d = onlyDigits(v).replace(/^0+/, "");
+      if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
+      return d;
+    };
+
+    const candidates = (filteredAppointments || []).filter((a) => a.reminderType);
+
+    // Busca server-side (Admin SDK) para saber quem realmente tem token,
+    // sem ler subscribers no client.
+    const phonesUnique = Array.from(
+      new Set(
+        candidates
+          .map((a) => toCanonical(a.cleanPhone || a.phoneCanonical || a.phone))
+          .filter((p) => p && (p.length === 10 || p.length === 11))
+      )
+    );
+
+    let hasTokenByPhone = {};
     try {
-      const response = await fetch('/api/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: toSend }),
+      const res = await fetch("/api/admin/push/status-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-secret": process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "",
+        },
+        body: JSON.stringify({ phones: phonesUnique }),
       });
 
-      const data = await response.json().catch(() => ({}));
+      if (res.ok) {
+        const data = await res.json();
+        const results = data?.results || {};
+        hasTokenByPhone = Object.fromEntries(
+          Object.entries(results).map(([phone, info]) => [phone, Boolean(info?.hasToken)])
+        );
+      } else {
+        // fallback: se rota falhar, usa flag isSubscribed existente
+        hasTokenByPhone = {};
+      }
+    } catch (e) {
+      hasTokenByPhone = {};
+    }
 
-      if (!response.ok) {
-        throw new Error(data?.error || 'Falha no disparo.');
+    const getHasToken = (a) => {
+      const p = toCanonical(a.cleanPhone || a.phoneCanonical || a.phone);
+      if (p && Object.prototype.hasOwnProperty.call(hasTokenByPhone, p)) return !!hasTokenByPhone[p];
+      // fallback (legado)
+      return Boolean(a.isSubscribed);
+    };
+
+    const blockedNoToken = candidates.filter((a) => !getHasToken(a));
+    const blockedInactive = candidates.filter((a) => {
+      const p = toCanonical(a.cleanPhone || a.phoneCanonical || a.phone);
+      return getHasToken(a) && inactivePhoneSet.has(p);
+    });
+    const willSend = candidates.filter((a) => {
+      const p = toCanonical(a.cleanPhone || a.phoneCanonical || a.phone);
+      return getHasToken(a) && !inactivePhoneSet.has(p);
+    });
+
+    const byPatient = new Map();
+    willSend.forEach((a) => {
+      const phone = toCanonical(a.cleanPhone || a.phoneCanonical || a.phone);
+      const key = phone || "sem_telefone";
+      const prev = byPatient.get(key) || {
+        phoneCanonical: phone,
+        name: a.name || a.patientName || "-",
+        count: 0,
+      };
+      prev.count += 1;
+      byPatient.set(key, prev);
+    });
+
+    const patients = Array.from(byPatient.values())
+      .sort((x, y) => y.count - x.count)
+      .slice(0, 25);
+
+    const blockedPatientsMap = new Map();
+
+// Consolida bloqueios por paciente (até 25 no preview)
+candidates.forEach((a) => {
+  const phone = toCanonical(a.cleanPhone || a.phoneCanonical || a.phone);
+  const name = a.name || a.patientName || '-';
+  const key = phone || 'sem_telefone';
+
+  let reason = null;
+  if (!phone) {
+    reason = 'Sem telefone';
+  } else if (inactivePhoneSet.has(phone)) {
+    reason = 'Inativo';
+  } else if (!getHasToken(a)) {
+    reason = 'Sem Push';
+  }
+
+  if (!reason) return;
+
+  const prev = blockedPatientsMap.get(key) || {
+    phoneCanonical: phone || '',
+    name,
+    reason,
+    count: 0,
+  };
+
+  // Se houver múltiplos motivos (raro), prioriza Inativo > Sem Push > Sem telefone
+  const priority = { 'Inativo': 3, 'Sem Push': 2, 'Sem telefone': 1 };
+  if (priority[reason] > (priority[prev.reason] || 0)) prev.reason = reason;
+
+  prev.count += 1;
+  blockedPatientsMap.set(key, prev);
+});
+
+const blockedPatients = Array.from(blockedPatientsMap.values())
+  .sort((x, y) => y.count - x.count)
+  .slice(0, 25);
+
+const blockedMissingPhone = candidates.filter((a) => {
+  const p = toCanonical(a.cleanPhone || a.phoneCanonical || a.phone);
+  return !p;
+}).length;
+
+const preview = {
+  uploadId: lastUploadId || globalConfig?.appointmentsLastUploadId || null,
+  generatedAtISO: new Date().toISOString(),
+  totals: {
+    candidates: candidates.length,
+    willSend: willSend.length,
+    blockedNoToken: blockedNoToken.length,
+    blockedInactive: blockedInactive.length,
+    blockedMissingPhone,
+  },
+  patients,
+  blockedPatients,
+
+  willSendItems: willSend.map((a) => ({
+    appointmentId: a.id || a.appointmentId || null,
+    phoneCanonical: toCanonical(a.cleanPhone || a.phoneCanonical || a.phone),
+    patientName: a.name || a.patientName || '',
+    startISO: a.startISO || a.start || a.dateISO || a.date || null,
+    reminderType: a.reminderType || null,
+    serviceType: a.serviceType || 'Sessão',
+    location: a.location || 'Clínica',
+  })),
+};
+
+    setSendPreview(preview);
+    showToast("Preview gerado. Nenhuma mensagem foi enviada.", "info");
+  };
+
+  const [sendMode, setSendMode] = useState('preview'); // 'preview' | 'ready' | 'sending'
+  const resetSendState = () => {
+    setSendPreview(null);
+    setSendMode('preview');
+  };
+const handleDispatchReminders = async () => {
+    if (!sendPreview || !sendPreview?.willSendItems?.length) {
+      showToast("Gere o preview antes de disparar.", "error");
+      return;
+    }
+    setIsSending(true);
+    setSendMode('sending');
+    try {
+      const res = await fetch("/api/admin/reminders/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-secret": process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "",
+        },
+        body: JSON.stringify({
+          uploadId: sendPreview?.uploadId || lastUploadId || globalConfig?.appointmentsLastUploadId || null,
+          reminders: sendPreview.willSendItems,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        const msg = data?.error || "Erro ao disparar lembretes.";
+        showToast(msg, "error");
+        setSendMode('ready');
+        return;
       }
 
-      showToast(`Lembretes enviados: ${data?.sent || toSend.length}`);
+      showToast(
+        `Disparo concluído: ${data?.sentCount || 0} enviados, ${data?.failCount || 0} falharam, ${data?.skippedNoToken || 0} sem push.`,
+        "success"
+      );
+
+      // Reseta estado para evitar disparo duplicado acidental.
+      setSendPreview(null);
+      setSendMode('preview');
     } catch (e) {
       console.error(e);
-      showToast('Erro ao enviar lembretes.', 'error');
+      showToast("Erro ao disparar lembretes.", "error");
+      setSendMode('ready');
     } finally {
       setIsSending(false);
     }
   };
+
+  const handleSendReminders = async () => {
+    if (sendMode === 'ready') {
+      await handleDispatchReminders();
+      return;
+    }
+    setIsSending(true);
+    try {
+      await generateSendPreview();
+      // generateSendPreview já dá toast. Aqui só muda o modo.
+      setSendMode('ready');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+
 
   // 10. Salvar configurações globais
   const saveConfig = async (publishNewVersion = false) => {
@@ -681,6 +1005,9 @@ if (!hasSynced) {
     try {
       const ref = doc(db, 'config', 'global');
       const payload = {
+        reminderOffsetsHours: Array.isArray(localConfig.reminderOffsetsHours)
+          ? localConfig.reminderOffsetsHours.map((n) => Number(n || 0))
+          : [48, 24, 12],
         msg48h: localConfig.msg48h || '',
         msg24h: localConfig.msg24h || '',
         msg12h: localConfig.msg12h || '',
@@ -910,13 +1237,32 @@ if (!hasSynced) {
                     <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:text-slate-800 shadow-sm transition-all text-sm h-full">
                       <Upload size={18} /> Carregar Planilha
                     </div>
-                    <input type="file" onChange={handleFileUpload} className="hidden" />
+                    <input type="file" onChange={handleFileUpload} className="hidden" ref={fileInputRef} />
                   </label>
                   <Button onClick={handleClearData} variant="danger" icon={Trash2} />
                   <Button onClick={() => processCsv()} className="flex-1" icon={Send}>
                     Verificar
                   </Button>
                 </div>
+                {verificationSummary ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <span>
+                        <b>Total:</b> {verificationSummary.total}
+                      </span>
+                      <span>
+                        <b>Pacientes únicos:</b> {verificationSummary.uniquePatients}
+                      </span>
+                      <span>
+                        <b>Período:</b> {verificationSummary.dateFrom} → {verificationSummary.dateTo}
+                      </span>
+                      <span>
+                        <b>Fallback “Sessão”:</b> {verificationSummary.fallbackServiceCount}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+
               </div>
             </Card>
 
@@ -930,7 +1276,7 @@ if (!hasSynced) {
                     className="w-full shadow-none ring-0 focus:ring-0 focus:ring-offset-0"
                     icon={isSending ? Loader2 : Bell}
                   >
-                    {isSending ? 'Enviando...' : 'Disparar Lembretes'}
+                    {isSending ? 'Processando...' : (sendMode === 'ready' ? 'Disparar Lembretes' : 'Gerar Preview do Disparo')}
                   </Button>
                 ) : (
                   <p className="text-center text-xs text-slate-400">
@@ -938,6 +1284,122 @@ if (!hasSynced) {
                   </p>
                 )}
               </div>
+
+
+              {sendPreview && (
+                <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-slate-600">Preview do Disparo (não envia)</div>
+                    <div className="text-[11px] text-slate-400">
+                      Gerado em {new Date(sendPreview.generatedAtISO).toLocaleString('pt-BR')}
+                    </div>
+
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Offsets atuais: {(
+                        (Array.isArray(localConfig.reminderOffsetsHours)
+                          ? localConfig.reminderOffsetsHours
+                          : Array.isArray(globalConfig?.reminderOffsetsHours)
+                            ? globalConfig.reminderOffsetsHours
+                            : [48, 24, 12]
+                        )
+                          .slice()
+                          .sort((a, b) => Number(b) - Number(a))
+                          .join('h / ')
+                      )}h
+                    </div>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-white p-2 border border-slate-100">
+                      <div className="text-slate-400">Candidatos</div>
+                      <div className="text-slate-800 font-bold">{sendPreview.totals.candidates}</div>
+                    </div>
+                    <div className="rounded-lg bg-white p-2 border border-slate-100">
+                      <div className="text-slate-400">Iriam enviar</div>
+                      <div className="text-slate-800 font-bold">{sendPreview.totals.willSend}</div>
+                    </div>
+                    <div className="rounded-lg bg-white p-2 border border-slate-100">
+                      <div className="text-slate-400">Bloqueados (sem Push)</div>
+                      <div className="text-slate-800 font-bold">{sendPreview.totals.blockedNoToken}</div>
+                    </div>
+                    <div className="rounded-lg bg-white p-2 border border-slate-100">
+                      <div className="text-slate-400">Bloqueados (inativos)</div>
+                      <div className="text-slate-800 font-bold">{sendPreview.totals.blockedInactive}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Sem telefone (dados incompletos): <span className="font-bold text-slate-700">{sendPreview.totals.blockedMissingPhone || 0}</span>
+                  </div>
+
+                  <div className="mt-3 text-[11px] text-slate-500">
+                    Pacientes bloqueados (até 25) — motivo:
+                    <span className="ml-2 text-slate-400">Sem Push → orientar ativação de notificações no painel. Inativo → não deve receber lembretes.</span>
+                  </div>
+
+                  <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-slate-100 bg-white">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-white border-b border-slate-100">
+                        <tr>
+                          <th className="p-2 text-left text-[11px] text-slate-400 font-bold">Paciente</th>
+                          <th className="p-2 text-left text-[11px] text-slate-400 font-bold">Telefone</th>
+                          <th className="p-2 text-left text-[11px] text-slate-400 font-bold">Motivo</th>
+                          <th className="p-2 text-right text-[11px] text-slate-400 font-bold">Msgs</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(sendPreview.blockedPatients || []).map((p) => (
+                          <tr key={`${p.phoneCanonical || 'sem'}_${p.reason || 'motivo'}`} className="border-b border-slate-50">
+                            <td className="p-2 text-slate-700 font-semibold">{p.name || '-'}</td>
+                            <td className="p-2 text-slate-500">{p.phoneCanonical || '-'}</td>
+                            <td className="p-2 text-slate-600 font-bold">{p.reason || '-'}</td>
+                            <td className="p-2 text-right text-slate-700 font-bold">{p.count}</td>
+                          </tr>
+                        ))}
+                        {(!sendPreview.blockedPatients || sendPreview.blockedPatients.length === 0) && (
+                          <tr>
+                            <td className="p-3 text-center text-slate-400" colSpan={4}>
+                              Nenhum bloqueio detectado no preview.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-3 text-[11px] text-slate-500">
+                    Top pacientes (até 25) com lembretes pendentes:
+                  </div>
+
+                  <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-slate-100 bg-white">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-white border-b border-slate-100">
+                        <tr>
+                          <th className="p-2 text-left text-[11px] text-slate-400 font-bold">Paciente</th>
+                          <th className="p-2 text-left text-[11px] text-slate-400 font-bold">Telefone</th>
+                          <th className="p-2 text-right text-[11px] text-slate-400 font-bold">Msgs</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sendPreview.patients.map((p) => (
+                          <tr key={p.phoneCanonical || Math.random()} className="border-b border-slate-50">
+                            <td className="p-2 text-slate-700 font-semibold">{p.name || '-'}</td>
+                            <td className="p-2 text-slate-500">{p.phoneCanonical || '-'}</td>
+                            <td className="p-2 text-right text-slate-700 font-bold">{p.count}</td>
+                          </tr>
+                        ))}
+                        {sendPreview.patients.length === 0 && (
+                          <tr>
+                            <td className="p-3 text-center text-slate-400" colSpan={3}>
+                              Nenhum lembrete pendente para preview.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b border-slate-50">
                 <Filter size={14} className="text-slate-400 mt-1.5 ml-2" />
@@ -1215,11 +1677,58 @@ if (!hasSynced) {
                 <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wider text-center">
                   Modelos de Mensagem
                 </h4>
+                <p className="text-xs text-slate-500 text-center -mt-2">
+                  Placeholders: <code className="text-[11px]">{'{name}'}</code>, <code className="text-[11px]">{'{date}'}</code>, <code className="text-[11px]">{'{time}'}</code>, <code className="text-[11px]">{'{serviceType}'}</code>, <code className="text-[11px]">{'{location}'}</code>
+                </p>
 
-                {['msg48h', 'msg24h', 'msg12h'].map((key) => (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <p className="text-xs text-slate-600 mb-3">
+                    Defina quantas <b>horas antes</b> cada mensagem será considerada “pendente” para disparo.
+                    (Mantemos 3 lembretes por consistência terapêutica.)
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      { idx: 0, label: "Mensagem 1", hint: "maior antecedência" },
+                      { idx: 1, label: "Mensagem 2", hint: "intermediária" },
+                      { idx: 2, label: "Mensagem 3", hint: "mais próxima" },
+                    ].map(({ idx, label, hint }) => (
+                      <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-slate-700">{label}</span>
+                          <span className="text-[10px] text-slate-400">{hint}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          value={(localConfig.reminderOffsetsHours || [48, 24, 12])[idx]}
+                          onChange={(e) => {
+                            const v = Number(e.target.value || 0);
+                            const current = Array.isArray(localConfig.reminderOffsetsHours)
+                              ? [...localConfig.reminderOffsetsHours]
+                              : [48, 24, 12];
+                            current[idx] = v;
+                            setLocalConfig({ ...localConfig, reminderOffsetsHours: current });
+                          }}
+                          className="w-full p-2 border border-slate-200 rounded-lg text-slate-800 outline-none focus:ring-2 focus:ring-violet-200 transition-all"
+                          placeholder="Horas"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">Ex.: {(localConfig.reminderOffsetsHours || [48, 24, 12])[idx]}h antes</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+
+                {['msg1', 'msg2', 'msg3'].map((key) => (
                   <div key={key}>
                     <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">
-                      {key.replace('msg', '')} Antes
+                      {(() => {
+                        const offsets = localConfig.reminderOffsetsHours || [48, 24, 12];
+                        const map = { msg1: offsets[0], msg2: offsets[1], msg3: offsets[2] };
+                        const h = map[key] ?? '';
+                        const slotLabel = key === 'msg1' ? 'Mensagem 1' : key === 'msg2' ? 'Mensagem 2' : 'Mensagem 3';
+                        return `${slotLabel} • ${h}h antes`;
+                      })()}
                     </label>
                     <textarea
                       value={localConfig[key]}
