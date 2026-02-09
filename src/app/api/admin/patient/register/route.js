@@ -1,185 +1,139 @@
-import { NextResponse } from 'next/server';
-import admin from 'firebase-admin';
+import { NextResponse } from "next/server";
+import admin from "firebase-admin";
 
 /**
- * PASSO 25/45 — Admin server-side: cadastrar/editar paciente com service account
+ * POST /api/admin/patient/register
  *
- * Endpoint: POST /api/admin/patient/register
- * Proteção: header x-admin-secret == env ADMIN_PANEL_SECRET
+ * Cria/edita paciente (whitelist):
+ * - users/{uid} (perfil + contrato + patientExternalId)
+ * - subscribers/{phoneCanonical} (pushToken/metadata) — paciente NÃO lê no client
  *
- * Grava/atualiza:
- * - subscribers/{phoneCanonical} (docId canônico: DDD+número, sem 55)
- * - users/{uid determinístico do email} (uid derivado do email)
+ * Payload:
+ * { name, email, phone, patientExternalId?, previousPhoneCanonical?, previousEmail? }
  *
- * Suporta edição segura (evitar duplicidade) com:
- * - previousPhoneCanonical (opcional): se telefone mudou, marca o doc antigo como merged
- * - previousEmail (opcional): se email mudou, marca o doc antigo em users como merged
+ * phoneCanonical padrão: DDD+número (10/11) sem 55
  */
 
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
-  if (b64) {
-    const json = Buffer.from(b64, 'base64').toString('utf-8');
-    return JSON.parse(json);
-  }
+  if (b64) return JSON.parse(Buffer.from(b64, "base64").toString("utf-8"));
   const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
-  if (!raw) throw new Error('Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var');
+  if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var");
   return JSON.parse(raw);
 }
 
 function initAdmin() {
   if (admin.apps.length) return;
-  const serviceAccount = getServiceAccount();
-  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  admin.initializeApp({ credential: admin.credential.cert(getServiceAccount()) });
 }
 
-function onlyDigits(value) {
-  return String(value || '').replace(/\D/g, '');
+function onlyDigits(v) {
+  return String(v || "").replace(/\D/g, "");
 }
 
-// phoneCanonical: DDD + número (10/11), SEM 55
 function normalizePhoneCanonical(input) {
-  let d = onlyDigits(input).replace(/^0+/, '');
-  if (!d) return '';
-  // remove 55 se vier (12/13 dígitos)
-  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+  let d = onlyDigits(input).replace(/^0+/, "");
+  if (!d) return "";
+  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
   return d;
-}
-
-// phoneE164: 55 + canônico
-function phoneToE164(phoneCanonical) {
-  const c = normalizePhoneCanonical(phoneCanonical);
-  if (!c) return '';
-  if (c.length === 10 || c.length === 11) return `55${c}`;
-  return c;
-}
-
-// Compatível com /api/patient-auth (UID determinístico por email)
-function makeUidFromEmail(email) {
-  const clean = String(email || '').trim().toLowerCase();
-  if (!clean) return '';
-  const b64 = Buffer.from(clean, 'utf-8').toString('base64').replace(/=+$/g, '');
-  return (`p_${b64}`).slice(0, 28);
 }
 
 export async function POST(req) {
   try {
     initAdmin();
 
-    const secret = req.headers.get('x-admin-secret') || '';
-    const expected = process.env.ADMIN_PANEL_SECRET || '';
-    if (!expected || secret !== expected) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    const adminSecret = req.headers.get("x-admin-secret") || "";
+    const requiredSecret = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
+    if (requiredSecret && adminSecret !== requiredSecret) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await req.json().catch(() => ({}));
+    const name = String(body.name || "").trim();
+    const email = String(body.email || "").trim().toLowerCase();
+    const phoneCanonical = normalizePhoneCanonical(body.phone);
 
-    const name = String(body?.name || '').trim();
-    const email = String(body?.email || '').trim().toLowerCase();
-    const phoneInput = String(body?.phone || '');
+    const patientExternalId = String(body.patientExternalId || "").trim() || null;
 
-    // opcionais para edição
-    const previousPhoneCanonical = normalizePhoneCanonical(body?.previousPhoneCanonical || '');
-    const previousEmail = String(body?.previousEmail || '').trim().toLowerCase();
+    const previousPhoneCanonical = normalizePhoneCanonical(body.previousPhoneCanonical || "");
+    const previousEmail = String(body.previousEmail || "").trim().toLowerCase();
 
-    if (!name || !email || !phoneInput) {
-      return NextResponse.json({ ok: false, error: 'Missing fields' }, { status: 400 });
-    }
-
-    const phoneCanonical = normalizePhoneCanonical(phoneInput);
-    const phoneE164 = phoneToE164(phoneCanonical);
-
-    if (!phoneCanonical || !(phoneCanonical.length === 10 || phoneCanonical.length === 11)) {
-      return NextResponse.json(
-        { ok: false, error: 'Invalid phone. Use DDD+número (10/11 dígitos), sem 55.' },
-        { status: 400 }
-      );
+    if (!name || !email || !(phoneCanonical.length === 10 || phoneCanonical.length === 11)) {
+      return NextResponse.json({ ok: false, error: "Dados inválidos" }, { status: 400 });
     }
 
     const db = admin.firestore();
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const auth = admin.auth();
+    const nowTs = admin.firestore.Timestamp.now();
 
-    // === upsert atual ===
-    await db.collection('subscribers').doc(phoneCanonical).set(
+    // Upsert user in Auth (by email)
+    let userRecord = null;
+    try {
+      userRecord = await auth.getUserByEmail(email);
+    } catch (_) {
+      userRecord = await auth.createUser({ email, displayName: name, disabled: false });
+    }
+
+    const uid = userRecord.uid;
+
+    // Write users/{uid}
+    await db.collection("users").doc(uid).set(
       {
+        uid,
         name,
         email,
-        phone: phoneCanonical, // compatibilidade: mantém phone == canônico
         phoneCanonical,
-        phoneE164,
-        role: 'patient',
-        updatedAt: now,
+        patientExternalId, // 🔥 novo: ID do paciente (sistema atual)
+        status: "active",
+        updatedAt: nowTs,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
-    const uid = makeUidFromEmail(email);
-    if (uid) {
-      await db.collection('users').doc(uid).set(
-        {
-          uid,
-          email,
-          name,
-          phone: phoneCanonical,
-          phoneCanonical,
-          phoneE164,
-          role: 'patient',
-          updatedAt: now,
-        },
-        { merge: true }
-      );
-    }
+    // subscribers/{phoneCanonical}
+    await db.collection("subscribers").doc(phoneCanonical).set(
+      {
+        phoneCanonical,
+        status: "active",
+        // pushToken fica sendo registrado pelo /api/patient/push/register
+        updatedAt: nowTs,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
-    // === reconciliação leve em edição (evita duplicidade) ===
-    // Se mudou o telefone, não deletamos o antigo (pode ter histórico), mas marcamos como "merged".
-    if (previousPhoneCanonical && previousPhoneCanonical !== phoneCanonical) {
-      await db.collection('subscribers').doc(previousPhoneCanonical).set(
-        {
-          mergedTo: phoneCanonical,
-          mergedAt: now,
-          mergedReason: 'admin_edit_phone',
-          updatedAt: now,
-        },
-        { merge: true }
-      );
-    }
-
-    // Se mudou o email, marcamos o user antigo como "merged" (uid diferente).
+    // Handle merge markers when changing email/phone
     if (previousEmail && previousEmail !== email) {
-      const prevUid = makeUidFromEmail(previousEmail);
-      if (prevUid && prevUid !== uid) {
-        await db.collection('users').doc(prevUid).set(
-          {
-            mergedToUid: uid || null,
-            mergedToEmail: email,
-            mergedAt: now,
-            mergedReason: 'admin_edit_email',
-            updatedAt: now,
-          },
+      // mark previous user (if exists) as merged (soft marker)
+      try {
+        const prev = await auth.getUserByEmail(previousEmail);
+        await db.collection("users").doc(prev.uid).set(
+          { status: "merged", mergedTo: uid, updatedAt: nowTs },
           { merge: true }
         );
-      }
+      } catch (_) {}
     }
 
-    await db.collection('history').add({
-      type: 'patient_upsert',
-      uid: uid || null,
-      phoneCanonical,
-      previousPhoneCanonical: previousPhoneCanonical || null,
-      previousEmail: previousEmail || null,
-      createdAt: now,
-    });
+    if (previousPhoneCanonical && previousPhoneCanonical !== phoneCanonical) {
+      await db.collection("subscribers").doc(previousPhoneCanonical).set(
+        { status: "merged", mergedTo: phoneCanonical, updatedAt: nowTs },
+        { merge: true }
+      );
+    }
 
-    return NextResponse.json({
-      ok: true,
+    await db.collection("history").add({
+      type: "patient_register",
+      createdAt: nowTs,
       uid,
       phoneCanonical,
-      phoneE164,
-      previousPhoneCanonical: previousPhoneCanonical || null,
-      previousEmail: previousEmail || null,
+      email,
+      patientExternalId,
     });
+
+    return NextResponse.json({ ok: true, uid, phoneCanonical }, { status: 200 });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || 'Erro' }, { status: 500 });
+    console.error("POST /api/admin/patient/register error:", e);
+    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
   }
 }

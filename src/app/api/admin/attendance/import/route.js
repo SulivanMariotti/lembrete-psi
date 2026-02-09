@@ -4,35 +4,28 @@ import admin from "firebase-admin";
 /**
  * POST /api/admin/attendance/import
  *
- * Importa CSV de presença/faltas para a coleção attendance_logs.
- * - Server-side (Admin SDK) para evitar rules no client.
- * - NÃO cria reagendar/cancelar.
- * - Gera resumo e registra em history.
+ * PADRÃO DA PLANILHA (CSV) — PRESENÇA/FALTAS
+ * ID, Nome, Data, Hora, Profissional, Serviço, Local, Status
  *
- * Payload JSON:
- * {
- *   adminSecret: string (opcional se você usar header x-admin-secret no front; aqui aceitamos ambos),
- *   csvText: string,            // conteúdo CSV (com header)
- *   source?: string,           // nome da fonte/planilha
- *   defaultStatus?: "present" | "absent" (opcional)
- * }
+ * ⚠️ IMPORTANTE (nova lógica):
+ * - ID = ID DO PACIENTE (no seu sistema atual), NÃO é ID da sessão.
+ * - Para permitir o MESMO paciente ter várias datas (presente em um dia e falta em outro),
+ *   o registro em attendance_logs é gravado com chave composta:
+ *     {patientId}_{isoDate}_{hora}_{profissionalSlug}
  *
- * CSV esperado (flexível):
- * - phone | telefone | celular
- * - date | data
- * - status | presença | presenca | falta
- * - name | nome (opcional)
- * - appointmentId (opcional)
+ * Como obtemos o telefone (caso pai/filho usem o mesmo número):
+ * - O telefone é do RESPONSÁVEL (contato). Ele pode ser compartilhado.
+ * - Buscamos o telefone em `users` via campo `patientExternalId` (ou `patientId`), que você irá preencher no cadastro.
+ *   - userDoc.phoneCanonical deve existir.
  *
- * phoneCanonical padrão do projeto: DDD+número (10/11), sem 55
+ * Server-side (Admin SDK) para evitar rules no client.
+ * NÃO cria/permite reagendar/cancelar.
+ * Registra resumo em history (type=attendance_import_summary).
  */
 
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
-  if (b64) {
-    const json = Buffer.from(b64, "base64").toString("utf-8");
-    return JSON.parse(json);
-  }
+  if (b64) return JSON.parse(Buffer.from(b64, "base64").toString("utf-8"));
   const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
   if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var");
   return JSON.parse(raw);
@@ -40,20 +33,7 @@ function getServiceAccount() {
 
 function initAdmin() {
   if (admin.apps.length) return;
-  const serviceAccount = getServiceAccount();
-  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-}
-
-function onlyDigits(v) {
-  return String(v || "").replace(/\D/g, "");
-}
-
-function normalizePhoneCanonical(input) {
-  let d = onlyDigits(input).replace(/^0+/, "");
-  if (!d) return "";
-  // remove 55 se vier
-  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
-  return d;
+  admin.initializeApp({ credential: admin.credential.cert(getServiceAccount()) });
 }
 
 function normalizeToISODate(dateStr) {
@@ -66,8 +46,16 @@ function normalizeToISODate(dateStr) {
   return "";
 }
 
+function normalizeTime(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return "";
+  // aceita HH:MM ou H:MM
+  const m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return t;
+  return `${m[1].padStart(2, "0")}:${m[2]}`;
+}
+
 function parseCSVLine(line) {
-  // CSV simples com vírgula ou ponto e vírgula; sem aspas complexas (suficiente pro seu caso de planilha)
   const sep = line.includes(";") && !line.includes(",") ? ";" : ",";
   return line.split(sep).map((x) => String(x || "").trim());
 }
@@ -80,23 +68,38 @@ function normalizeHeaderKey(h) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function mapStatus(raw, defaultStatus = "absent") {
+function safeSlug(str, max = 18) {
+  return String(str || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, max);
+}
+
+function mapStatus(raw) {
   const v = String(raw || "").trim().toLowerCase();
-  if (!v) return defaultStatus;
   if (["p", "presente", "presenca", "presença", "present", "compareceu", "ok", "sim", "1", "true"].includes(v))
     return "present";
   if (["f", "faltou", "falta", "absent", "missed", "nao", "não", "0", "false", "no_show", "noshow"].includes(v))
     return "absent";
-  // caso venha algo estranho, mantém default
-  return defaultStatus;
+  // default: absent (clínica: ausência precisa ser conscientizada)
+  return "absent";
 }
 
-function makeAttendanceId({ phoneCanonical, isoDate, appointmentId }) {
-  const p = onlyDigits(phoneCanonical);
-  const d = String(isoDate || "").replace(/[^0-9-]/g, "");
-  const a = String(appointmentId || "").trim();
-  // se tiver appointmentId, usa; se não, usa phone+date
-  return a ? `${a}`.slice(0, 180) : `${p}_${d}`.slice(0, 180);
+async function findUserByPatientId(db, patientId) {
+  const pid = String(patientId || "").trim();
+  if (!pid) return null;
+
+  // 1) tenta patientExternalId
+  const q1 = await db.collection("users").where("patientExternalId", "==", pid).limit(1).get();
+  if (!q1.empty) return q1.docs[0].data() || null;
+
+  // 2) fallback patientId
+  const q2 = await db.collection("users").where("patientId", "==", pid).limit(1).get();
+  if (!q2.empty) return q2.docs[0].data() || null;
+
+  return null;
 }
 
 export async function POST(req) {
@@ -116,75 +119,107 @@ export async function POST(req) {
     if (!csvText) return NextResponse.json({ ok: false, error: "csvText vazio" }, { status: 400 });
 
     const source = String(body.source || "attendance_import").trim();
-    const defaultStatus = String(body.defaultStatus || "absent").toLowerCase() === "present" ? "present" : "absent";
 
     const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (lines.length < 2) return NextResponse.json({ ok: false, error: "CSV sem dados" }, { status: 400 });
 
     const header = parseCSVLine(lines[0]).map(normalizeHeaderKey);
 
-    const idxPhone = header.findIndex((h) => ["phone", "telefone", "celular", "whatsapp", "numero", "número"].includes(h));
-    const idxDate = header.findIndex((h) => ["date", "data", "dia"].includes(h));
-    const idxStatus = header.findIndex((h) => ["status", "presenca", "presença", "presente", "falta"].includes(h));
-    const idxName = header.findIndex((h) => ["name", "nome", "paciente"].includes(h));
-    const idxAppointmentId = header.findIndex((h) => ["appointmentid", "appointment_id", "id", "sessaoid", "sessao_id"].includes(h));
+    const idxId = header.findIndex((h) => ["id", "codigo", "código", "patientid", "patient_id"].includes(h));
+    const idxName = header.findIndex((h) => ["nome", "name", "paciente"].includes(h));
+    const idxDate = header.findIndex((h) => ["data", "date", "dia"].includes(h));
+    const idxTime = header.findIndex((h) => ["hora", "time", "horario", "horário"].includes(h));
+    const idxProf = header.findIndex((h) => ["profissional", "profissional(a)", "prof"].includes(h));
+    const idxService = header.findIndex((h) => ["servico", "serviço", "service", "tipo"].includes(h));
+    const idxLocation = header.findIndex((h) => ["local", "location", "sala"].includes(h));
+    const idxStatus = header.findIndex((h) => ["status", "presenca", "presença", "presenca/falta", "falta"].includes(h));
 
-    if (idxPhone === -1) return NextResponse.json({ ok: false, error: "CSV sem coluna telefone" }, { status: 400 });
-    if (idxDate === -1) return NextResponse.json({ ok: false, error: "CSV sem coluna data" }, { status: 400 });
+    if (idxId === -1) return NextResponse.json({ ok: false, error: "CSV sem coluna ID" }, { status: 400 });
+    if (idxDate === -1) return NextResponse.json({ ok: false, error: "CSV sem coluna Data" }, { status: 400 });
+    if (idxTime === -1) return NextResponse.json({ ok: false, error: "CSV sem coluna Hora" }, { status: 400 });
+    if (idxStatus === -1) return NextResponse.json({ ok: false, error: "CSV sem coluna Status" }, { status: 400 });
 
     const db = admin.firestore();
-    const batch = db.batch();
+    const nowTs = admin.firestore.Timestamp.now();
 
     let imported = 0;
     let skipped = 0;
     const errors = [];
 
-    // limite batch: 500 writes
+    let batch = db.batch();
     let ops = 0;
-    async function commitIfNeeded() {
-      if (ops >= 450) {
+    async function commitIfNeeded(force = false) {
+      if (ops >= 450 || (force && ops > 0)) {
         await batch.commit();
+        batch = db.batch();
         ops = 0;
       }
     }
 
-    const nowTs = admin.firestore.Timestamp.now();
+    // cache de user por patientId
+    const userCache = new Map();
 
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCSVLine(lines[i]);
-      const rawPhone = cols[idxPhone] || "";
-      const rawDate = cols[idxDate] || "";
-      const rawStatus = idxStatus >= 0 ? cols[idxStatus] : "";
 
-      const phoneCanonical = normalizePhoneCanonical(rawPhone);
+      const patientId = String(cols[idxId] || "").trim();
+      const name = idxName >= 0 ? String(cols[idxName] || "").trim() : "";
+      const rawDate = String(cols[idxDate] || "").trim();
+      const rawTime = String(cols[idxTime] || "").trim();
+      const profissional = idxProf >= 0 ? String(cols[idxProf] || "").trim() : "";
+      const service = idxService >= 0 ? String(cols[idxService] || "").trim() : "";
+      const location = idxLocation >= 0 ? String(cols[idxLocation] || "").trim() : "";
+      const status = mapStatus(idxStatus >= 0 ? cols[idxStatus] : "");
+
       const isoDate = normalizeToISODate(rawDate);
+      const time = normalizeTime(rawTime);
 
-      if (!phoneCanonical || !(phoneCanonical.length === 10 || phoneCanonical.length === 11)) {
+      if (!patientId) {
         skipped += 1;
-        errors.push({ line: i + 1, error: "telefone inválido", value: rawPhone });
+        errors.push({ line: i + 1, error: "ID vazio" });
         continue;
       }
       if (!isoDate) {
         skipped += 1;
-        errors.push({ line: i + 1, error: "data inválida", value: rawDate });
+        errors.push({ line: i + 1, error: "Data inválida", value: rawDate });
+        continue;
+      }
+      if (!time) {
+        skipped += 1;
+        errors.push({ line: i + 1, error: "Hora inválida", value: rawTime });
         continue;
       }
 
-      const status = mapStatus(rawStatus, defaultStatus);
-      const name = idxName >= 0 ? String(cols[idxName] || "").trim() : "";
-      const appointmentId = idxAppointmentId >= 0 ? String(cols[idxAppointmentId] || "").trim() : "";
+      let user = userCache.get(patientId);
+      if (user === undefined) {
+        user = await findUserByPatientId(db, patientId);
+        userCache.set(patientId, user);
+      }
 
-      const docId = makeAttendanceId({ phoneCanonical, isoDate, appointmentId });
+      const phoneCanonical = user ? String(user.phoneCanonical || user.phone || "").trim() : "";
+      if (!phoneCanonical) {
+        skipped += 1;
+        errors.push({ line: i + 1, error: "Não encontrou paciente em users pelo ID (sem phoneCanonical)", value: patientId });
+        continue;
+      }
+
+      const profSlug = safeSlug(profissional || "prof", 12) || "prof";
+      const docId = `${patientId}_${isoDate}_${time.replace(":", "")}_${profSlug}`.slice(0, 180);
+
       const ref = db.collection("attendance_logs").doc(docId);
 
       batch.set(
         ref,
         {
-          phoneCanonical,
+          patientId,                // ID do paciente (do seu sistema)
+          phoneCanonical,           // pode ser compartilhado (responsável)
+          name: name || (user ? (user.name || null) : null),
           isoDate,
+          time,
+          profissional: profissional || null,
+          service: service || null,
+          location: location || null,
           status,
-          name: name || null,
-          appointmentId: appointmentId || null,
           source,
           createdAt: nowTs,
           updatedAt: nowTs,
@@ -197,11 +232,8 @@ export async function POST(req) {
       await commitIfNeeded();
     }
 
-    if (ops > 0) {
-      await batch.commit();
-    }
+    await commitIfNeeded(true);
 
-    // history log
     await db.collection("history").add({
       type: "attendance_import_summary",
       createdAt: nowTs,
@@ -211,10 +243,7 @@ export async function POST(req) {
       sampleErrors: errors.slice(0, 10),
     });
 
-    return NextResponse.json(
-      { ok: true, imported, skipped, errors: errors.slice(0, 50) },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, imported, skipped, errors: errors.slice(0, 50) }, { status: 200 });
   } catch (e) {
     console.error("POST /api/admin/attendance/import error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
