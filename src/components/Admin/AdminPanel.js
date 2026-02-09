@@ -115,8 +115,59 @@ export default function AdminPanel({
   showToast,
   globalConfig,
 }) {
-  const [adminTab, setAdminTab] = useState('dashboard');
-    const fileInputRef = useRef(null);
+  
+  // STEP43: Painel de Constância (attendance_logs)
+  const [attendancePeriodDays, setAttendancePeriodDays] = useState(30);
+  const [attendanceStats, setAttendanceStats] = useState({
+    present: 0,
+    absent: 0,
+    total: 0,
+    rate: 0,
+    topAbsent: []
+  });
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState(null);
+
+  // STEP44: Importar Presença/Faltas (CSV) para attendance_logs via API server-side
+  const [attendanceImportText, setAttendanceImportText] = useState('');
+  const [attendanceImportSource, setAttendanceImportSource] = useState('planilha');
+  const [attendanceImportDefaultStatus, setAttendanceImportDefaultStatus] = useState('absent'); // absent|present
+  const [attendanceImportResult, setAttendanceImportResult] = useState(null);
+  const [attendanceImportLoading, setAttendanceImportLoading] = useState(false);
+
+  
+
+  // STEP43-FIX: carregar estatísticas de constância via API (Admin SDK), evitando rules no client
+const [adminTab, setAdminTab] = useState('dashboard');
+    
+  useEffect(() => {
+    const run = async () => {
+      if (adminTab !== 'dashboard') return;
+      try {
+        setAttendanceLoading(true);
+        setAttendanceError(null);
+        const res = await fetch(`/api/admin/attendance/summary?days=${attendancePeriodDays}`, { method: 'GET' });
+        const data = await res.json();
+        if (!res.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar constância');
+        setAttendanceStats({
+          present: Number(data.present || 0),
+          absent: Number(data.absent || 0),
+          total: Number(data.total || 0),
+          rate: Number(data.attendanceRate || 0),
+          topAbsent: Array.isArray(data.topMisses)
+            ? data.topMisses.map((x) => ({ phoneCanonical: x.phoneCanonical, count: x.misses }))
+            : [],
+        });
+      } catch (e) {
+        setAttendanceStats({ present: 0, absent: 0, total: 0, rate: 0, topAbsent: [] });
+        setAttendanceError(e?.message || 'Erro ao carregar constância');
+      } finally {
+        setAttendanceLoading(false);
+      }
+    };
+    run();
+  }, [adminTab, attendancePeriodDays]);
+const fileInputRef = useRef(null);
 const [csvInput, setCsvInput] = useState('');
   
   const [hasVerified, setHasVerified] = useState(false);
@@ -475,6 +526,43 @@ useEffect(() => {
       `Planilha verificada: ${total} linhas • ${authorized} autorizados • ${notAuthorized} não autorizados • ${pendingSends} disparos pendentes.`
     );
   };
+
+
+
+  const handleAttendanceImport = async () => {
+    try {
+      setAttendanceImportLoading(true);
+      setAttendanceImportResult(null);
+      const res = await fetch('/api/admin/attendance/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || ''
+        },
+        body: JSON.stringify({
+          csvText: attendanceImportText,
+          source: attendanceImportSource,
+          defaultStatus: attendanceImportDefaultStatus,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setAttendanceImportResult({ ok: false, error: data?.error || 'Falha ao importar' });
+        showToast(data?.error || 'Falha ao importar', 'error');
+        return;
+      }
+      setAttendanceImportResult({ ok: true, imported: data.imported, skipped: data.skipped, errors: data.errors || [] });
+      showToast(`Importado: ${data.imported} • Ignorados: ${data.skipped}`);
+      // Recarrega estatística para refletir imediatamente
+      setAttendancePeriodDays((d) => d); // trigger effect
+    } catch (e) {
+      setAttendanceImportResult({ ok: false, error: e?.message || 'Erro' });
+      showToast('Erro ao importar presença/faltas', 'error');
+    } finally {
+      setAttendanceImportLoading(false);
+    }
+  };
+
 
   // 7. Sincronizar agenda no Firestore (✅ upsert + reconciliação: cancela futuros que sumirem do upload)
   
@@ -1035,6 +1123,7 @@ const handleDispatchReminders = async () => {
     }
   };
 
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Sidebar */}
@@ -1115,8 +1204,174 @@ const handleDispatchReminders = async () => {
       {/* Conteúdo */}
       <div className="lg:col-span-9 space-y-6">
         {/* DASHBOARD */}
-        {adminTab === 'dashboard' && (
+        
+{adminTab === 'dashboard' && (
           <>
+            {/* STEP43: Constância Terapêutica (Presença/Faltas) */}
+            <Card className="p-5">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-800">Constância Terapêutica</h3>
+                  <p className="text-sm text-slate-500">
+                    A cura acontece na continuidade. Este painel ajuda a monitorar presença e faltas para apoiar o vínculo.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 mr-2">Período:</span>
+                  {[7, 30, 90].map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setAttendancePeriodDays(d)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                        attendancePeriodDays === d
+                          ? 'bg-violet-600 text-white shadow-lg shadow-violet-200'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {d}d
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {attendanceError && (
+                <div className="mt-4 text-sm text-red-600">
+                  {attendanceError}
+                </div>
+              )}
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <StatCard title={`Presenças (${attendancePeriodDays} dias)`} value={attendanceLoading ? "..." : attendanceStats.present} icon={CalendarCheck} />
+                <StatCard title={`Faltas (${attendancePeriodDays} dias)`} value={attendanceLoading ? "..." : attendanceStats.absent} icon={UserMinus} />
+                <StatCard title="Taxa de Comparecimento" value={attendanceLoading ? "..." : `${attendanceStats.rate}%`} icon={Activity} />
+              </div>
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-slate-800">Faltas mais frequentes</h4>
+                  <span className="text-xs text-slate-500">Top 8 por paciente</span>
+                </div>
+
+                <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr className="text-left">
+                        <th className="px-4 py-2 font-semibold text-slate-600">Paciente (phoneCanonical)</th>
+                        <th className="px-4 py-2 font-semibold text-slate-600">Faltas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!attendanceLoading && attendanceStats.topAbsent.length === 0 ? (
+                        <tr>
+                          <td className="px-4 py-3 text-slate-500" colSpan={2}>Sem dados de faltas no período.</td>
+                        </tr>
+                      ) : (
+                        attendanceStats.topAbsent.map((row) => (
+                          <tr key={row.phoneCanonical} className="border-t border-slate-200">
+                            <td className="px-4 py-2 text-slate-700">{row.phoneCanonical}</td>
+                            <td className="px-4 py-2 text-slate-700">{row.count}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="mt-3 text-xs text-slate-500">
+                  Importante: este painel não oferece cancelamento/reagendamento. A ausência deve ser tratada com contato ativo com a clínica, criando uma barreira saudável contra resistências momentâneas.
+                </p>
+              </div>
+            </Card>
+
+            {/* STEP44: Importar Presença/Faltas */}
+            <Card className="p-5 mt-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold">Importar Presença/Faltas</h3>
+                  <p className="text-sm text-slate-600">
+                    Alimente <b>attendance_logs</b> via planilha (CSV). Isso sustenta o painel de constância e futuras mensagens de cuidado.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                <div>
+                  <label className="text-sm text-slate-600">Fonte</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200"
+                    value={attendanceImportSource}
+                    onChange={(e) => setAttendanceImportSource(e.target.value)}
+                    placeholder="ex.: sistema_atual / recepção / manual"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm text-slate-600">Status padrão (se faltar coluna)</label>
+                  <select
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200"
+                    value={attendanceImportDefaultStatus}
+                    onChange={(e) => setAttendanceImportDefaultStatus(e.target.value)}
+                  >
+                    <option value="absent">Falta</option>
+                    <option value="present">Presença</option>
+                  </select>
+                </div>
+
+                <div className="flex items-end">
+                  <Button
+                    onClick={handleAttendanceImport}
+                    disabled={attendanceImportLoading || !attendanceImportText.trim()}
+                    className="w-full"
+                  >
+                    {attendanceImportLoading ? 'Importando...' : 'Importar'}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label className="text-sm text-slate-600">Cole o CSV aqui</label>
+                <textarea
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 min-h-[140px]"
+                  value={attendanceImportText}
+                  onChange={(e) => setAttendanceImportText(e.target.value)}
+                  placeholder={"telefone,data,status,nome\n11999999999,07/02/2026,presente,João\n..."}
+                />
+              </div>
+
+              {attendanceImportResult && (
+                <div className="mt-3 text-sm">
+                  {attendanceImportResult.ok ? (
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <CheckCircle className="w-4 h-4" />
+                      <span>
+                        Importado: <b>{attendanceImportResult.imported}</b> • Ignorados: <b>{attendanceImportResult.skipped}</b>
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-red-600">
+                      <X className="w-4 h-4" />
+                      <span>Erro: {attendanceImportResult.error}</span>
+                    </div>
+                  )}
+
+                  {attendanceImportResult.ok && attendanceImportResult.errors?.length > 0 && (
+                    <div className="mt-2 text-slate-600">
+                      <div className="font-semibold">Amostra de erros:</div>
+                      <ul className="list-disc ml-5">
+                        {attendanceImportResult.errors.slice(0, 5).map((er, idx) => (
+                          <li key={idx}>
+                            Linha {er.line}: {er.error} ({er.value})
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <StatCard title="Pacientes Ativos (30 dias)" value={activeUsersCount} icon={Activity} />
               <StatCard title="Pacientes Cadastrados" value={subscribers.length} icon={Users} />

@@ -332,7 +332,10 @@ function formatDateTimeBR(ms) {
 }
 
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
-  const [profile, setProfile] = useState(null);
+  
+  // STEP42: o paciente não acessa a coleção subscribers no client
+  const subscribers = null;
+const [profile, setProfile] = useState(null);
 
   const [appointmentsRaw, setAppointmentsRaw] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -409,8 +412,6 @@ useEffect(() => {
     if (!email) return;
 
     try {
-      const q = query(collection(db, "subscribers"), where("email", "==", email), limit(1));
-      const snap = await getDocs(q);
       const docSnap = snap.docs?.[0];
       const phone =
         (docSnap?.id ? String(docSnap.id) : "") ||
@@ -633,8 +634,6 @@ useEffect(() => {
   try {
     const email = (user?.email || "").toLowerCase().trim();
     if (!email) return "";
-    const snap = await getDocs(query(collection(db, "subscribers"), where("email", "==", email)));
-    const first = snap.docs?.[0];
     const p = first?.id ? String(first.id).replace(/\D/g, "") : "";
     return p;
   } catch (_) {
@@ -1166,8 +1165,6 @@ useEffect(() => {
       if (!phone) {
         const email = (user?.email || "").toLowerCase().trim();
         if (email) {
-          const snap = await getDocs(query(collection(db, "subscribers"), where("email", "==", email)));
-          const first = snap.docs?.[0];
           phone = first?.id ? String(first.id).replace(/\D/g, "") : "";
           if (phone) {
             try {
