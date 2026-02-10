@@ -1,0 +1,378 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, Download, UserPlus, UserMinus, X } from 'lucide-react';
+import { Button, Card, Badge } from '../DesignSystem';
+
+/**
+ * AdminPatientsTab
+ * - Lista pacientes via rota server-side (Admin SDK): POST /api/admin/patients/list
+ * - Edita / cria via POST /api/admin/patient/register
+ * - Desativa via POST /api/admin/patient/delete (soft delete)
+ *
+ * FIX URGENTE (desativação):
+ * - Agora SEMPRE envia uid (docId real em users/{uid}) + patientExternalId quando existir,
+ *   para o endpoint não criar um doc "p_base64(email)" e sim atualizar o doc correto.
+ */
+
+export default function AdminPatientsTab({ showToast }) {
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Lista de pacientes carregada do servidor (Admin SDK)
+  const [patients, setPatients] = useState([]);
+  const [isLoadingPatients, setIsLoadingPatients] = useState(false);
+
+  // Estado para cadastro/edição
+  const [newPatient, setNewPatient] = useState({ name: '', email: '', phone: '', patientExternalId: '' });
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingPatient, setEditingPatient] = useState(null);
+
+  const adminSecret = useMemo(() => process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '', []);
+
+  const closePatientModal = () => {
+    setShowUserModal(false);
+    setEditingPatient(null);
+    setNewPatient({ name: '', email: '', phone: '', patientExternalId: '' });
+  };
+
+  const loadPatients = async () => {
+    setIsLoadingPatients(true);
+    try {
+      const res = await fetch('/api/admin/patients/list', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': adminSecret,
+        },
+        body: JSON.stringify({
+          limit: 2000,
+          includePush: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || 'Falha ao carregar pacientes.');
+      }
+      setPatients(Array.isArray(data.patients) ? data.patients : []);
+    } catch (e) {
+      console.error('loadPatients failed', e);
+      showToast?.(e?.message || 'Falha ao carregar pacientes.', 'error');
+    } finally {
+      setIsLoadingPatients(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!adminSecret) {
+      showToast?.('Falta configurar NEXT_PUBLIC_ADMIN_PANEL_SECRET (admin).', 'error');
+      return;
+    }
+    loadPatients();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openNewPatientModal = () => {
+    setEditingPatient(null);
+    setNewPatient({ name: '', email: '', phone: '', patientExternalId: '' });
+    setShowUserModal(true);
+  };
+
+  const openEditPatientModal = async (u) => {
+    const prevEmail = String(u?.email || '').trim();
+    const prevPhone = String(u?.phoneCanonical || u?.phone || '').trim();
+
+    setEditingPatient({
+      ...u,
+      previousEmail: prevEmail,
+      previousPhoneCanonical: prevPhone,
+    });
+
+    setNewPatient({
+      name: String(u?.name || u?.nome || '').trim(),
+      email: prevEmail,
+      phone: prevPhone,
+      patientExternalId: String(u?.patientExternalId || '').trim(),
+    });
+
+    setShowUserModal(true);
+  };
+
+  const handleRegisterPatient = async () => {
+    if (!newPatient.email || !newPatient.name || !newPatient.phone) {
+      return showToast?.('Preencha todos os campos.', 'error');
+    }
+    if (!adminSecret) {
+      return showToast?.('Falta configurar NEXT_PUBLIC_ADMIN_PANEL_SECRET (admin).', 'error');
+    }
+
+    try {
+      const payload = {
+        name: newPatient.name.trim(),
+        email: newPatient.email.trim().toLowerCase(),
+        phone: String(newPatient.phone || '').trim(),
+        patientExternalId: String(newPatient.patientExternalId || '').trim(),
+        ...(editingPatient?.previousPhoneCanonical ? { previousPhoneCanonical: editingPatient.previousPhoneCanonical } : {}),
+        ...(editingPatient?.previousEmail ? { previousEmail: editingPatient.previousEmail } : {}),
+      };
+
+      const res = await fetch('/api/admin/patient/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': adminSecret,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        return showToast?.(data?.error || 'Erro ao salvar paciente.', 'error');
+      }
+
+      showToast?.(editingPatient ? 'Paciente atualizado com sucesso!' : 'Paciente cadastrado com sucesso!');
+      await loadPatients();
+      closePatientModal();
+    } catch (e) {
+      console.error(e);
+      showToast?.('Erro ao salvar paciente.', 'error');
+    }
+  };
+
+  const handleRemovePatient = async (u) => {
+    try {
+      if (!adminSecret) {
+        return showToast?.('Falta configurar NEXT_PUBLIC_ADMIN_PANEL_SECRET (admin).', 'error');
+      }
+
+      // IMPORTANT: enviar UID real do doc, para atualizar o registro correto no Firestore
+      const uid = String(u?.uid || u?.id || '').trim(); // backend usa docId real
+      const patientExternalId = String(u?.patientExternalId || '').trim() || null;
+      const phoneCanonical = String(u?.phoneCanonical || u?.phone || '').trim();
+      const email = String(u?.email || '').trim().toLowerCase();
+
+      if (!uid && !phoneCanonical && !email && !patientExternalId) {
+        return showToast?.('Paciente inválido (sem uid/email/telefone/id externo).', 'error');
+      }
+
+      const res = await fetch('/api/admin/patient/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': adminSecret,
+        },
+        body: JSON.stringify({
+          uid: uid || undefined,
+          patientExternalId: patientExternalId || undefined,
+          phoneCanonical: phoneCanonical || undefined,
+          email: email || undefined,
+          reason: 'admin_ui_remove',
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        showToast?.(data?.error || 'Erro ao remover paciente.', 'error');
+        return;
+      }
+
+      showToast?.('Paciente desativado.');
+      await loadPatients();
+    } catch (e) {
+      console.error(e);
+      showToast?.('Erro ao remover paciente.', 'error');
+    }
+  };
+
+  const filteredPatients = useMemo(() => {
+    const term = String(searchTerm || '').trim().toLowerCase();
+    if (!term) return patients;
+
+    return patients.filter((p) => {
+      const name = String(p?.name || '').toLowerCase();
+      const email = String(p?.email || '').toLowerCase();
+      const phone = String(p?.phoneCanonical || p?.phone || '').toLowerCase();
+      const ext = String(p?.patientExternalId || '').toLowerCase();
+      return name.includes(term) || email.includes(term) || phone.includes(term) || ext.includes(term);
+    });
+  }, [patients, searchTerm]);
+
+  const exportCSV = () => {
+    try {
+      const headers = ['Nome', 'Email', 'Telefone', 'ID (externo)', 'Push', 'Status'];
+      const rows = filteredPatients.map((p) => [
+        String(p?.name || ''),
+        String(p?.email || ''),
+        String(p?.phoneCanonical || p?.phone || ''),
+        String(p?.patientExternalId || ''),
+        p?.hasPushToken ? 'SIM' : 'NAO',
+        String(p?.status || ''),
+      ]);
+
+      const csv = [headers, ...rows]
+        .map((r) => r.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(','))
+        .join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pacientes_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      showToast?.('Falha ao exportar CSV.', 'error');
+    }
+  };
+
+  const isEditMode = Boolean(editingPatient);
+
+  return (
+    <div>
+      <Card className="p-4 mb-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <Search size={18} />
+            <input
+              className="border rounded px-3 py-2 w-full md:w-[360px]"
+              placeholder="Buscar por nome, email, telefone ou ID"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button onClick={exportCSV} variant="secondary">
+              <Download size={16} className="mr-2" />
+              Exportar
+            </Button>
+            <Button onClick={openNewPatientModal}>
+              <UserPlus size={16} className="mr-2" />
+              Novo paciente
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-3 text-sm opacity-80">
+          {isLoadingPatients ? 'Carregando pacientes…' : `Total exibido: ${filteredPatients.length}`}
+        </div>
+      </Card>
+
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="p-3">Nome</th>
+                <th className="p-3">Email</th>
+                <th className="p-3">Telefone</th>
+                <th className="p-3">ID (externo)</th>
+                <th className="p-3">Push</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPatients.length === 0 ? (
+                <tr>
+                  <td className="p-4 opacity-70" colSpan={7}>
+                    Nenhum paciente encontrado.
+                  </td>
+                </tr>
+              ) : (
+                filteredPatients.map((u) => (
+                  <tr key={u.uid || u.id} className="border-b last:border-b-0">
+                    <td className="p-3 font-medium">{u?.name || '—'}</td>
+                    <td className="p-3">{u?.email || '—'}</td>
+                    <td className="p-3">{u?.phoneCanonical || u?.phone || '—'}</td>
+                    <td className="p-3">{u?.patientExternalId || '—'}</td>
+                    <td className="p-3">
+                      <Badge variant={u?.hasPushToken ? 'success' : 'secondary'}>
+                        {u?.hasPushToken ? 'OK' : '—'}
+                      </Badge>
+                    </td>
+                    <td className="p-3">
+                      <Badge variant={String(u?.status || '').toLowerCase() === 'active' ? 'success' : 'secondary'}>
+                        {u?.status || '—'}
+                      </Badge>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="secondary" onClick={() => openEditPatientModal(u)}>
+                          Editar
+                        </Button>
+                        <Button variant="danger" onClick={() => handleRemovePatient(u)}>
+                          <UserMinus size={16} className="mr-2" />
+                          Desativar
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {showUserModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl relative">
+            <div className="p-5 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">{isEditMode ? 'Editar paciente' : 'Novo paciente'}</h3>
+              <button onClick={closePatientModal} className="p-2 rounded hover:bg-gray-100">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm opacity-80 mb-1">Nome</label>
+                <input
+                  className="border rounded px-3 py-2 w-full"
+                  value={newPatient.name}
+                  onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm opacity-80 mb-1">Email</label>
+                <input
+                  className="border rounded px-3 py-2 w-full"
+                  value={newPatient.email}
+                  onChange={(e) => setNewPatient({ ...newPatient, email: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm opacity-80 mb-1">Telefone (DDD+número, sem 55)</label>
+                <input
+                  className="border rounded px-3 py-2 w-full"
+                  value={newPatient.phone}
+                  onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
+                  placeholder="11999999999"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm opacity-80 mb-1">ID do seu sistema (patientExternalId)</label>
+                <input
+                  className="border rounded px-3 py-2 w-full"
+                  value={newPatient.patientExternalId}
+                  onChange={(e) => setNewPatient({ ...newPatient, patientExternalId: e.target.value })}
+                  disabled={isEditMode}
+                />
+                <div className="text-xs opacity-70 mt-1">Modo: {isEditMode ? 'EDITAR (travado)' : 'NOVO'}</div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t flex items-center justify-end gap-2">
+              <Button variant="secondary" onClick={closePatientModal}>
+                Cancelar
+              </Button>
+              <Button onClick={handleRegisterPatient}>Salvar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
