@@ -50,27 +50,47 @@ Ao entrar no painel, o paciente tem:
 - Visão geral: pacientes cadastrados, ativos, mensagens enviadas, etc.
 - Pode ser evoluído depois (não é core agora).
 
-### Agenda (upload de planilha)
+### Agenda (upload de planilha) — comportamento oficial
+
 Admin carrega planilha com campos:
 - ID (patientExternalId)
 - Nome
-- Telefone
+- Telefone (WhatsApp)
 - Data
 - Hora
 - Profissional
 - Serviço
 - Local
 
-Fluxo:
+#### Fluxo (UI)
 1) Upload
 2) Verificar estrutura
-3) Sincronizar (precisamos validar tecnicamente o que este botão faz hoje)
+3) Sincronizar
 4) Gerar Preview (obrigatório para liberar envio)
 5) Enviar lembretes
 
-Regras:
-- O sistema detecta quais lembretes são elegíveis com base em janelas configuráveis (ex.: 48h, 24h, 12h).
-- O conteúdo das mensagens é configurável e usa placeholders: nome, profissional, data, hora, etc.
+#### O que “Sincronizar” faz (fonte da verdade)
+**Sincronizar transforma a planilha no estado atual da agenda no Firestore**, com dois efeitos:
+
+1) **Upsert (criar/atualizar) agendamentos**
+- Para cada linha válida da planilha, o sistema grava/atualiza um documento em `appointments`
+- Status padrão: `scheduled`
+- Metadados de origem: `source:"admin_sync"` e `sourceUploadId`
+
+2) **Reconciliação (cancelar futuros removidos do upload)**
+- Para manter consistência, se um agendamento futuro existia e **sumiu no upload atual**, ele NÃO é apagado.
+- Ele é marcado como:
+  - `status:"cancelled"`
+  - `cancelReason:"removed_from_upload"`
+  - `cancelledBy:"admin_sync"`
+  - `cancelledAt`
+- Isso evita enviar lembretes para sessões que não existem mais e preserva histórico.
+
+> Observação clínica/operacional: este comportamento protege contra lembretes indevidos e reforça a confiabilidade do sistema.
+
+#### Regras de elegibilidade de envio
+Após sincronizar, o sistema calcula quais lembretes são elegíveis com base em janelas configuráveis (ex.: 48h, 24h, 12h) e só libera o envio após “Gerar Preview”.
+
 
 ### Presença/Falta (importação de planilha)
 - Filtros: 7d, 30d, 90d
@@ -79,6 +99,11 @@ Regras:
   - Faltas
   - Taxa de comparecimento (precisa validar cálculo)
   - Top 8 faltas por semana
+  
+#### Taxa de comparecimento (cálculo atual)
+A taxa é calculada como:
+**presenças ÷ (presenças + faltas) × 100**
+considerando apenas registros normalizados como `present` e `absent` no período selecionado (7d/30d/90d).
 
 Fluxo:
 1) Importa planilha de presença/falta
