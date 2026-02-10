@@ -1,4 +1,10 @@
 # Firestore (Rules, Claims e Modelo)
+## Fonte da verdade das Rules
+As Firestore Rules oficiais do projeto ficam versionadas no arquivo:
+
+- `/firestore.rules`
+
+Qualquer alteração deve ser feita primeiro nesse arquivo e depois publicada no Firebase Console (ou via Firebase CLI).
 
 ## Problema típico
 `permission-denied` ao usar `onSnapshot` no client ocorre quando:
