@@ -45,4 +45,6 @@ Reduzir faltas e sustentar o vínculo terapêutico com:
 - Melhorar Dashboard (métricas clínicas, constância por paciente, etc.) — futuro.
 
 ## Próximo passo (1 por vez)
-**Próximo passo (1/1):** criar `docs/09_FIREBASE_SCHEMA.md` (schema do Firestore) e revisar regras/coleções para padronizar nomes e reduzir leituras duplicadas.
+**Próximo passo (1/1):** criar/atualizar `docs/09_FIREBASE_SCHEMA.md` (schema do Firestore), documentando:
+- coleções e campos estáveis
+- `history` como coleção de logs com schema flexível (padrão recomendado: `type`, `createdAt`, `payload` + exemplos de `type`).
