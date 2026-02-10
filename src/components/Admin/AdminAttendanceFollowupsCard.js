@@ -206,7 +206,36 @@ export default function AdminAttendanceFollowupsCard({ showToast }) {
                 </div>
               </div>
 
+
+              {/* Amostra de mensagens (já interpoladas) */}
+              <div className="px-4 pb-4">
+                <div className="text-xs font-semibold text-slate-600 mb-2">Amostra</div>
+                {Array.isArray(previewResult.sample) && previewResult.sample.length > 0 ? (
+                  <div className="space-y-2">
+                    {previewResult.sample.slice(0, 8).map((s, idx) => (
+                      <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs font-semibold text-slate-700">
+                            {String(s.status || '').toUpperCase()} • {s.phone || s.phoneCanonical || '-'}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {s.name ? String(s.name) : ''}
+                          </div>
+                        </div>
+                        {s.title && <div className="mt-2 text-sm font-semibold text-slate-800">{String(s.title)}</div>}
+                        {s.body && <div className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{String(s.body)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500">
+                    Nenhuma amostra retornada. Se candidates &gt; 0, ajuste a rota para preencher <code>sample</code>.
+                  </div>
+                )}
+              </div>
+
               {!previewResult.ok && <div className="px-4 pb-3 text-sm text-red-600">Erro: {previewResult.error}</div>}
+
             </div>
           )}
 

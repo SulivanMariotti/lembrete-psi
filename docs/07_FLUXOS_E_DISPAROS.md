@@ -92,14 +92,59 @@ Admin carrega planilha com campos:
 Após sincronizar, o sistema calcula quais lembretes são elegíveis com base em janelas configuráveis (ex.: 48h, 24h, 12h) e só libera o envio após “Gerar Preview”.
 
 
-### Presença/Falta (importação de planilha)
-- Filtros: 7d, 30d, 90d
-- Cards:
-  - Presenças
-  - Faltas
-  - Taxa de comparecimento (precisa validar cálculo)
-  - Top 8 faltas por semana
-  
+## Presença/Falta (Constância) — Importação e Disparos
+
+### Objetivo clínico
+O módulo de Presença/Falta sustenta o vínculo terapêutico por constância:
+- Presença: reforço positivo e continuidade (responsabilização acolhedora).
+- Falta: psicoeducação e convite ao retorno (sem julgamento).
+
+### Fluxo (Admin)
+1) Importar planilha de presença/falta (logs)
+2) Visualizar cards (presença, faltas, taxa)
+3) Gerar **Prévia (dryRun)**
+4) Disparar mensagens (envio real)
+
+### Templates configuráveis (Configurações)
+As mensagens são configuradas em `Configurações` e salvas em `config/global`:
+
+- `attendanceFollowupPresentTitle`
+- `attendanceFollowupPresentBody`
+- `attendanceFollowupAbsentTitle`
+- `attendanceFollowupAbsentBody`
+
+### Placeholders suportados nos templates
+Você pode usar variáveis dentro do texto.
+
+Formatos aceitos:
+- Novo: `{nome}`
+- Compatível: `{{nome}}` (se existir legado)
+
+Placeholders:
+- `{nome}`: nome do paciente
+- `{data}`: data da sessão (formato **DD/MM/AAAA**)
+- `{dataIso}`: data original (YYYY-MM-DD)
+- `{hora}`: hora da sessão
+- `{profissional}`: profissional
+- `{servico}`: serviço
+- `{local}`: local
+- `{id}`: identificador do paciente (patientId/patientExternalId quando disponível)
+
+### Prévia (dryRun) — como interpretar
+A Prévia retorna:
+- `candidates`: quantos registros seriam considerados no período
+- `byStatus.present / byStatus.absent`
+- `blockedNoToken`: não enviaria por falta de pushToken
+- `blockedInactivePatient`: paciente inativo em `users`
+- `blockedInactiveSubscriber`: subscriber inativo
+- `sample[]`: **amostra real** (title/body já interpolados)
+
+> Importante: a amostra aparece **mesmo se o envio estiver bloqueado** (ex.: sem pushToken).
+> Isso existe para validar placeholders e conteúdo antes de exigir ativação de notificações.
+
+### Regra de segurança
+O disparo real bloqueia pacientes inativos server-side e não depende do front.
+
 #### Taxa de comparecimento (cálculo atual)
 A taxa é calculada como:
 **presenças ÷ (presenças + faltas) × 100**

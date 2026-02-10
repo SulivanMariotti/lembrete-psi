@@ -4,188 +4,197 @@ import admin from "firebase-admin";
 /**
  * POST /api/admin/attendance/send-followups
  *
- * Dispara mensagens FCM de constância terapêutica com base em attendance_logs:
- * - status=present  -> reforço (parabéns/continuidade)
- * - status=absent   -> psicoeducação (retomar constância)
- *
- * NÃO cria cancelamento/reagendamento.
- * Server-side (Admin SDK).
- *
- * Payload JSON:
- * {
- *   fromIsoDate?: "YYYY-MM-DD",
- *   toIsoDate?: "YYYY-MM-DD",
- *   days?: number,                 // últimos N dias (inclui hoje)
- *   dryRun?: boolean,              // true = prévia (não envia)
- *   limit?: number                 // limita nº de logs (segurança)
- * }
+ * Envia mensagens de reforço (presença) e psicoeducação (falta) com base em logs importados.
  *
  * Segurança:
  * - Header: x-admin-secret deve igualar NEXT_PUBLIC_ADMIN_PANEL_SECRET (se definido)
+ *
+ * Placeholders suportados nos templates (config/global):
+ * - {nome}, {data}, {dataIso}, {hora}, {profissional}, {servico}, {local}, {id}
+ * - Compatível também com {{nome}} etc.
  */
 
-function getServiceAccount() {
-  const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
-  if (b64) return JSON.parse(Buffer.from(b64, "base64").toString("utf-8"));
-  const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
-  if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var");
-  return JSON.parse(raw);
+function getAdminSecret() {
+  return process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
 }
 
-function initAdmin() {
-  if (admin.apps.length) return;
-  admin.initializeApp({ credential: admin.credential.cert(getServiceAccount()) });
+function normalizeDigits(s) {
+  return String(s || "").replace(/\D+/g, "");
 }
 
-function todayIsoUTC() {
-  const d = new Date();
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+function canonicalPhone(raw) {
+  // remove +55 / 55 se vier junto
+  const d = normalizeDigits(raw);
+  if (d.length >= 12 && d.startsWith("55")) return d.slice(2);
+  return d;
 }
 
-function isoAddDays(iso, deltaDays) {
-  const [y, m, d] = iso.split("-").map((x) => parseInt(x, 10));
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + deltaDays);
-  const yyyy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getUTCDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+function signedAdmin(req) {
+  const secret = getAdminSecret();
+  if (!secret) return true;
+  const got = req.headers.get("x-admin-secret") || "";
+  return got === secret;
 }
 
-function safeInt(v, defVal) {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : defVal;
+function ensureAdmin() {
+  if (admin.apps?.length) return;
+
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error(
+      "Missing Firebase Admin env vars. Need FIREBASE_PROJECT_ID (or NEXT_PUBLIC_FIREBASE_PROJECT_ID), FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY."
+    );
+  }
+
+  // Vercel/CI geralmente salva com \n escapado
+  privateKey = privateKey.replace(/\\n/g, "\n");
+
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId,
+      clientEmail,
+      privateKey,
+    }),
+  });
 }
 
-function defaultTemplates() {
-  return {
-    presentTitle: "Você está sustentando o seu processo",
-    presentBody:
-      "Sua presença é um investimento em você. A constância é onde a mudança acontece. Seguimos juntos no seu cuidado.",
-    absentTitle: "Retomar a constância é cuidado",
-    absentBody:
-      "Faltar não é só perder uma hora: é interromper um processo. Se algo dificultou sua vinda, traga isso para a terapia. A continuidade fortalece a evolução.",
-  };
+function formatDateBR(iso) {
+  const s = String(iso || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s;
+  return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+/**
+ * Suporta placeholders em dois formatos (compatibilidade):
+ * - {{ nome }}  (formato antigo)
+ * - {nome}      (formato novo)
+ */
 function interpolate(template, vars) {
-  return String(template || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) =>
+  const t = String(template || "");
+  // {{var}}
+  const a = t.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) =>
+    vars[k] != null ? String(vars[k]) : ""
+  );
+  // {var}
+  return a.replace(/\{\s*(\w+)\s*\}/g, (_, k) =>
     vars[k] != null ? String(vars[k]) : ""
   );
 }
 
+function isInactiveUserDoc(u) {
+  if (!u) return true;
+  const status = String(u.status || "").toLowerCase();
+  if (["inactive", "disabled", "archived", "deleted"].includes(status)) return true;
+  if (u.isActive === false) return true;
+  if (u.disabled === true) return true;
+  if (u.disabledAt) return true;
+  if (u.deletedAt) return true;
+  if (u.mergedTo) return true;
+  return false;
+}
+
+async function loadTemplates(db) {
+  const snap = await db.collection("config").doc("global").get();
+  const cfg = snap.exists ? snap.data() : {};
+
+  const tpl = {
+    presentTitle: "Presença é constância",
+    presentBody:
+      "Olá {nome}. Sua presença em {data} às {hora} é um passo de cuidado. A continuidade fortalece o processo.",
+    absentTitle: "Retomar a constância é cuidado",
+    absentBody:
+      "Olá {nome}. Percebemos sua ausência em {data} às {hora}. Quando você retorna, o processo continua. Se precisar, fale com a clínica.",
+  };
+
+  if (cfg.attendanceFollowupPresentTitle) tpl.presentTitle = String(cfg.attendanceFollowupPresentTitle);
+  if (cfg.attendanceFollowupPresentBody) tpl.presentBody = String(cfg.attendanceFollowupPresentBody);
+  if (cfg.attendanceFollowupAbsentTitle) tpl.absentTitle = String(cfg.attendanceFollowupAbsentTitle);
+  if (cfg.attendanceFollowupAbsentBody) tpl.absentBody = String(cfg.attendanceFollowupAbsentBody);
+
+  return tpl;
+}
+
+function parseBodyRange(body) {
+  const days = Number(body?.days || 30);
+  const fromIsoDate = body?.fromIsoDate ? String(body.fromIsoDate) : null;
+  const toIsoDate = body?.toIsoDate ? String(body.toIsoDate) : null;
+
+  if (fromIsoDate && toIsoDate) return { fromIsoDate, toIsoDate, days: null };
+
+  // default: [today-days+1, today]
+  const now = new Date();
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - Math.max(1, days) + 1);
+
+  const iso = (d) => d.toISOString().slice(0, 10);
+  return { fromIsoDate: iso(start), toIsoDate: iso(end), days };
+}
+
 export async function POST(req) {
   try {
-    initAdmin();
-
-    const adminSecret = req.headers.get("x-admin-secret") || "";
-    const requiredSecret = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
-    if (requiredSecret && adminSecret !== requiredSecret) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (!signedAdmin(req)) {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
+
+    ensureAdmin();
+    const db = admin.firestore();
 
     const body = await req.json().catch(() => ({}));
     const dryRun = !!body.dryRun;
-    const limit = Math.max(1, Math.min(2000, safeInt(body.limit, 500)));
 
-    let fromIsoDate = String(body.fromIsoDate || "").trim();
-    let toIsoDate = String(body.toIsoDate || "").trim();
+    const { fromIsoDate, toIsoDate, days } = parseBodyRange(body);
 
-    if (!fromIsoDate || !toIsoDate) {
-      const days = Math.max(1, Math.min(90, safeInt(body.days, 7)));
-      const today = todayIsoUTC();
-      toIsoDate = today;
-      fromIsoDate = isoAddDays(today, -(days - 1));
-    }
+    const tpl = await loadTemplates(db);
 
-    const db = admin.firestore();
-    const nowTs = admin.firestore.Timestamp.now();
-
-    // Templates em config/global (opcionais)
-    const tpl = defaultTemplates();
-    try {
-      const cfgSnap = await db.collection("config").doc("global").get();
-      const cfg = cfgSnap.exists ? cfgSnap.data() || {} : {};
-      if (cfg.attendanceFollowupPresentTitle) tpl.presentTitle = String(cfg.attendanceFollowupPresentTitle);
-      if (cfg.attendanceFollowupPresentBody) tpl.presentBody = String(cfg.attendanceFollowupPresentBody);
-      if (cfg.attendanceFollowupAbsentTitle) tpl.absentTitle = String(cfg.attendanceFollowupAbsentTitle);
-      if (cfg.attendanceFollowupAbsentBody) tpl.absentBody = String(cfg.attendanceFollowupAbsentBody);
-    } catch (_) {}
-
-    const snap = await db
+    // Carrega logs do período
+    const logsSnap = await db
       .collection("attendance_logs")
       .where("isoDate", ">=", fromIsoDate)
       .where("isoDate", "<=", toIsoDate)
-      .limit(limit)
       .get();
 
-    const logs = snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
+    const totalLogs = logsSnap.size;
 
-    const phones = Array.from(
-      new Set(
-        logs
-          .map((d) => String(d.phoneCanonical || "").trim())
-          .filter((p) => p.length === 10 || p.length === 11)
-      )
-    );
+    // Dedup por chave (patientId + isoDate + time + profissional) quando existe docId composto,
+    // mas como já está gravado em docId composto, basta iterar.
+    const logs = [];
+    logsSnap.forEach((d) => logs.push({ id: d.id, ...d.data() }));
 
-    const tokenByPhone = new Map();
-    if (phones.length) {
-      const chunkSize = 200;
-      for (let i = 0; i < phones.length; i += chunkSize) {
-        const chunk = phones.slice(i, i + chunkSize);
-        const refs = chunk.map((p) => db.collection("subscribers").doc(p));
-        const snaps = await db.getAll(...refs);
-        snaps.forEach((s) => {
-          if (!s.exists) return;
-          const data = s.data() || {};
-          tokenByPhone.set(s.id, { token: data.pushToken || data.token || null, status: data.status || "active" });
-        });
-      }
-    }
-    // Bloqueio server-side: não disparar para pacientes inativos (users)
-    function isUserInactive(u) {
-      if (!u) return false;
-      const st = String(u.status || "").toLowerCase();
-      if (["inactive", "disabled", "archived", "deleted"].includes(st)) return true;
-      if (u.deletedAt || u.disabledAt) return true;
-      if (u.isActive === false || u.disabled === true) return true;
-      if (u.mergedTo) return true;
-      return false;
+    // Agrupar por patientId+isoDate (mais recente por updatedAt) — se vier duplicado
+    const keyOf = (x) =>
+      `${String(x.patientId || "")}__${String(x.isoDate || "")}__${String(x.time || "")}__${String(
+        x.profissional || x.professional || ""
+      )}`;
+
+    const pickNewest = (a, b) => {
+      const ta = a?.updatedAt?.toMillis ? a.updatedAt.toMillis() : Number(a?.updatedAt || 0);
+      const tb = b?.updatedAt?.toMillis ? b.updatedAt.toMillis() : Number(b?.updatedAt || 0);
+      return tb >= ta ? b : a;
+    };
+
+    const byKey = new Map();
+    for (const l of logs) {
+      const k = keyOf(l);
+      if (!k) continue;
+      byKey.set(k, byKey.has(k) ? pickNewest(byKey.get(k), l) : l);
     }
 
-    const userInactiveByPhone = new Map();
-    if (phones.length) {
-      const inChunk = 10; // Firestore 'in' supports up to 10
-      for (let i = 0; i < phones.length; i += inChunk) {
-        const chunk = phones.slice(i, i + inChunk);
-        const snapUsers = await db
-          .collection("users")
-          .where("role", "==", "patient")
-          .where("phoneCanonical", "in", chunk)
-          .get();
+    const candidatesList = Array.from(byKey.values());
+    const candidates = candidatesList.length;
 
-        snapUsers.docs.forEach((d) => {
-          const data = d.data() || {};
-          const ph = String(data.phoneCanonical || "").trim();
-          if (!ph) return;
-          userInactiveByPhone.set(ph, isUserInactive(data));
-        });
-      }
-    }
-
-
-
-    const results = {
+    const out = {
       ok: true,
       dryRun,
       fromIsoDate,
       toIsoDate,
-      totalLogs: logs.length,
-      candidates: 0,
+      days: days ?? null,
+      totalLogs,
+      candidates,
       sent: 0,
       blocked: 0,
       blockedNoToken: 0,
@@ -196,123 +205,142 @@ export async function POST(req) {
       sample: [],
     };
 
-    const messaging = admin.messaging();
-    const concurrency = 10;
-    let idx = 0;
+    // Pré-carregar users por phoneCanonical para reduzir reads
+    // (como é volume pequeno, faremos lookup individual com cache)
+    const userCache = new Map();
+    const subCache = new Map();
 
-    async function worker() {
-      while (idx < logs.length) {
-        const current = logs[idx++];
-        const phone = String(current.phoneCanonical || "").trim();
-        const status = String(current.status || "").toLowerCase() === "present" ? "present" : "absent";
-        results.byStatus[status] += 1;
+    async function getUserByPhone(phone) {
+      if (userCache.has(phone)) return userCache.get(phone);
+      const snap = await db
+        .collection("users")
+        .where("role", "==", "patient")
+        .where("phoneCanonical", "==", phone)
+        .limit(1)
+        .get();
+      const doc = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+      userCache.set(phone, doc);
+      return doc;
+    }
 
-        const tk = tokenByPhone.get(phone);
-        const hasToken = !!(tk && tk.token);
-        const isActive = !tk || tk.status !== "inactive";
+    async function getSubscriber(phone) {
+      if (subCache.has(phone)) return subCache.get(phone);
+      const doc = await db.collection("subscribers").doc(phone).get();
+      const data = doc.exists ? doc.data() : null;
+      subCache.set(phone, data);
+      return data;
+    }
 
-        const patientInactive = userInactiveByPhone.get(phone) === true;
+    const maxSample = 8;
 
-        if (!phone || !(phone.length === 10 || phone.length === 11) || !hasToken) {
-          results.blocked += 1;
-          results.blockedNoToken += 1;
-          if (results.sample.length < 12) {
-            results.sample.push({ id: current.id, phoneCanonical: phone, status, reason: "no_token" });
-          }
-          continue;
-        }
-        if (patientInactive) {
-          results.blocked += 1;
-          results.blockedInactive += 1;
-          results.blockedInactiveSubscriber += 1;
-          results.blockedInactivePatient += 1;
-          if (results.sample.length < 12) {
-            results.sample.push({ id: current.id, phoneCanonical: phone, status, reason: "inactive_patient" });
-          }
-          continue;
-        }
+    for (const current of candidatesList) {
+      const status = String(current.status || "").toLowerCase() === "present" ? "present" : "absent";
+      out.byStatus[status] += 1;
 
-        if (!isActive) {
-          results.blocked += 1;
-          results.blockedInactive += 1;
-          results.blockedInactiveSubscriber += 1;
-          if (results.sample.length < 12) {
-            results.sample.push({ id: current.id, phoneCanonical: phone, status, reason: "inactive" });
-          }
-          continue;
-        }
+      const phone = canonicalPhone(current.phoneCanonical || current.phone || "");
+      if (!phone) continue;
 
-        results.candidates += 1;
+      // Lookup do paciente (users) — usado para bloquear e para enriquecer placeholders
+      const userDoc = await getUserByPhone(phone);
 
-        const vars = {
-          nome: current.name || "",
-          data: current.isoDate || "",
-          hora: current.time || "",
-          profissional: current.profissional || "",
-          servico: current.service || "",
-          local: current.location || "",
-        };
+      const vars = {
+        nome: current.name || userDoc?.name || "",
+        data: formatDateBR(current.isoDate || ""),
+        dataIso: current.isoDate || "",
+        hora: current.time || "",
+        profissional: current.profissional || current.professional || "",
+        servico: current.service || "",
+        local: current.location || "",
+        id: current.patientId || userDoc?.patientExternalId || "",
+      };
 
-        const title = status === "present" ? tpl.presentTitle : tpl.absentTitle;
-        const bodyText = status === "present" ? tpl.presentBody : tpl.absentBody;
+      const title = status === "present" ? tpl.presentTitle : tpl.absentTitle;
+      const bodyText = status === "present" ? tpl.presentBody : tpl.absentBody;
 
-        const message = {
-          token: tk.token,
-          notification: {
-            title: interpolate(title, vars),
-            body: interpolate(bodyText, vars),
-          },
-          data: {
-            type: "attendance_followup",
-            status,
-            isoDate: String(current.isoDate || ""),
-            time: String(current.time || ""),
-            patientId: String(current.patientId || ""),
-          },
-        };
+      const finalTitle = interpolate(title, vars);
+      const finalBody = interpolate(bodyText, vars);
 
-        if (dryRun) continue;
+      // Verifica bloqueios (mas ainda assim devolve amostra em dryRun)
+      let blockedReason = null;
 
-        try {
-          await messaging.send(message);
-          results.sent += 1;
-        } catch (e) {
-          results.blocked += 1;
-          if (results.sample.length < 12) {
-            results.sample.push({
-              id: current.id,
-              phoneCanonical: phone,
-              status,
-              reason: "send_error",
-              error: e?.message || String(e),
-            });
-          }
-        }
+      // Paciente inativo (users)
+      if (isInactiveUserDoc(userDoc)) {
+        blockedReason = "inactive_patient";
+      }
+
+      // Subscriber: token/ativo
+      const sub = await getSubscriber(phone);
+      const token = sub?.pushToken || sub?.token || null;
+      if (!blockedReason && sub?.isActive === false) {
+        blockedReason = "inactive_subscriber";
+      }
+      if (!blockedReason && !token) {
+        blockedReason = "no_token";
+      }
+
+      // Amostra (para preview): mostra a mensagem mesmo se bloquear (para validar placeholders)
+      if (dryRun && out.sample.length < maxSample) {
+        out.sample.push({
+          status,
+          phoneCanonical: phone,
+          name: vars.nome,
+          title: finalTitle,
+          body: finalBody,
+          canSend: blockedReason == null,
+          blockedReason,
+        });
+      }
+
+      // Contadores de bloqueio/fluxo
+      if (blockedReason === "inactive_patient") {
+        out.blocked += 1;
+        out.blockedInactive += 1;
+        out.blockedInactivePatient += 1;
+        continue;
+      }
+      if (blockedReason === "inactive_subscriber") {
+        out.blocked += 1;
+        out.blockedInactive += 1;
+        out.blockedInactiveSubscriber += 1;
+        continue;
+      }
+      if (blockedReason === "no_token") {
+        out.blocked += 1;
+        out.blockedNoToken += 1;
+        continue;
+      }
+
+      if (dryRun) continue;
+
+      // Envio real
+      const message = {
+        token,
+        notification: {
+          title: finalTitle,
+          body: finalBody,
+        },
+        data: {
+          kind: "attendance_followup",
+          status,
+          phoneCanonical: phone,
+          isoDate: String(current.isoDate || ""),
+        },
+      };
+
+      try {
+        await admin.messaging().send(message);
+        out.sent += 1;
+      } catch (e) {
+        out.blocked += 1;
       }
     }
 
-    const workers = Array.from({ length: Math.min(concurrency, logs.length || 1) }, () => worker());
-    await Promise.all(workers);
-
-    await db.collection("history").add({
-      type: "attendance_followup_summary",
-      createdAt: nowTs,
-      dryRun,
-      fromIsoDate,
-      toIsoDate,
-      totalLogs: results.totalLogs,
-      candidates: results.candidates,
-      sent: results.sent,
-      blocked: results.blocked,
-      blockedNoToken: results.blockedNoToken,
-      blockedInactive: results.blockedInactive,
-      byStatus: results.byStatus,
-      sample: results.sample,
-    });
-
-    return NextResponse.json(results, { status: 200 });
+    return NextResponse.json(out);
   } catch (e) {
     console.error("POST /api/admin/attendance/send-followups error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 500 }
+    );
   }
 }
