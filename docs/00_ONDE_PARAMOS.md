@@ -11,41 +11,29 @@ Reduzir faltas e sustentar o vínculo terapêutico com:
 
 ## Estado atual (confirmado)
 ### ✅ Acesso do paciente
-- Endpoint de login do paciente ajustado para **validar em `users`** (não depender de `subscribers`).
+- Endpoint de login do paciente ajustado para validar em `users` (não depender de `subscribers`).
 - Cadastro via Admin → paciente consegue acessar o painel.
 
 ### ✅ Administração de pacientes (desativação)
 - Problema anterior: desativar criava “doc fantasma” (`p_base64(email)`) em `users`.
-- Corrigido: desativação atualiza o **doc real** do paciente em `users/{uid}` com `status:"inactive"` + `deletedAt`.
+- Corrigido: desativação atualiza o doc real do paciente em `users/{uid}` com `status:"inactive"` + `deletedAt`.
 - UI Admin passou a enviar `uid` real ao endpoint de delete.
 
-### ⚠️ Pendente (prioridade alta)
-**Erro no painel do paciente ao entrar:**
-`Firestore: Uncaught Error in snapshot listener: permission-denied`
+### ✅ Firestore Rules (painel do paciente)
+- Resolvido o erro: `Firestore: Uncaught Error in snapshot listener: permission-denied`.
+- Causa: listener do PatientFlow em `subscribers/{phoneCanonical}` quando o doc ainda não existia (regras antigas dependiam de `resource.data.email`).
+- Solução: Rules permitem paciente ler/criar/atualizar apenas o próprio `subscribers/{phoneCanonical}`.
 
-Causa provável: listeners (`onSnapshot`) no `PatientFlow.js` tentando ler coleções/docs que o paciente não tem permissão (Rules).
-
-#### Coleções envolvidas no PatientFlow
-- `users/{uid}` (perfil)
-- `appointments` (agenda)
-- `subscribers/{phoneCanonical}` (notificações)
-- `patient_notes` (notas)
-
-### ✅ Ação em andamento (hoje)
-- Ajustar Firestore Rules para permitir leituras do paciente **somente do próprio escopo**.
-- Regra mínima: corrigir `appointments` para aceitar leitura também por `email` (fallback do código) e por `phoneCanonical` (além de `phone`).
-
-Arquivo gerado para aplicar no Firebase:
-- `firestore.rules` (inclui correção do bloco `appointments`)
+## Pendente (prioridade alta)
+- Bloquear envios server-side para pacientes inativos:
+  - lembretes de agenda
+  - disparos de presença/falta (constância)
+  - qualquer envio futuro acionado pelo Admin
 
 ## Próximo passo (1 por vez)
-1) Publicar `firestore.rules` no Firebase
-2) Testar login como paciente e validar: erro `permission-denied` sumiu?
-3) Se ainda houver erro: identificar qual coleção/path e:
-   - refinar Rules, ou
-   - mover leitura sensível para rota server-side (Admin SDK)
+**Próximo passo (1/1):** adicionar bloqueio server-side em todos os endpoints de envio (`/api/admin/.../send`) para checar o paciente em `users` e, se não estiver `active` (ou tiver `deletedAt`/flags de inativo), retornar `blockedInactive` e não enviar.
 
 ## Como testar rapidamente
-- Fazer logout
-- Logar como paciente
-- Abrir Console (F12) e confirmar ausência de `permission-denied`
+- Publicar regras no Firebase Console quando houver alteração em `/firestore.rules`
+- Logout → login como paciente → abrir painel → console sem `permission-denied`
+- Para o próximo passo: disparar envio e confirmar `blockedInactive` para pacientes desativados

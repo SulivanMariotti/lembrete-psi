@@ -47,6 +47,45 @@ function initAdmin() {
   admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 }
 
+
+function isInactivePatientData(u) {
+  if (!u) return false;
+  const status = String(u.status || "").toLowerCase();
+  if (["inactive", "disabled", "archived", "deleted"].includes(status)) return true;
+  if (u.isActive === false) return true;
+  if (u.disabled === true) return true;
+  if (u.disabledAt) return true;
+  if (u.deletedAt) return true;
+  if (u.mergedTo) return true;
+  return false;
+}
+
+async function buildInactivePatientPhoneMap(db, phones) {
+  // Firestore 'in' suporta até 10 valores
+  const out = new Map();
+  const chunkSize = 10;
+  for (let i = 0; i < phones.length; i += chunkSize) {
+    const chunk = phones.slice(i, i + chunkSize);
+    const snap = await db
+      .collection("users")
+      .where("role", "==", "patient")
+      .where("phoneCanonical", "in", chunk)
+      .get();
+
+    snap.docs.forEach((d) => {
+      const data = d.data() || {};
+      const ph = String(data.phoneCanonical || "").trim();
+      if (!ph) return;
+      const inactive = isInactivePatientData(data);
+      // Se houver múltiplos docs, considera inativo somente se TODOS forem inativos.
+      // Inicialmente assume true e vai fazendo AND.
+      if (!out.has(ph)) out.set(ph, inactive);
+      else out.set(ph, out.get(ph) && inactive);
+    });
+  }
+  return out;
+}
+
 function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
@@ -162,6 +201,8 @@ export async function POST(req) {
 
     // Busca subscribers em batch
     const phones = Array.from(byPhone.keys());
+    const inactivePatientByPhone = await buildInactivePatientPhoneMap(db, phones);
+
     const resultsByPhone = {};
     const chunkSize = 50;
 
@@ -175,7 +216,7 @@ export async function POST(req) {
         const data = snap.exists ? snap.data() : null;
         const token = data?.pushToken || data?.fcmToken || data?.token || null;
         const inactive = data?.status === "inactive";
-        resultsByPhone[phone] = { token: token ? String(token) : null, inactive: Boolean(inactive) };
+        resultsByPhone[phone] = { token: token ? String(token) : null, subscriberInactive: Boolean(inactive) };
       });
     }
 
@@ -184,13 +225,17 @@ export async function POST(req) {
     const perPhoneMeta = [];
 
     let skippedInactive = 0;
+    let skippedInactivePatient = 0;
+    let skippedInactiveSubscriber = 0;
     let skippedNoToken = 0;
 
     for (const phone of phones) {
-      const meta = resultsByPhone[phone] || { token: null, inactive: false };
+      const meta = resultsByPhone[phone] || { token: null, subscriberInactive: false };
       const items = byPhone.get(phone) || [];
 
-      if (meta.inactive) {
+      const patientInactive = inactivePatientByPhone.get(phone) === true;
+
+      if (meta.subscriberInactive || patientInactive) {
         skippedInactive += items.length;
         continue;
       }
