@@ -395,7 +395,10 @@ const [notifBusy, setNotifBusy] = useState(false);
     return onlyDigits(p);
   }, [profile]);
 
-// Fallback: se o phone não veio no users/{uid}, tenta resolver pelo subscribers via e-mail do usuário
+// Fallback: se o phone não veio no users/{uid}, resolve via API server-side (Admin SDK)
+// Motivo: o paciente não deve consultar `subscribers` no client, e o fallback anterior
+// estava quebrado (variável `snap` inexistente), causando ausência de telefone e falhas
+// de leitura em `appointments` por regras.
 const [resolvedPhone, setResolvedPhone] = useState("");
 
 useEffect(() => {
@@ -408,23 +411,27 @@ useEffect(() => {
       return;
     }
 
-    const email = String(user?.email || "").trim().toLowerCase();
-    if (!email) return;
+    if (!user?.uid) return;
 
     try {
-      const docSnap = snap.docs?.[0];
-      const phone =
-        (docSnap?.id ? String(docSnap.id) : "") ||
-        String(docSnap?.data()?.phone || "");
-
-      const clean = onlyDigits(phone);
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/patient/resolve-phone", {
+        method: "GET",
+        headers: { authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      const clean = onlyDigits(data?.phone || "");
       if (!clean) return;
 
       if (!cancelled) setResolvedPhone(clean);
 
       // tenta gravar no perfil para evitar esse fallback no futuro
       try {
-        await setDoc(doc(db, "users", user.uid), { phone: clean, phoneNumber: clean, updatedAt: new Date() }, { merge: true });
+        await setDoc(
+          doc(db, "users", user.uid),
+          { phone: clean, phoneNumber: clean, phoneCanonical: clean, updatedAt: new Date() },
+          { merge: true }
+        );
       } catch (_) {
         // sem impacto: pode falhar por regras
       }
@@ -437,7 +444,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [cleanPhoneFromProfile, user?.email, user?.uid]);
+}, [cleanPhoneFromProfile, user?.uid]);
 
   const effectivePhone = useMemo(() => {
     if (DEV_SWITCH_ENABLED && impersonatePhone) return onlyDigits(impersonatePhone);
