@@ -20,9 +20,10 @@ Reduzir faltas e sustentar o vínculo terapêutico com:
 - Desativação atualiza doc real do paciente em `users/{uid}` com `status:"inactive"` + `deletedAt`.
 
 ### ✅ Bloqueio de envios para pacientes inativos (server-side)
-- Implementado nos endpoints:
+- Implementado bloqueio nos endpoints:
   - `src/app/api/admin/reminders/send/route.js`
   - `src/app/api/admin/attendance/send-followups/route.js`
+- Regra: se paciente estiver inativo (status/flags/deletedAt), o endpoint bloqueia e contabiliza `blockedInactivePatient`.
 
 ### ✅ Agenda: “Sincronizar” consolidado
 - Removida duplicidade de reconciliação.
@@ -30,12 +31,20 @@ Reduzir faltas e sustentar o vínculo terapêutico com:
 - Arquivo:
   - `src/components/Admin/AdminScheduleTab.js`
 
+### ✅ Documentação do fluxo (produto)
+- Fluxos e disparos atualizados no `docs/07_FLUXOS_E_DISPAROS.md`, incluindo:
+  - comportamento oficial do “Sincronizar” (upsert + cancelar futuros removidos)
+  - cálculo atual da taxa de comparecimento
+
 ## Pendente (prioridade alta)
-- Documentar no fluxo do produto o comportamento do “Sincronizar” (agenda como fonte da verdade + cancelar futuros removidos do upload).
-- Validar e documentar o cálculo da “Taxa de comparecimento” (Presença/Falta) e confirmar se precisa ponderação (ex.: considerar only known statuses).
-- Criar/confirmar no painel Configurações:
-  - templates de mensagens de presença e falta (conteúdo configurável)
-  - lógica/critério de disparo presença/falta por planilha
+- Confirmar e/ou implementar no painel Configurações:
+  - templates das mensagens de presença e falta (conteúdo configurável)
+  - clareza de quando disparar presença/falta (critérios e janelas)
+- Validar se “Taxa de comparecimento” precisa ajustes (ex.: excluir registros “unknown” já é o padrão; confirmar se é isso mesmo que você quer clinicamente).
+- Revisar UI/UX: explicar no Admin (Agenda) que “Sincronizar” cancela futuros removidos do upload (para evitar surpresa).
 
 ## Próximo passo (1 por vez)
-**Próximo passo (1/1):** atualizar a documentação do produto (`docs/07_FLUXOS_E_DISPAROS.md`) explicando claramente o que “Sincronizar” faz (upsert + cancelamento de futuros removidos do upload) e registrar o cálculo atual da “Taxa de comparecimento”.
+**Próximo passo (1/1):** revisar e consolidar o módulo de Presença/Falta:
+- validar cálculo exibido (taxa, top faltas)
+- garantir que templates de mensagens (presença e falta) sejam configuráveis no painel Configurações
+- auditar a lógica atual de disparo e deixar explícita no `docs/07_FLUXOS_E_DISPAROS.md`
