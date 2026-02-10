@@ -58,7 +58,11 @@ export default function AdminPanelView({
     whatsapp: '',
     contractText: '',
     contractVersion: 1,
-  });
+    attendanceFollowupPresentTitle: 'Presença é constância',
+    attendanceFollowupPresentBody: 'Parabéns por ter comparecido. A continuidade é o que sustenta o processo e fortalece o cuidado consigo.',
+    attendanceFollowupAbsentTitle: 'Retomar a constância é cuidado',
+    attendanceFollowupAbsentBody: 'Hoje você faltou. Faltar não é apenas perder uma hora; é interromper um processo de evolução. Se precisar, fale com a clínica para apoiar seu retorno.',
+});
 
   const [isSaving, setIsSaving] = useState(false);
 
@@ -165,7 +169,11 @@ export default function AdminPanelView({
         contractText: localConfig.contractText || '',
         contractVersion: publishNewVersion
           ? Number(localConfig.contractVersion || 1) + 1
-          : Number(localConfig.contractVersion || 1),
+          : Number(localConfig.contractVersion || 1),        attendanceFollowupPresentTitle: localConfig.attendanceFollowupPresentTitle || '',
+        attendanceFollowupPresentBody: localConfig.attendanceFollowupPresentBody || '',
+        attendanceFollowupAbsentTitle: localConfig.attendanceFollowupAbsentTitle || '',
+        attendanceFollowupAbsentBody: localConfig.attendanceFollowupAbsentBody || '',
+
         updatedAt: new Date(),
       };
 

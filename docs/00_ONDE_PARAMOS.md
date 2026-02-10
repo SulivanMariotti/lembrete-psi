@@ -31,20 +31,21 @@ Reduzir faltas e sustentar o vínculo terapêutico com:
 - Arquivo:
   - `src/components/Admin/AdminScheduleTab.js`
 
-### ✅ Documentação do fluxo (produto)
-- Fluxos e disparos atualizados no `docs/07_FLUXOS_E_DISPAROS.md`, incluindo:
-  - comportamento oficial do “Sincronizar” (upsert + cancelar futuros removidos)
-  - cálculo atual da taxa de comparecimento
+### ✅ Presença/Falta: templates configuráveis
+- Configurações agora permitem editar textos de:
+  - Presença (título + corpo)
+  - Falta (título + corpo)
+- Campos salvos em `config/global`:
+  - `attendanceFollowupPresentTitle`, `attendanceFollowupPresentBody`
+  - `attendanceFollowupAbsentTitle`, `attendanceFollowupAbsentBody`
+- O envio/preview de followups usa esses campos automaticamente.
+- Arquivo UI:
+  - `src/components/Admin/AdminConfigTab.js`
 
 ## Pendente (prioridade alta)
-- Confirmar e/ou implementar no painel Configurações:
-  - templates das mensagens de presença e falta (conteúdo configurável)
-  - clareza de quando disparar presença/falta (critérios e janelas)
-- Validar se “Taxa de comparecimento” precisa ajustes (ex.: excluir registros “unknown” já é o padrão; confirmar se é isso mesmo que você quer clinicamente).
-- Revisar UI/UX: explicar no Admin (Agenda) que “Sincronizar” cancela futuros removidos do upload (para evitar surpresa).
+- Padronizar placeholders (nome/data/hora/profissional) para mensagens de presença/falta, se você quiser personalização por paciente.
+- Melhorar a UI do Admin (Config) com dicas de placeholders permitidos (futuro).
+- Criar `docs/09_FIREBASE_SCHEMA.md` com snapshot dos campos/coleções (sem dados sensíveis).
 
 ## Próximo passo (1 por vez)
-**Próximo passo (1/1):** revisar e consolidar o módulo de Presença/Falta:
-- validar cálculo exibido (taxa, top faltas)
-- garantir que templates de mensagens (presença e falta) sejam configuráveis no painel Configurações
-- auditar a lógica atual de disparo e deixar explícita no `docs/07_FLUXOS_E_DISPAROS.md`
+**Próximo passo (1/1):** validar ponta-a-ponta o Preview/Envio de Presença/Falta usando os templates do `config/global` e, se aprovado, adicionar placeholders padronizados (ex.: {nome}, {data}, {hora}) no disparo.
