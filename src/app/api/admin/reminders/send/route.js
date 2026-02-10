@@ -47,45 +47,6 @@ function initAdmin() {
   admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 }
 
-
-function isInactivePatientData(u) {
-  if (!u) return false;
-  const status = String(u.status || "").toLowerCase();
-  if (["inactive", "disabled", "archived", "deleted"].includes(status)) return true;
-  if (u.isActive === false) return true;
-  if (u.disabled === true) return true;
-  if (u.disabledAt) return true;
-  if (u.deletedAt) return true;
-  if (u.mergedTo) return true;
-  return false;
-}
-
-async function buildInactivePatientPhoneMap(db, phones) {
-  // Firestore 'in' suporta até 10 valores
-  const out = new Map();
-  const chunkSize = 10;
-  for (let i = 0; i < phones.length; i += chunkSize) {
-    const chunk = phones.slice(i, i + chunkSize);
-    const snap = await db
-      .collection("users")
-      .where("role", "==", "patient")
-      .where("phoneCanonical", "in", chunk)
-      .get();
-
-    snap.docs.forEach((d) => {
-      const data = d.data() || {};
-      const ph = String(data.phoneCanonical || "").trim();
-      if (!ph) return;
-      const inactive = isInactivePatientData(data);
-      // Se houver múltiplos docs, considera inativo somente se TODOS forem inativos.
-      // Inicialmente assume true e vai fazendo AND.
-      if (!out.has(ph)) out.set(ph, inactive);
-      else out.set(ph, out.get(ph) && inactive);
-    });
-  }
-  return out;
-}
-
 function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
@@ -201,8 +162,6 @@ export async function POST(req) {
 
     // Busca subscribers em batch
     const phones = Array.from(byPhone.keys());
-    const inactivePatientByPhone = await buildInactivePatientPhoneMap(db, phones);
-
     const resultsByPhone = {};
     const chunkSize = 50;
 
@@ -216,26 +175,61 @@ export async function POST(req) {
         const data = snap.exists ? snap.data() : null;
         const token = data?.pushToken || data?.fcmToken || data?.token || null;
         const inactive = data?.status === "inactive";
-        resultsByPhone[phone] = { token: token ? String(token) : null, subscriberInactive: Boolean(inactive) };
+        resultsByPhone[phone] = { token: token ? String(token) : null, inactive: Boolean(inactive) };
       });
     }
 
-    // Monta 1 mensagem por telefone
+    
+    // Busca users (pacientes) por phoneCanonical para bloquear inativos (server-side)
+    function isUserInactive(u) {
+      if (!u) return false;
+      const st = String(u.status || "").toLowerCase();
+      if (["inactive", "disabled", "archived", "deleted"].includes(st)) return true;
+      if (u.deletedAt || u.disabledAt) return true;
+      if (u.isActive === false || u.disabled === true) return true;
+      if (u.mergedTo) return true;
+      return false;
+    }
+
+    const userInactiveByPhone = {};
+    if (phones.length) {
+      const inChunk = 10; // Firestore 'in' supports up to 10
+      for (let i = 0; i < phones.length; i += inChunk) {
+        const chunk = phones.slice(i, i + inChunk);
+        const snapUsers = await db
+          .collection("users")
+          .where("role", "==", "patient")
+          .where("phoneCanonical", "in", chunk)
+          .get();
+
+        snapUsers.docs.forEach((d) => {
+          const data = d.data() || {};
+          const ph = String(data.phoneCanonical || "").trim();
+          if (!ph) return;
+          userInactiveByPhone[ph] = isUserInactive(data);
+        });
+      }
+    }
+
+// Monta 1 mensagem por telefone
     const messages = [];
     const perPhoneMeta = [];
 
     let skippedInactive = 0;
     let skippedInactivePatient = 0;
-    let skippedInactiveSubscriber = 0;
     let skippedNoToken = 0;
 
     for (const phone of phones) {
-      const meta = resultsByPhone[phone] || { token: null, subscriberInactive: false };
+      const meta = resultsByPhone[phone] || { token: null, inactive: false };
       const items = byPhone.get(phone) || [];
 
-      const patientInactive = inactivePatientByPhone.get(phone) === true;
+      const patientInactive = userInactiveByPhone[phone] === true;
+      if (patientInactive) {
+        skippedInactivePatient += items.length;
+        continue;
+      }
 
-      if (meta.subscriberInactive || patientInactive) {
+      if (meta.inactive) {
         skippedInactive += items.length;
         continue;
       }
@@ -332,7 +326,11 @@ export async function POST(req) {
       sentCount,
       failCount,
       skippedInactive,
+      skippedInactivePatient,
+      blockedInactive: skippedInactivePatient,
+      blockedInactiveSubscriber: skippedInactive,
       skippedNoToken,
+      blockedNoToken: skippedNoToken,
       createdAt: now,
     });
 
@@ -341,7 +339,11 @@ export async function POST(req) {
       sentCount,
       failCount,
       skippedInactive,
+      skippedInactivePatient,
+      blockedInactive: skippedInactivePatient,
+      blockedInactiveSubscriber: skippedInactive,
       skippedNoToken,
+      blockedNoToken: skippedNoToken,
       messagesPrepared: messages.length,
     });
   } catch (e) {

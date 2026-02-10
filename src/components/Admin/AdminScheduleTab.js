@@ -467,60 +467,12 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
 
       await flush();
 
-      // 2) RECONCILIAÇÃO (antiga + nova)
+            // 2) RECONCILIAÇÃO (fonte da verdade = upload atual)
+      // Cancela sessões FUTURAS que existiam no Firestore para os pacientes do upload,
+      // mas que NÃO estão mais presentes no upload atual.
+      // Importante: não apaga histórico; apenas marca como `status: "cancelled"` com motivo.
       const syncedIdSet = new Set(syncedIds);
-
-      const phoneList = Array.from(phonesInUpload);
-      const chunkSize = 30; // limite do Firestore para "in"
-      const CANCEL_BATCH_LIMIT = 450;
-
-      let cancelBatch = writeBatch(db);
-      let cancelCount = 0;
-
-      const flushCancel = async () => {
-        if (cancelCount === 0) return;
-        await cancelBatch.commit();
-        cancelBatch = writeBatch(db);
-        cancelCount = 0;
-      };
-
-      for (let i = 0; i < phoneList.length; i += chunkSize) {
-        const chunk = phoneList.slice(i, i + chunkSize);
-
-        const q = query(
-          collection(db, 'appointments'),
-          where('phone', 'in', chunk),
-          where('isoDate', '>=', todayIso)
-        );
-
-        const snap = await getDocs(q);
-
-        for (const d of snap.docs) {
-          const data = d.data() || {};
-          const id = d.id;
-
-          if (!syncedIdSet.has(id) && data.status !== 'cancelled') {
-            cancelBatch.set(
-              doc(db, 'appointments', id),
-              {
-                status: 'cancelled',
-                cancelledAt: new Date(),
-                cancelReason: 'removed_from_upload',
-                cancelledBy: 'admin_sync',
-                updatedAt: new Date(),
-              },
-              { merge: true }
-            );
-            cancelCount += 1;
-
-            if (cancelCount >= CANCEL_BATCH_LIMIT) await flushCancel();
-          }
-        }
-      }
-
-      await flushCancel();
-
-      const recon = await cancelMissingFutureAppointments({ list: processedAppointments, currentIdsSet, uploadId });
+      const recon = await cancelMissingFutureAppointments({ list: appointments, currentIdsSet: syncedIdSet, uploadId });
       if (recon?.cancelled) {
         showToast(`Reconciliação: ${recon.cancelled} sessões futuras canceladas (não estavam no upload).`, 'info');
       }

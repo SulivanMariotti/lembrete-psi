@@ -146,6 +146,38 @@ export async function POST(req) {
         });
       }
     }
+    // Bloqueio server-side: não disparar para pacientes inativos (users)
+    function isUserInactive(u) {
+      if (!u) return false;
+      const st = String(u.status || "").toLowerCase();
+      if (["inactive", "disabled", "archived", "deleted"].includes(st)) return true;
+      if (u.deletedAt || u.disabledAt) return true;
+      if (u.isActive === false || u.disabled === true) return true;
+      if (u.mergedTo) return true;
+      return false;
+    }
+
+    const userInactiveByPhone = new Map();
+    if (phones.length) {
+      const inChunk = 10; // Firestore 'in' supports up to 10
+      for (let i = 0; i < phones.length; i += inChunk) {
+        const chunk = phones.slice(i, i + inChunk);
+        const snapUsers = await db
+          .collection("users")
+          .where("role", "==", "patient")
+          .where("phoneCanonical", "in", chunk)
+          .get();
+
+        snapUsers.docs.forEach((d) => {
+          const data = d.data() || {};
+          const ph = String(data.phoneCanonical || "").trim();
+          if (!ph) return;
+          userInactiveByPhone.set(ph, isUserInactive(data));
+        });
+      }
+    }
+
+
 
     const results = {
       ok: true,
@@ -158,6 +190,8 @@ export async function POST(req) {
       blocked: 0,
       blockedNoToken: 0,
       blockedInactive: 0,
+      blockedInactivePatient: 0,
+      blockedInactiveSubscriber: 0,
       byStatus: { present: 0, absent: 0 },
       sample: [],
     };
@@ -177,6 +211,8 @@ export async function POST(req) {
         const hasToken = !!(tk && tk.token);
         const isActive = !tk || tk.status !== "inactive";
 
+        const patientInactive = userInactiveByPhone.get(phone) === true;
+
         if (!phone || !(phone.length === 10 || phone.length === 11) || !hasToken) {
           results.blocked += 1;
           results.blockedNoToken += 1;
@@ -185,9 +221,21 @@ export async function POST(req) {
           }
           continue;
         }
+        if (patientInactive) {
+          results.blocked += 1;
+          results.blockedInactive += 1;
+          results.blockedInactiveSubscriber += 1;
+          results.blockedInactivePatient += 1;
+          if (results.sample.length < 12) {
+            results.sample.push({ id: current.id, phoneCanonical: phone, status, reason: "inactive_patient" });
+          }
+          continue;
+        }
+
         if (!isActive) {
           results.blocked += 1;
           results.blockedInactive += 1;
+          results.blockedInactiveSubscriber += 1;
           if (results.sample.length < 12) {
             results.sample.push({ id: current.id, phoneCanonical: phone, status, reason: "inactive" });
           }
