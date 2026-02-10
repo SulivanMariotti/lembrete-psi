@@ -637,31 +637,10 @@ useEffect(() => {
         return;
       }
 
-      const resolvePhoneFromSubscriberByEmail = async () => {
-  try {
-    const email = (user?.email || "").toLowerCase().trim();
-    if (!email) return "";
-    const p = first?.id ? String(first.id).replace(/\D/g, "") : "";
-    return p;
-  } catch (_) {
-    return "";
-  }
-};
-
-let phone = resolvedPhone || cleanPhoneFromProfile;
-
-// Fallback robusto: se não tiver no perfil, tenta achar em subscribers pelo email do usuário
-if (!phone) {
-  phone = await resolvePhoneFromSubscriberByEmail();
-  if (phone) {
-    try {
-      await updateDoc(doc(db, "users", user.uid), { phone });
-    } catch (_) {}
-  }
-}
+      let phone = effectivePhone;
 
 if (!phone) {
-  showToast("Seu telefone ainda não está no perfil. Peça atualização ao admin.", "error");
+  showToast("Seu telefone ainda não está disponível no perfil. Peça atualização ao admin.", "error");
   return;
 }
 // Evita regravar/logar se já estiver igual no Firestore
@@ -706,7 +685,7 @@ showToast("Notificações ativadas ✅", "success");
 
     let unsub = null;
     try {
-      const ref = doc(db, "subscribers", resolvedPhone || cleanPhoneFromProfile);
+      const ref = doc(db, "subscribers", effectivePhone);
       unsub = onSnapshot(ref, (snap) => {
         if (snap.exists()) setNotifHasToken(Boolean(snap.data()?.pushToken));
       });
@@ -715,7 +694,7 @@ showToast("Notificações ativadas ✅", "success");
     return () => {
       if (typeof unsub === "function") unsub();
     };
-  }, [resolvedPhone, cleanPhoneFromProfile]);
+  }, [effectivePhone]);
 
   
 
