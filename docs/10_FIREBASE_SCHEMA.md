@@ -1,216 +1,207 @@
-# Firestore Schema Snapshot (Lembrete Psi)
+# Firebase / Firestore — Schema (snapshot)
 
-> Objetivo clínico do produto: sustentar o vínculo terapêutico por **constância**. A tecnologia automatiza lembretes e follow-ups para reduzir faltas e reforçar que comparecer é parte do cuidado.
-
-**Data do snapshot:** 10/02/2026
-
-## Convenções gerais
-
-- **phoneCanonical**: string canônica do telefone (ex.: `55DDDNXXXXXXXX` sem símbolos).  
-  Usado como chave consistente entre coleções (especialmente `subscribers/{phoneCanonical}`).
-- **uid**: identificador do Firebase Auth para a conta do paciente (fonte de verdade em `users/{uid}`).
-- **timestamps**: sempre `Timestamp` do Firestore (serverTimestamp quando possível).
-- **Histórico (auditoria)**: usar `history` como coleção de logs com schema flexível (ver seção específica).
+> **Sem dados sensíveis.** Apenas estrutura: coleções, `docId`, campos e tipos.  
+> Objetivo: documentar a “fonte de verdade” e as coleções operacionais do **Lembrete Psi**.
 
 ---
 
-## Coleção: `config`
+## Visão geral (regras de uso)
 
-### Documento: `config/global`
-Centraliza configurações do sistema (admin).
+- **users/{uid}** é a fonte de verdade do paciente (role/status e identidade).
+- **subscribers/{phoneCanonical}** guarda o **pushToken** (Web Push) do paciente.
+- **config/global** centraliza as configurações de contrato, WhatsApp e templates.
+- **history/** é **auditoria** com schema flexível: cada evento define seu `payload`.
+- Recomendação de consistência: sempre que possível, gravar `phoneCanonical` e manter `users.phoneCanonical` sincronizado com o padrão usado em `subscribers` e `appointments`.
 
-Campos (estáveis)
-- `contractEnabled`: boolean
-- `contractText`: string (texto/termos do contrato)
-- `whatsappEnabled`: boolean
-- `whatsappProvider`: string (se aplicável)
-- `msg1Enabled`: boolean
-- `msg2Enabled`: boolean
-- `msg3Enabled`: boolean
-- `msg1OffsetHours`: number (ex.: 48)
-- `msg2OffsetHours`: number (ex.: 24)
-- `msg3OffsetHours`: number (ex.: 8 / manhã)
-- `msg1TemplateTitle`: string
-- `msg1TemplateBody`: string
-- `msg2TemplateTitle`: string
-- `msg2TemplateBody`: string
-- `msg3TemplateTitle`: string
-- `msg3TemplateBody`: string
+---
 
-Presença/Falta (follow-up)
-- `attendanceFollowupPresentTitle`: string
-- `attendanceFollowupPresentBody`: string
-- `attendanceFollowupAbsentTitle`: string
-- `attendanceFollowupAbsentBody`: string
+## Coleções e documentos
 
-Placeholders suportados nos templates
-- `{{nome}}` ou `{nome}`
+## 1) users/{uid}
+
+**DocId**
+- `uid` (string)
+
+**Campos estáveis**
+- `role` (string) — ex.: `"admin" | "patient"`
+- `status` (string) — ex.: `"active" | "inactive"`
+- `name` (string)
+- `email` (string)
+- `phone` (string) — pode conter o telefone “como chegou”
+- `phoneNumber` (string, opcional) — telefone “limpo” (legado/compat)
+- `phoneCanonical` (string) — **chave canônica** usada no sistema (ex.: `5511999999999`)
+- `patientExternalId` (string, opcional) — id externo/legado (quando existir)
+- `createdAt` (timestamp)
+- `updatedAt` (timestamp)
+- `deletedAt` (timestamp, opcional) — usado ao desativar
+- `inactiveReason` (string, opcional)
+
+**Observação**
+- Quando `status = "inactive"`, endpoints server-side bloqueiam envios (agenda + presença/falta).
+
+---
+
+## 2) subscribers/{phoneCanonical}
+
+**DocId**
+- `phoneCanonical` (string)
+
+**Campos**
+- `pushToken` (string, opcional) — token do Web Push no navegador
+- `token` (string, opcional) — legado/compat
+- `email` (string, opcional)
+- `isActive` (boolean, opcional)
+- `lastSeen` (timestamp, opcional)
+- `createdAt` (timestamp, opcional)
+- `updatedAt` (timestamp, opcional)
+
+**Observação**
+- A existência do doc não garante envio: é necessário `pushToken` válido e paciente ativo (ver `users/{uid}`).
+
+---
+
+## 3) appointments/{appointmentId}
+
+**DocId**
+- `appointmentId` (string) — derivado de dados do agendamento (padrão interno do import/sync)
+
+**Campos**
+- `patientUid` (string, opcional) — quando vinculado ao `users/{uid}`
+- `patientExternalId` (string, opcional)
+- `phone` (string)
+- `phoneCanonical` (string, opcional)
+- `name` (string, opcional)
+- `email` (string, opcional)
+
+- `isoDate` (string) — formato `YYYY-MM-DD`
+- `time` (string) — formato `HH:mm`
+
+- `professional` **ou** `profissional` (string) — compatibilidade (padronizar ao longo do tempo)
+- `service` (string)
+- `location` (string)
+
+- `status` (string) — ex.: `"scheduled" | "cancelled" | ..."`
+- `cancelReason` (string, opcional)
+- `cancelledAt` (timestamp, opcional)
+
+- `source` (string, opcional) — ex.: `"admin_sync"`
+- `sourceUploadId` (string, opcional)
+
+- `createdAt` (timestamp, opcional)
+- `updatedAt` (timestamp)
+
+**Observação (Sync)**
+- “Sincronizar” mantém histórico e cancela futuros removidos do upload (não apaga passado).
+
+---
+
+## 4) attendance_logs/{logId}
+
+**DocId**
+- `logId` (string) — gerado no import (pode ser autoId)
+
+**Campos**
+- `patientId` (string, opcional) — uid/externalId (quando existir)
+- `patientExternalId` (string, opcional)
+
+- `name` (string, opcional)
+- `phone` (string)
+- `phoneCanonical` (string, opcional)
+
+- `isoDate` (string) — `YYYY-MM-DD`
+- `time` (string) — `HH:mm`
+- `profissional` (string, opcional)
+- `service` (string, opcional)
+- `location` (string, opcional)
+
+- `status` (string) — `"present" | "absent"`
+
+- `createdAt` (timestamp)
+- `updatedAt` (timestamp, opcional)
+
+---
+
+## 5) patient_notes/{noteId}
+
+**DocId**
+- `noteId` (string) — geralmente `autoId`
+
+**Campos**
+- `patientId` (string) — uid do paciente
+- `phone` (string, opcional)
+- `content` (string)
+- `createdAt` (timestamp)
+
+---
+
+## 6) config/{docId} (principal: global)
+
+### config/global
+
+**DocId**
+- `global` (string)
+
+**Campos (principais)**
+- `whatsapp` (string)
+- `contractText` (string)
+- `contractVersion` (number)
+- `updatedAt` (timestamp)
+
+**Mensagens de lembrete (agenda)**
+- `msg1` (string)
+- `msg2` (string)
+- `msg3` (string)
+- `msg48h` (string, opcional)
+- `msg24h` (string, opcional)
+- `msg12h` (string, opcional)
+- `reminderOffsetsHours` (array<number>) — ex.: `[48, 24, 12]`
+
+**Presença/Falta (templates editáveis no Admin)**
+- `attendanceFollowupPresentTitle` (string)
+- `attendanceFollowupPresentBody` (string)
+- `attendanceFollowupAbsentTitle` (string)
+- `attendanceFollowupAbsentBody` (string)
+
+**Placeholders suportados nos templates**
+- `{nome}`
 - `{data}` (DD/MM/AAAA)
-- `{dataIso}` (YYYY-MM-DD)
+- `{dataIso}`
 - `{hora}`
 - `{profissional}`
 - `{servico}`
 - `{local}`
 - `{id}`
+- Compatível com legado: `{{nome}}`
 
 ---
 
-## Coleção: `users`
+## 7) history/{id} (auditoria — schema flexível)
 
-### Documento: `users/{uid}`
-**Fonte de verdade** do paciente (autorização e status).
+Coleção de logs/eventos do sistema (**não é** fonte de verdade de domínio).
 
-Campos (estáveis)
-- `role`: string (`"patient"` | `"admin"` | `"staff"` … conforme uso)
-- `status`: string (`"active"` | `"inactive"`)
-- `createdAt`: Timestamp
-- `updatedAt`: Timestamp
+**DocId**
+- `id` (string) — `autoId`
 
-Identidade/contato (recomendado manter coerente)
-- `displayName`: string
-- `email`: string
-- `phone`: string (pode ser igual a phoneCanonical)
-- `phoneNumber`: string (legado/compat)
-- `phoneCanonical`: string
+**Campos (padrão recomendado)**
+- `type` (string)
+- `createdAt` (timestamp)
+- `payload` (map) — dados variáveis por tipo
 
-Desativação (quando `status="inactive"`)
-- `deletedAt`: Timestamp
+**Tipos observados no código (exemplos)**
+- `appointments_sync_summary`
+- `push_reminder_send_summary`
+- `push_reminder_sent`
+- `push_reminder_failed`
+- `appointment_reminder`
+- `attendance_import_summary`
+- `patient_register`
+- `patient_deactivate`
+- `patient_deactivate_not_found`
+- `push_enabled`
 
-Observações
-- Regras e endpoints server-side devem bloquear envios e acesso a dados sensíveis quando `status="inactive"`.
-
----
-
-## Coleção: `subscribers`
-
-### Documento: `subscribers/{phoneCanonical}`
-Registro do dispositivo do paciente para **Web Push**.
-
-Campos (estáveis)
-- `pushToken`: string (token/endpoint do web push)
-- `pushProvider`: string (opcional; ex.: `"fcm"` / `"webpush"`)
-- `isActive`: boolean (opcional; se existir, considerar na elegibilidade de envio)
-- `createdAt`: Timestamp
-- `updatedAt`: Timestamp
-
-Observações
-- Se não houver `pushToken`, previews de disparo devem explicar `blockedReason = "no_token"` (ou equivalente), mesmo em dryRun.
+**Exemplos de payload (forma, não conteúdo sensível)**
+- `appointments_sync_summary.payload`: `{ fromIsoDate: string, toIsoDate: string, scanned: number, upserted: number, cancelled: number }`
+- `push_reminder_send_summary.payload`: `{ dryRun: boolean, candidates: number, sent: number, blocked: number, byReason: map }`
+- `attendance_import_summary.payload`: `{ fromIsoDate: string, toIsoDate: string, totalLogs: number, byStatus: { present: number, absent: number } }`
 
 ---
-
-## Coleção: `appointments`
-
-### Documento: `appointments/{appointmentId}`
-Agenda consolidada (origem: upload de planilha + sincronização).
-
-Campos (estáveis)
-- `patientId`: string (quando disponível)
-- `uid`: string (opcional; se vinculado ao usuário)
-- `phone`: string (preferir `phoneCanonical` se possível)
-- `phoneCanonical`: string (recomendado)
-- `email`: string (opcional)
-- `patientName`: string
-- `professional`: string
-- `service`: string
-- `location`: string
-- `startAt`: Timestamp
-- `endAt`: Timestamp
-- `dateIso`: string (`YYYY-MM-DD`) (opcional, facilita queries)
-- `status`: string (ex.: `"scheduled"` | `"cancelled"` | `"done"` — conforme implementação)
-- `sourceBatchId`: string (id do upload/sync)
-- `createdAt`: Timestamp
-- `updatedAt`: Timestamp
-
-Regras de sincronização (resumo)
-- Manter histórico: não apagar passado.
-- Cancelar/remover apenas **futuros** removidos do upload (marcar como cancelado, ou deletar futuros conforme regra definida).
-- Operações críticas (ex.: bloquear envios para inativos) devem ser server-side.
-
----
-
-## Coleção: `attendance_logs`
-
-### Documento: `attendance_logs/{logId}`
-Registros de presença/falta (origem: import de planilha ou registro interno).
-
-Campos (estáveis)
-- `appointmentId`: string (quando houver vínculo)
-- `uid`: string (opcional)
-- `phoneCanonical`: string
-- `patientName`: string
-- `dateIso`: string (`YYYY-MM-DD`)
-- `time`: string (`HH:mm`) (opcional)
-- `status`: string (`"present"` | `"absent"`)
-- `professional`: string
-- `service`: string
-- `location`: string
-- `source`: string (ex.: `"sheet_import"` | `"manual"`)
-- `createdAt`: Timestamp
-
-Observações
-- Usado para gerar follow-ups (parabenizar presença / orientar após falta) reforçando constância.
-
----
-
-## Coleção: `patient_notes`
-
-### Documento: `patient_notes/{noteId}` (ou subcoleção em `users/{uid}/notes/{noteId}` se escolhido)
-Anotações do paciente para a sessão (foco em responsabilização e preparação).
-
-Campos (estáveis)
-- `uid`: string (se coleção raiz)
-- `phoneCanonical`: string (opcional)
-- `title`: string
-- `content`: string
-- `tags`: array<string> (opcional)
-- `createdAt`: Timestamp
-- `updatedAt`: Timestamp
-
----
-
-## Coleção: `history` (schema flexível)
-
-### Documento: `history/{autoId}`
-Coleção de logs/auditoria com schema flexível.
-
-Campos (padrão recomendado)
-- `type`: string (tipo do evento)
-- `createdAt`: Timestamp
-- `payload`: map (conteúdo variável por `type`)
-
-Tipos recomendados (exemplos)
-- `appointment_sync_started`
-- `appointment_sync_completed`
-- `appointment_future_cancelled`
-- `reminder_send_dry_run`
-- `reminder_send_executed`
-- `attendance_followup_dry_run`
-- `attendance_followup_executed`
-- `user_deactivated`
-- `subscriber_token_updated`
-
-Exemplos de `payload` (sem dados sensíveis)
-- Para envio de lembretes:
-  - `fromIsoDate`: string
-  - `toIsoDate`: string
-  - `candidates`: number
-  - `sent`: number
-  - `blocked`: number
-  - `blockedNoToken`: number
-  - `blockedInactive`: number
-  - `byStatus`: map (`present/absent`)
-  - `sample`: array<map> (apenas campos não sensíveis; ideal: ids e razões)
-
-Observações
-- Evitar armazenar conteúdo sensível (mensagem completa, telefone/email) em `payload`. Preferir IDs e contagens.
-- `history` é chave para rastreabilidade do cuidado ativo sem expor dados do paciente.
-
----
-
-## Checklist rápido de consistência
-
-- [ ] `users/{uid}.status` controla elegibilidade (active/inactive).
-- [ ] `subscribers/{phoneCanonical}.pushToken` presente para disparos.
-- [ ] `appointments` e `attendance_logs` preferem `phoneCanonical`.
-- [ ] Endpoints de envio validam **server-side**: token + status do usuário + datas.
-- [ ] `history` registra execução e bloqueios com `type/createdAt/payload`.
