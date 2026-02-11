@@ -52,6 +52,12 @@ function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
 
+function toCanonical(v) {
+  let d = onlyDigits(v).replace(/^0+/, "");
+  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
+  return d;
+}
+
 function normalizeWhatsappPhone(raw) {
   const d = onlyDigits(raw);
   if (!d) return "";
@@ -420,7 +426,7 @@ useEffect(() => {
         headers: { authorization: `Bearer ${idToken}` },
       });
       const data = await res.json().catch(() => ({}));
-      const clean = onlyDigits(data?.phone || "");
+      const clean = toCanonical((data?.phoneCanonical || data?.phone || "") );
       if (!clean) return;
 
       if (!cancelled) setResolvedPhone(clean);
@@ -447,8 +453,8 @@ useEffect(() => {
 }, [cleanPhoneFromProfile, user?.uid]);
 
   const effectivePhone = useMemo(() => {
-    if (DEV_SWITCH_ENABLED && impersonatePhone) return onlyDigits(impersonatePhone);
-    return onlyDigits(resolvedPhone || cleanPhoneFromProfile);
+    if (DEV_SWITCH_ENABLED && impersonatePhone) return toCanonical(impersonatePhone);
+    return toCanonical(resolvedPhone || cleanPhoneFromProfile);
   }, [DEV_SWITCH_ENABLED, impersonatePhone, resolvedPhone, cleanPhoneFromProfile]);
 
   const currentContractVersion = Number(globalConfig?.contractVersion || 1);
@@ -656,7 +662,18 @@ try {
   // se falhar a leitura, seguimos com a atualização
 }
 
-await updateDoc(doc(db, "subscribers", phone), { pushToken: token, lastSeen: new Date() });
+await setDoc(
+  doc(db, "subscribers", phone),
+  {
+    phoneCanonical: phone,
+    pushToken: token,
+    status: "active",
+    lastSeen: new Date(),
+    updatedAt: new Date(),
+    source: "patient_panel",
+  },
+  { merge: true }
+);
 
 // ✅ Log server-side (auditoria). Não salvamos o token bruto nos logs.
 try {
