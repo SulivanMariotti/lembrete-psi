@@ -1,6 +1,6 @@
 # Lembrete Psi — Onde paramos
 
-Data: 2026-02-10
+Data: 2026-02-11
 
 ## Objetivo do projeto
 Reduzir faltas e sustentar o vínculo terapêutico com:
@@ -11,45 +11,83 @@ Reduzir faltas e sustentar o vínculo terapêutico com:
 
 ## Estado atual (confirmado)
 
-### ✅ Acesso do paciente
-- Login do paciente validando em `users`.
-- Cadastro via Admin → paciente acessa o painel.
-- Firestore Rules ajustadas para evitar `permission-denied`.
+### ✅ Contrato Terapêutico (Paciente)
+- O **Contrato Terapêutico** é definido em `config/global` (`contractText`, `contractVersion`) via Admin → Configurações.
+- O painel do paciente agora **carrega o contrato** corretamente (não depende do modo Admin).
+- Aceite do contrato grava no `users/{uid}`:
+  - `contractAcceptedVersion` (number, opcional)
+  - `contractAcceptedAt` (timestamp, opcional)
+- No Admin → Pacientes, contrato aparece como **Aceito/Pendente** (separado do “Cadastro ativo”).
 
-### ✅ Administração de pacientes
-- Desativação atualiza doc real do paciente em `users/{uid}` com `status:"inactive"` + `deletedAt`.
+### ✅ Notificações (Push) — sem permission-denied
+- O paciente **não lê** `subscribers/{phoneCanonical}` direto do Firestore.
+- Status/registro de push passam a usar **somente**:
+  - `GET /api/patient/push/status`
+  - `POST /api/patient/push/register`
+- Rota `GET /api/patient/resolve-phone` resolve telefone quando ausente e evita erro “Seu telefone ainda não está disponível…”.
 
-### ✅ Bloqueio de envios para pacientes inativos (server-side)
-- Implementado:
-  - `src/app/api/admin/reminders/send/route.js`
-  - `src/app/api/admin/attendance/send-followups/route.js`
-- Regra: inativo bloqueia envio e contabiliza `blockedInactive...`.
+### ✅ Histórico (Admin) — leitura robusta
+- O Admin lê `history` com fallback:
+  - `sentAt` ← `sentAt || createdAt || payload.sentAt || payload.createdAt`
+  - `createdAt` ← `createdAt || sentAt || payload.createdAt || payload.sentAt`
+- A lista ordena por `(sentAt || createdAt)` no client.
+- Badge do tipo virou **nome amigável** (PT-BR) e mantém o `type` técnico no hover.
 
-### ✅ Agenda: “Sincronizar” consolidado
-- Upload + verificação + sincronização (upsert).
-- Sessões futuras removidas do upload são marcadas `cancelled` (mantém histórico).
-- `src/components/Admin/AdminScheduleTab.js`
+### ✅ Admin → Pacientes (layout)
+- Colunas com “flags/pílulas”:
+  - **Cadastro** (ativo/inativo)
+  - **Contrato** (aceito/pendente)
+  - **Notificações** (ativas/ausentes)
+- A rota Admin de listagem agora inclui status de contrato no payload da lista.
 
-### ✅ Presença/Falta (Constância)
-- Mensagens configuráveis em Configurações e salvas em `config/global`.
-- Templates suportam placeholders (ex.: `{nome}`, `{data}`, `{hora}`).
-- Prévia (dryRun) exibe **amostra real interpolada** e informa bloqueios (`blockedReason`), mesmo quando não há pushToken.
-- Arquivos:
-  - `src/app/api/admin/attendance/send-followups/route.js`
-  - `src/components/Admin/AdminAttendanceFollowupsCard.js`
-  - `src/components/Admin/AdminConfigTab.js`
+### ✅ Documentação do schema
+- `docs/10_FIREBASE_SCHEMA.md` é a **fonte oficial** do snapshot do schema.
+- `docs/09_FIREBASE_SCHEMA.md` funciona como resumo/índice (se existir no seu repo).
 
-## Pendente (prioridade alta)
-- Consolidar documentação do schema em **uma fonte de verdade**:
-  - **Fonte oficial:** `docs/10_FIREBASE_SCHEMA.md`
-  - `docs/09_FIREBASE_SCHEMA.md` fica como **resumo/índice** (compatibilidade)
-- Esclarecer (na documentação) por que `history/{id}` tem documentos com campos diferentes (schema flexível) e registrar exemplos reais dos eventos atuais.
-- Revisar/explicar no UI: placeholders disponíveis (dica no Config).
-- Melhorar Dashboard (métricas clínicas, constância por paciente, etc.) — futuro.
+---
 
-## Próximo passo (1 por vez)
-**Próximo passo (1/1):** padronizar o consumo de logs do Admin (`history`) para suportar os padrões existentes:
-- `createdAt` (logs novos com `type`)
-- `sentAt` (logs legados do endpoint antigo `/api/send`)
+## O que foi feito hoje (resumo técnico)
+> Lista para referência rápida — **sem colar código**.
 
-E, em paralelo, iniciar migração gradual dos endpoints para o padrão recomendado (ver `docs/11_HISTORY_LOGGING_STANDARD.md`).
+1) **Contrato não carregava no paciente**
+- Ajuste em `src/hooks/useData.js` para sempre carregar `globalConfig` (Admin e Paciente).
+
+2) **Histórico (Admin) com createdAt/sentAt**
+- Ajustes em:
+  - `src/hooks/useData.js`
+  - `src/components/Admin/AdminHistoryTab.js`
+
+3) **Histórico com nomes amigáveis**
+- Ajuste em `src/components/Admin/AdminHistoryTab.js` (map de `type` → label PT-BR).
+
+4) **Admin → Pacientes com flags (Push/Status)**
+- Ajuste em `src/components/Admin/AdminPatientsTab.js`
+
+5) **Separar “Cadastro” vs “Contrato” no Admin**
+- Ajustes em:
+  - `src/app/api/admin/patients/list/route.js`
+  - `src/components/Admin/AdminPanelView.js`
+  - `src/components/Admin/AdminPatientsTab.js`
+
+6) **Notificações do paciente sem permission-denied**
+- Ajuste em `src/components/Patient/PatientFlow.js` para usar APIs server-side (sem `onSnapshot` em `subscribers`).
+
+7) **Resolver telefone automaticamente**
+- Ajuste em `src/app/api/patient/resolve-phone/route.js` + uso no `PatientFlow`.
+
+8) **Decisão de produto (APP)**
+- Avaliado Capacitor; decidido **manter Web por enquanto**.
+- Item adicionado ao backlog: **retomar login seguro do paciente** antes de pensar em PWA/App.
+
+---
+
+## Pendências (prioridade alta)
+- Revisar Admin → **Presença/Faltas** (preview/amostra + fluxo de reprocessar planilha sem “estado preso”).
+- Consolidar estratégia para deduplicar `users` por email/phoneCanonical (evitar doc sem telefone).
+- Futuro: endurecer autenticação do paciente (magic link/OTP) antes de publicar PWA/App.
+
+## Próximo passo sugerido (1 por vez)
+**Próximo passo (1/1):** atacar Admin → **Presença/Faltas**:
+- garantir que `Amostra` (sample) seja preenchida no preview (dryRun)
+- corrigir fluxo “Limpar” + reprocessar planilha
+- garantir que a seção “Disparos por constância” apareça consistentemente
