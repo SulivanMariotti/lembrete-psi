@@ -643,52 +643,26 @@ useEffect(() => {
         return;
       }
 
-      let phone = effectivePhone;
+      if (!user) {
+        showToast("Sessão expirada. Recarregue a página.", "error");
+        return;
+      }
 
-if (!phone) {
-  showToast("Seu telefone ainda não está disponível no perfil. Peça atualização ao admin.", "error");
-  return;
-}
-// Evita regravar/logar se já estiver igual no Firestore
-try {
-  const currentSnap = await getDoc(doc(db, "subscribers", phone));
-  const current = currentSnap.exists() ? currentSnap.data() : null;
-  if (current?.pushToken && current.pushToken === token) {
-    setNotifHasToken(true);
-    showToast("Notificações já estavam ativas ✅", "success");
-    return;
-  }
-} catch (_) {
-  // se falhar a leitura, seguimos com a atualização
-}
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/patient/push/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authorization: "Bearer " + idToken },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json().catch(() => ({}));
 
-await setDoc(
-  doc(db, "subscribers", phone),
-  {
-    phoneCanonical: phone,
-    pushToken: token,
-    status: "active",
-    lastSeen: new Date(),
-    updatedAt: new Date(),
-    source: "patient_panel",
-  },
-  { merge: true }
-);
+      if (!res.ok || !data?.ok) {
+        showToast(data?.error || "Falha ao ativar notificações.", "error");
+        return;
+      }
 
-// ✅ Log server-side (auditoria). Não salvamos o token bruto nos logs.
-try {
-  const idToken = await user.getIdToken();
-  await fetch("/api/push/enabled", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", authorization: `Bearer ${idToken}` },
-    body: JSON.stringify({ phone, token }),
-  });
-} catch (_) {
-  // silencioso
-}
-
-setNotifHasToken(true);
-showToast("Notificações ativadas ✅", "success");
+      setNotifHasToken(true);
+      showToast("Notificações ativadas ✅", "success");
 } catch (e) {
       console.error(e);
       showToast("Falha ao ativar notificações.", "error");
@@ -698,20 +672,32 @@ showToast("Notificações ativadas ✅", "success");
   }
 
   useEffect(() => {
-    if (!(resolvedPhone || cleanPhoneFromProfile)) return;
+    let cancelled = false;
 
-    let unsub = null;
-    try {
-      const ref = doc(db, "subscribers", effectivePhone);
-      unsub = onSnapshot(ref, (snap) => {
-        if (snap.exists()) setNotifHasToken(Boolean(snap.data()?.pushToken));
-      });
-    } catch (_) {}
+    async function loadPushStatus() {
+      try {
+        if (!user) return;
+        const idToken = await user.getIdToken();
+        const res = await fetch("/api/patient/push/status", {
+          method: "GET",
+          headers: { authorization: "Bearer " + idToken },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok && data?.ok) {
+          setNotifHasToken(Boolean(data?.hasToken));
+        }
+      } catch (_) {
+        // silencioso
+      }
+    }
 
+    loadPushStatus();
     return () => {
-      if (typeof unsub === "function") unsub();
+      cancelled = true;
     };
-  }, [effectivePhone]);
+  }, [user?.uid, effectivePhone]);
+
 
   
 

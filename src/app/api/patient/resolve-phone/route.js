@@ -22,6 +22,26 @@ function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
 
+function isInactiveUser(u) {
+  const status = String(u?.status ?? "active").toLowerCase().trim();
+  if (["inactive", "disabled", "archived", "deleted", "merged"].includes(status)) return true;
+  if (u?.isActive === false) return true;
+  if (u?.disabled === true) return true;
+  if (u?.deletedAt) return true;
+  if (u?.disabledAt) return true;
+  if (u?.mergedTo) return true;
+  return false;
+}
+
+function toMillis(ts) {
+  if (!ts) return 0;
+  if (typeof ts.toMillis === "function") return ts.toMillis();
+  if (typeof ts.toDate === "function") return ts.toDate().getTime();
+  if (ts instanceof Date) return ts.getTime();
+  const n = Date.parse(String(ts));
+  return Number.isFinite(n) ? n : 0;
+}
+
 /**
  * Canonical phone for this project:
  * - DDD + número (10/11 dígitos)
@@ -56,6 +76,11 @@ export async function GET(req) {
     const userSnap = await userRef.get();
     const userData = userSnap.exists ? userSnap.data() : {};
 
+    const email =
+      String(decoded?.email || "").trim().toLowerCase() ||
+      String(userData?.email || "").trim().toLowerCase() ||
+      "";
+
     // Aceita múltiplos campos possíveis
     const phoneRaw =
       userData?.phoneCanonical ||
@@ -65,7 +90,34 @@ export async function GET(req) {
       decoded?.phone_number ||
       "";
 
-    const phoneCanonical = toPhoneCanonical(phoneRaw);
+    let phoneCanonical = toPhoneCanonical(phoneRaw);
+
+    // Fallback 2: se o doc atual não tem telefone, tenta resolver pelo EMAIL
+    // (casos legados: doc antigo sem phone/phoneCanonical)
+    if (!phoneCanonical && email) {
+      const q = await admin
+        .firestore()
+        .collection("users")
+        .where("role", "==", "patient")
+        .where("email", "==", email)
+        .get();
+
+      // Preferir o mais atualizado e que tenha telefone válido
+      let best = null;
+      q.forEach((doc) => {
+        const d = doc.data() || {};
+        if (isInactiveUser(d)) return;
+
+        const raw = d?.phoneCanonical || d?.phone || d?.phoneNumber || d?.phoneE164 || "";
+        const cand = toPhoneCanonical(raw);
+        if (!cand) return;
+
+        const score = toMillis(d?.updatedAt) || toMillis(d?.createdAt);
+        if (!best || score >= best.score) best = { phoneCanonical: cand, score, uid: doc.id };
+      });
+
+      if (best?.phoneCanonical) phoneCanonical = best.phoneCanonical;
+    }
 
     if (!phoneCanonical) {
       return NextResponse.json(

@@ -10,7 +10,9 @@
 - **users/{uid}** é a fonte de verdade do paciente (role/status e identidade).
 - **subscribers/{phoneCanonical}** guarda o **pushToken** (Web Push) do paciente.
 - **config/global** centraliza as configurações de contrato, WhatsApp e templates.
-- **history/** é **auditoria** com schema flexível: cada evento define seu `payload`.
+- **history/** é **auditoria** com schema flexível.
+  - Hoje coexistem logs **novos** (com `type`/`createdAt`) e logs **legados** (ex.: `sentAt`/`summary` sem `type`).
+  - Padrão recomendado (alvo): `type`, `createdAt`, `payload` (ver `docs/11_HISTORY_LOGGING_STANDARD.md`).
 - Recomendação de consistência: sempre que possível, gravar `phoneCanonical` e manter `users.phoneCanonical` sincronizado com o padrão usado em `subscribers` e `appointments`.
 
 ---
@@ -179,29 +181,113 @@
 
 Coleção de logs/eventos do sistema (**não é** fonte de verdade de domínio).
 
+### Por que existem documentos com campos diferentes?
+
+O Firestore é **NoSQL**: uma coleção pode ter documentos com campos diferentes. A coleção `history` é propositalmente um **log de eventos**: cada evento registra um “recorte” do que aconteceu (envio, import, bloqueio, etc.).
+
+Além disso, o projeto está em migração: há **mais de um padrão** de documento gravado em `history`.
+
 **DocId**
 - `id` (string) — `autoId`
 
-**Campos (padrão recomendado)**
+### Padrões existentes hoje (snapshot do código)
+
+#### Padrão A — `type` + `createdAt` + campos no nível raiz (mais comum hoje)
+
+> Observação: apesar do padrão recomendado usar `payload`, **os endpoints atuais ainda gravam a maior parte dos dados no nível raiz**.
+
+Tipos observados e seus campos típicos:
+
+- `appointments_sync_summary` (POST `/api/admin/appointments/sync-summary`)
+  - `uploadId`, `totalAppointments`, `uniquePatients`, `dateRange{firstISO,lastISO}`, `fallbackServiceCount`, `createdAt`
+
+- `attendance_import_summary` (POST `/api/admin/attendance/import` e `/api/attendance/import`)
+  - `count`, `skipped`, `source`, `sampleErrors[]`, `createdAt`
+
+- `patient_register` (POST `/api/admin/patient/register`)
+  - `uid`, `phoneCanonical`, `email`, `patientExternalId`, `createdAt`
+
+- `patient_deactivate_not_found` (POST `/api/admin/patient/delete` quando não encontra)
+  - `uid`, `email`, `phoneCanonical`, `patientExternalId`, `reason`, `createdAt`
+
+- `patient_deactivate` (POST `/api/admin/patient/delete` quando encontra)
+  - `userDocIds[]`, `uid`, `email`, `phoneCanonical`, `patientExternalId`, `reason`, `createdAt`
+
+- `push_enabled` (POST `/api/patient/push/register` e `/api/admin/push/register`)
+  - `patientId`, `phone` **ou** `phoneCanonical`, `tokenHash`, `tokenTail`, `userAgent`, `createdAt`
+
+- `push_reminder_sent` (POST `/api/admin/reminders/send`)
+  - `uploadId`, `phoneCanonical`, `appointmentIds[]`, `reminderTypes[]`, `createdAt`
+
+- `push_reminder_failed` (POST `/api/admin/reminders/send`)
+  - `uploadId`, `phoneCanonical`, `error`, `appointmentIds[]`, `createdAt`
+
+- `push_reminder_send_summary` (POST `/api/admin/reminders/send`)
+  - `uploadId`, `phonesTotal`, `messagesTotal`, `sentCount`, `failCount`,
+    `skippedInactive`, `skippedInactivePatient`, `blockedInactive`, `blockedInactiveSubscriber`,
+    `skippedNoToken`, `blockedNoToken`, `createdAt`
+
+#### Padrão B — legado com `action`/`scope` + `createdAt`
+
+- Ex.: `/api/admin/users/repair-roles` grava:
+  - `action: "repair_roles"`, `scope: "users"`, `scanned`, `updated`, `skipped`, `createdAt`
+
+#### Padrão C — legado antigo do endpoint `/api/send` (sem `type`, usa `sentAt`)
+
+- Campos típicos:
+  - `sentAt`, `count`, `skipped{noPhone,noMessage,noToken}`, `types[]`, `summary`, `errors[]`
+
+### Padrão recomendado (alvo)
+
 - `type` (string)
 - `createdAt` (timestamp)
-- `payload` (map) — dados variáveis por tipo
+- `payload` (map)
 
-**Tipos observados no código (exemplos)**
-- `appointments_sync_summary`
-- `push_reminder_send_summary`
-- `push_reminder_sent`
-- `push_reminder_failed`
-- `appointment_reminder`
-- `attendance_import_summary`
-- `patient_register`
-- `patient_deactivate`
-- `patient_deactivate_not_found`
-- `push_enabled`
+Referência: `docs/11_HISTORY_LOGGING_STANDARD.md`.
 
-**Exemplos de payload (forma, não conteúdo sensível)**
-- `appointments_sync_summary.payload`: `{ fromIsoDate: string, toIsoDate: string, scanned: number, upserted: number, cancelled: number }`
-- `push_reminder_send_summary.payload`: `{ dryRun: boolean, candidates: number, sent: number, blocked: number, byReason: map }`
-- `attendance_import_summary.payload`: `{ fromIsoDate: string, toIsoDate: string, totalLogs: number, byStatus: { present: number, absent: number } }`
+### Nota importante para o Admin UI (estado atual)
+
+- O Admin hoje ordena `history` por **`sentAt`** (`src/hooks/useData.js`), então logs do **Padrão A** (que usam `createdAt`) podem não aparecer no painel de Histórico.
+- Ao padronizar, a query deve considerar `createdAt` e/ou fallback em `sentAt`.
+
+### Exemplos reais (forma, sem conteúdo sensível)
+
+**Exemplo (Padrão A) — `push_reminder_send_summary`**
+```json
+{
+  "type": "push_reminder_send_summary",
+  "uploadId": "upl_...",
+  "phonesTotal": 10,
+  "messagesTotal": 10,
+  "sentCount": 7,
+  "failCount": 3,
+  "blockedNoToken": 2,
+  "blockedInactive": 1,
+  "createdAt": "serverTimestamp"
+}
+```
+
+**Exemplo (Padrão B) — `repair_roles`**
+```json
+{
+  "action": "repair_roles",
+  "scope": "users",
+  "scanned": 120,
+  "updated": 6,
+  "skipped": 114,
+  "createdAt": "serverTimestamp"
+}
+```
+
+**Exemplo (Padrão C) — log antigo do `/api/send`**
+```json
+{
+  "sentAt": "serverTimestamp",
+  "count": 12,
+  "skipped": { "noPhone": 0, "noMessage": 1, "noToken": 3 },
+  "types": ["msg48h", "msg24h"],
+  "summary": "Envio push: 12 enviados | sem tel: 0 | sem msg: 1 | sem token: 3"
+}
+```
 
 ---

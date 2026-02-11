@@ -42,10 +42,13 @@ Você é um **desenvolvedor master full stack** (Next.js App Router + Firebase/F
 - Preview `dryRun` mostra **amostras interpoladas** e `blockedReason` (mesmo quando não pode enviar por falta de token).
 
 ## Próximo passo obrigatório (1/1) ao iniciar o novo chat
-**Criar/atualizar `docs/09_FIREBASE_SCHEMA.md`** com snapshot do Firestore:
-- coleções e campos estáveis (`users`, `subscribers`, `appointments`, `attendance_logs`, `config`, `patient_notes`)
-- `history` como schema flexível (registrar padrão + exemplos reais de `type`)
-Sem dados sensíveis, apenas nomes de campos e tipos.
+**Padronizar o consumo de logs do Admin (`history`)** para suportar os padrões existentes hoje:
+- logs novos: `type` + `createdAt` (a maioria dos endpoints admin)
+- logs legados: `sentAt` + `summary` (endpoint antigo `/api/send`)
+
+Em paralelo:
+- manter `docs/10_FIREBASE_SCHEMA.md` como fonte oficial do schema
+- manter `docs/09_FIREBASE_SCHEMA.md` como resumo/índice
 
 ## Como você deve começar
 Comece propondo **exatamente 1 passo (1/1)** para executar o “Próximo passo obrigatório” acima, com instruções claras e, se precisar de algo meu, peça diretamente (ex.: “me mande o arquivo X” ou “cole aqui o snapshot do schema do Firestore”).

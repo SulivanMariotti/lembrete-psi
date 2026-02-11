@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Download, UserPlus, UserMinus, X } from 'lucide-react';
-import { Button, Card, Badge } from '../DesignSystem';
+import { Search, Download, UserPlus, UserMinus, X, Flag, Bell, BellOff, CheckCircle, XCircle, FileText } from 'lucide-react';
+import { Button, Card } from '../DesignSystem';
 
 /**
  * AdminPatientsTab
@@ -13,8 +13,49 @@ import { Button, Card, Badge } from '../DesignSystem';
  *   para o endpoint não criar um doc "p_base64(email)" e sim atualizar o doc correto.
  */
 
-export default function AdminPatientsTab({ showToast }) {
+export default function AdminPatientsTab({ showToast, globalConfig }) {
   const [searchTerm, setSearchTerm] = useState('');
+
+  const currentContractVersion = Number(globalConfig?.contractVersion || 1);
+
+  // --- UI helpers (flags) ---
+  const IndicatorPill = ({ kind, ok, label, title }) => {
+    const base =
+      'inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold border w-fit whitespace-nowrap';
+
+    const palette = (() => {
+      if (kind === 'status') {
+        return ok
+          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+          : 'bg-red-50 text-red-700 border-red-100';
+      }
+
+      if (kind === 'contract') {
+        return ok
+          ? 'bg-sky-50 text-sky-700 border-sky-100'
+          : 'bg-orange-50 text-orange-700 border-orange-100';
+      }
+
+      // kind === 'push'
+      return ok
+        ? 'bg-violet-50 text-violet-700 border-violet-100'
+        : 'bg-amber-50 text-amber-700 border-amber-100';
+    })();
+
+    const Icon = (() => {
+      if (kind === 'status') return ok ? CheckCircle : XCircle;
+      if (kind === 'contract') return FileText;
+      return ok ? Bell : BellOff; // push
+    })();
+
+    return (
+      <span className={`${base} ${palette}`} title={title || ''}>
+        <Flag size={14} />
+        <Icon size={14} />
+        <span>{label}</span>
+      </span>
+    );
+  };
 
   // Lista de pacientes carregada do servidor (Admin SDK)
   const [patients, setPatients] = useState([]);
@@ -196,7 +237,7 @@ export default function AdminPatientsTab({ showToast }) {
 
   const exportCSV = () => {
     try {
-      const headers = ['Nome', 'Email', 'Telefone', 'ID (externo)', 'Push', 'Status'];
+      const headers = ['Nome', 'Email', 'Telefone', 'ID (externo)', 'Push', 'Cadastro', 'Contrato'];
       const rows = filteredPatients.map((p) => [
         String(p?.name || ''),
         String(p?.email || ''),
@@ -204,6 +245,7 @@ export default function AdminPatientsTab({ showToast }) {
         String(p?.patientExternalId || ''),
         p?.hasPushToken ? 'SIM' : 'NAO',
         String(p?.status || ''),
+        Number(p?.contractAcceptedVersion || 0) >= Number(globalConfig?.contractVersion || 1) ? 'ACEITO' : 'PENDENTE',
       ]);
 
       const csv = [headers, ...rows]
@@ -261,12 +303,12 @@ export default function AdminPatientsTab({ showToast }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left border-b">
-                <th className="p-3">Nome</th>
+                <th className="p-3">Paciente</th>
                 <th className="p-3">Email</th>
                 <th className="p-3">Telefone</th>
-                <th className="p-3">ID (externo)</th>
                 <th className="p-3">Push</th>
-                <th className="p-3">Status</th>
+                <th className="p-3">Cadastro</th>
+                <th className="p-3">Contrato</th>
                 <th className="p-3 text-right">Ações</th>
               </tr>
             </thead>
@@ -280,19 +322,49 @@ export default function AdminPatientsTab({ showToast }) {
               ) : (
                 filteredPatients.map((u) => (
                   <tr key={u.uid || u.id} className="border-b last:border-b-0">
-                    <td className="p-3 font-medium">{u?.name || '—'}</td>
+                    <td className="p-3">
+                      <div className="font-medium text-slate-800">{u?.name || '—'}</div>
+                      {u?.patientExternalId ? (
+                        <div className="text-[11px] text-slate-400 mt-0.5">ID: {u?.patientExternalId}</div>
+                      ) : null}
+                    </td>
                     <td className="p-3">{u?.email || '—'}</td>
                     <td className="p-3">{u?.phoneCanonical || u?.phone || '—'}</td>
-                    <td className="p-3">{u?.patientExternalId || '—'}</td>
                     <td className="p-3">
-                      <Badge variant={u?.hasPushToken ? 'success' : 'secondary'}>
-                        {u?.hasPushToken ? 'OK' : '—'}
-                      </Badge>
+                      <IndicatorPill
+                        kind="push"
+                        ok={Boolean(u?.hasPushToken)}
+                        label={u?.hasPushToken ? 'Notificações ativas' : 'Sem notificações'}
+                        title={
+                          u?.hasPushToken
+                            ? 'Este paciente tem Push ativo (token válido em subscribers).' 
+                            : 'Sem Push ativo. Oriente o paciente a ativar as notificações neste aparelho.'
+                        }
+                      />
                     </td>
                     <td className="p-3">
-                      <Badge variant={String(u?.status || '').toLowerCase() === 'active' ? 'success' : 'secondary'}>
-                        {u?.status || '—'}
-                      </Badge>
+                      <IndicatorPill
+                        kind="status"
+                        ok={String(u?.status || '').toLowerCase() === 'active'}
+                        label={String(u?.status || '').toLowerCase() === 'active' ? 'Cadastro ativo' : 'Cadastro inativo'}
+                        title={
+                          String(u?.status || '').toLowerCase() === 'active'
+                            ? 'Cadastro ativo (pode receber agenda/disparos).'
+                            : 'Cadastro inativo/desativado (não deve receber atendimentos/disparos).'
+                        }
+                      />
+                    </td>
+                    <td className="p-3">
+                      <IndicatorPill
+                        kind="contract"
+                        ok={Number(u?.contractAcceptedVersion || 0) >= currentContractVersion}
+                        label={
+                          Number(u?.contractAcceptedVersion || 0) >= currentContractVersion
+                            ? 'Contrato aceito'
+                            : 'Contrato pendente'
+                        }
+                        title={`Aceite do contrato: v${Number(u?.contractAcceptedVersion || 0)} • Versão atual: v${currentContractVersion}`}
+                      />
                     </td>
                     <td className="p-3">
                       <div className="flex justify-end gap-2">

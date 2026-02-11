@@ -1,22 +1,21 @@
-// src/app/api/patient/login/route.js
+// src/app/api/patient-auth/route.js
 import { NextResponse } from "next/server";
 import admin from "firebase-admin";
 
 /**
  * Patient Login (email) - server-side (Firebase Admin)
  *
- * BUGFIX:
- * - Antes, validava o acesso em `subscribers` e criava um uid "p_base64(email)" em `users`,
- *   gerando inconsistências e impedindo acesso quando o Admin cadastrava só em `users`.
- *
- * Agora:
- * - Autoriza o acesso consultando `users` (role == "patient") pelo email cadastrado no Admin
- * - Bloqueia se paciente estiver inativo (status != active, ou flags deletedAt/disabledAt/isActive=false/disabled=true)
- * - Usa o UID REAL (docId do Firestore / uid do Auth quando for o caso) para gerar o custom token
- * - Atualiza lastLogin e updatedAt
+ * BUGFIXES:
+ * - Autoriza consultando `users` (role == "patient") pelo email cadastrado no Admin.
+ * - Bloqueia se paciente estiver inativo.
+ * - Resistente a duplicidades antigas de `users` com o mesmo email:
+ *   escolhe o doc "melhor" (prioriza o que tem telefone/phoneCanonical) para evitar
+ *   casos em que o paciente entra num doc legado sem telefone.
+ * - Se o doc escolhido estiver sem `phoneCanonical`, tenta preencher automaticamente
+ *   (copiando de outro doc ativo com mesmo email ou derivando de campos existentes).
  *
  * Resposta:
- *   { ok: true, token, uid }
+ *   { ok: true, token, uid, phoneCanonical? }
  */
 
 function getServiceAccount() {
@@ -38,7 +37,7 @@ function initAdmin() {
 
 function isInactiveUser(u) {
   const status = String(u?.status ?? "active").toLowerCase().trim();
-  if (["inactive", "disabled", "archived", "deleted"].includes(status)) return true;
+  if (["inactive", "disabled", "archived", "deleted", "merged"].includes(status)) return true;
   if (u?.isActive === false) return true;
   if (u?.disabled === true) return true;
   if (u?.deletedAt) return true;
@@ -56,6 +55,53 @@ function toMillis(ts) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function onlyDigits(v) {
+  return String(v || "").replace(/\D/g, "");
+}
+
+/**
+ * Canonical phone (projeto): DDD + número (10/11 dígitos), SEM 55
+ */
+function toPhoneCanonical(raw) {
+  let d = onlyDigits(raw).replace(/^0+/, "");
+  if (!d) return "";
+  if (d.startsWith("55") && (d.length === 12 || d.length === 13)) d = d.slice(2);
+  if (d.length === 10 || d.length === 11) return d;
+  if (d.length > 11) return d.slice(-11);
+  return d;
+}
+
+function hasAnyPhone(data) {
+  return Boolean(
+    String(data?.phoneCanonical || "").trim() ||
+      String(data?.phone || "").trim() ||
+      String(data?.phoneNumber || "").trim() ||
+      String(data?.phoneE164 || "").trim()
+  );
+}
+
+function pickBestUserDoc(items) {
+  // Score:
+  // - +1000 se tem telefone (evita escolher doc legado vazio)
+  // - -100 se está marcado como mergedTo (por segurança)
+  // - +recência (updatedAt/createdAt)
+  let best = null;
+
+  for (const item of items) {
+    const d = item?.data || {};
+    const hasPhone = hasAnyPhone(d);
+    const isMerged = Boolean(d.mergedTo);
+    const recency = toMillis(d.updatedAt) || toMillis(d.createdAt) || 0;
+
+    // normaliza recência para não dominar totalmente a pontuação
+    const score = (hasPhone ? 1000 : 0) + (isMerged ? -100 : 0) + recency / 1_000_000_000;
+
+    if (!best || score > best.score) best = { ...item, score };
+  }
+
+  return best;
+}
+
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -67,9 +113,10 @@ export async function POST(req) {
 
     initAdmin();
 
+    const db = admin.firestore();
+
     // Authorize based on users collection (Admin cadastro)
-    const q = await admin
-      .firestore()
+    const q = await db
       .collection("users")
       .where("role", "==", "patient")
       .where("email", "==", email)
@@ -82,44 +129,57 @@ export async function POST(req) {
       );
     }
 
-    // If multiple docs exist, prefer the most recently updated
-    let chosen = null;
-    q.forEach((doc) => {
-      const data = doc.data() || {};
-      const candidate = { id: doc.id, data };
-      if (!chosen) {
-        chosen = candidate;
-        return;
-      }
-      const a = toMillis(chosen.data?.updatedAt) || toMillis(chosen.data?.createdAt);
-      const b = toMillis(data?.updatedAt) || toMillis(data?.createdAt);
-      if (b >= a) chosen = candidate;
-    });
+    const candidates = q.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+    const activeCandidates = candidates.filter((c) => !isInactiveUser(c.data));
 
-    const uid = chosen.id;
-    const userData = chosen.data || {};
-
-    if (isInactiveUser(userData)) {
+    if (!activeCandidates.length) {
       return NextResponse.json(
         { ok: false, error: "Cadastro inativo. Fale com a clínica para reativação." },
         { status: 403 }
       );
     }
 
-    // Update lastLogin (server timestamp)
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    await admin.firestore().collection("users").doc(uid).set(
-      {
-        lastLogin: now,
-        updatedAt: now,
-      },
-      { merge: true }
+    // Escolher o melhor doc para evitar cair em duplicado sem telefone
+    const chosen = pickBestUserDoc(activeCandidates) || activeCandidates[0];
+    const uid = chosen.id;
+    const userData = chosen.data || {};
+
+    // Garantir phoneCanonical no doc escolhido (se possível)
+    let phoneCanonical = toPhoneCanonical(
+      userData?.phoneCanonical || userData?.phone || userData?.phoneNumber || userData?.phoneE164 || ""
     );
+
+    if (!phoneCanonical) {
+      // tenta copiar de outro doc ativo com mesmo email
+      for (const c of activeCandidates) {
+        const d = c?.data || {};
+        const probe = toPhoneCanonical(d?.phoneCanonical || d?.phone || d?.phoneNumber || d?.phoneE164 || "");
+        if (probe) {
+          phoneCanonical = probe;
+          break;
+        }
+      }
+    }
+
+    // Update lastLogin + (opcional) phoneCanonical/phone
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const patch = { lastLogin: now, updatedAt: now };
+
+    if (phoneCanonical) {
+      const existingPc = toPhoneCanonical(userData?.phoneCanonical || "");
+      const existingFromPhone = toPhoneCanonical(userData?.phone || "");
+
+      if (!existingPc || existingPc !== phoneCanonical) patch.phoneCanonical = phoneCanonical;
+      // manter `phone` consistente com o que as rules usam (comparação com appointments.resource.data.phone)
+      if (!existingFromPhone || existingFromPhone !== phoneCanonical) patch.phone = phoneCanonical;
+    }
+
+    await db.collection("users").doc(uid).set(patch, { merge: true });
 
     // Custom token with claims (keeps email for client convenience)
     const token = await admin.auth().createCustomToken(uid, { role: "patient", email });
 
-    return NextResponse.json({ ok: true, token, uid });
+    return NextResponse.json({ ok: true, token, uid, phoneCanonical: phoneCanonical || null });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });

@@ -328,7 +328,7 @@ export default function AdminPanelView({
           />
         )}
 
-        {adminTab === 'users' && <AdminPatientsTab subscribers={subscribers} showToast={showToast} />}
+        {adminTab === 'users' && <AdminPatientsTab subscribers={subscribers} showToast={showToast} globalConfig={globalConfig} />}
 
         {adminTab === 'history' && <AdminHistoryTab historyLogs={historyLogs} />}
 
