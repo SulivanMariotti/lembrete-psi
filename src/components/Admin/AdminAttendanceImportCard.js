@@ -142,6 +142,36 @@ export default function AdminAttendanceImportCard({
     downloadTextFile(`inconsistencias_${srcPart}_${datePart}.csv`, csv);
   };
 
+
+  const handleDownloadNormalizedPreviewCsv = () => {
+    const res = attendanceImportDryRunResult;
+    const rows = Array.isArray(res?.normalizedRows) ? res.normalizedRows : [];
+    if (!rows.length) return;
+
+    const cols = [
+      "line",
+      "patientId",
+      "name",
+      "isoDate",
+      "time",
+      "profissional",
+      "service",
+      "location",
+      "status",
+      "phone",
+    ];
+
+    const csv = [
+      cols.join(";"),
+      ...rows.map((r) => cols.map((c) => escapeCsv(r?.[c] ?? "")).join(";")),
+    ].join("\n");
+
+    const datePart = new Date().toISOString().slice(0, 10);
+    const srcPart = safeFilePart(attendanceImportSource) || "import";
+    const truncPart = res?.normalizedRowsTruncated ? "_TRUNCADO" : "";
+    downloadTextFile(`preview_normalizado_${srcPart}_${datePart}${truncPart}.csv`, csv);
+  };
+
   const onPickFile = (e) => {
     const file = e?.target?.files?.[0];
     setFileError(null);
@@ -232,7 +262,7 @@ export default function AdminAttendanceImportCard({
               type="button"
               className="shrink-0"
             >
-              Selecionar arquivo
+              Escolher arquivo
             </Button>
 
             <div className="min-w-0 flex-1 text-sm text-slate-600">
@@ -320,7 +350,7 @@ export default function AdminAttendanceImportCard({
           </div>
 
 
-          <div className="mt-2">
+          <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center">
             <Button
               variant="secondary"
               onClick={handleDownloadIssuesCsv}
@@ -330,7 +360,23 @@ export default function AdminAttendanceImportCard({
             >
               Baixar inconsistências (CSV)
             </Button>
+
+            <Button
+              variant="secondary"
+              onClick={handleDownloadNormalizedPreviewCsv}
+              disabled={!attendanceImportDryRunResult?.normalizedRows?.length}
+              className="w-full md:w-auto"
+              icon={FileText}
+            >
+              Baixar preview normalizado (CSV)
+            </Button>
           </div>
+
+          {attendanceImportDryRunResult?.normalizedRowsTruncated && (
+            <div className="mt-1 text-xs text-slate-500">
+              Preview normalizado truncado (máx. 5000 linhas). Se precisar do arquivo completo, reduza o período/quantidade no CSV.
+            </div>
+          )}
 
           {attendanceImportDryRunResult.errors?.length > 0 && (
             <div className="mt-2 text-slate-600">

@@ -3,6 +3,7 @@
 - Feature (Admin / Presença-Faltas): upload de CSV + validação (dryRun) + importação + limpar
 - Feature: warnings (não bloqueiam) + detecção de duplicadas no arquivo
 - Feature: download “inconsistências (CSV)” (erros + avisos com field/linha/rawLine)
+- Feature: download “preview normalizado (CSV)” no dryRun (auditoria do que será importado)
 - UX: upload virou botão “Selecionar arquivo” (sem controle nativo do browser)
 - Fix (Constância): `/api/admin/attendance/send-followups` agora retorna `sample` no dryRun mesmo com bloqueios e resolve telefone via `users.patientExternalId/patientId`
 - Fix: refresh automático do painel após import (sem precisar trocar de menu)

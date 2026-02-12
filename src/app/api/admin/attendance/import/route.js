@@ -230,6 +230,11 @@ export async function POST(req) {
     let skippedDuplicateInFile = 0;
     let warnedNoPhone = 0;
 
+    // Preview normalizado (apenas em dryRun): linhas que seriam importadas
+    const MAX_NORMALIZED_PREVIEW_ROWS = 5000;
+    const normalizedRows = [];
+    let normalizedRowsTruncated = false;
+
     const seenDocIds = new Set();
 
     // cache de user por patientId
@@ -421,6 +426,26 @@ export async function POST(req) {
       }
 
       imported += 1;
+
+      if (dryRun) {
+        if (normalizedRows.length < MAX_NORMALIZED_PREVIEW_ROWS) {
+          normalizedRows.push({
+            line: sampleRow.line,
+            patientId: sampleRow.patientId,
+            name: sampleRow.name,
+            isoDate: sampleRow.isoDate,
+            time: sampleRow.time,
+            profissional: sampleRow.profissional,
+            service: sampleRow.service,
+            location: sampleRow.location,
+            status: sampleRow.status,
+            phone: sampleRow.phone,
+          });
+        } else {
+          normalizedRowsTruncated = true;
+        }
+      }
+
       if (sample.length < 10) sample.push(sampleRow);
     }
 
@@ -450,6 +475,8 @@ export async function POST(req) {
           warnedNoPhone,
           errors: errors.slice(0, 200),
           warnings: warnings.slice(0, 200),
+          normalizedRows,
+          normalizedRowsTruncated,
           sample,
         },
         { status: 200 }
