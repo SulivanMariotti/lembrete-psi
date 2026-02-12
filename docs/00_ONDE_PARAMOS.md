@@ -1,6 +1,6 @@
 # Lembrete Psi — Onde paramos
 
-Data: 2026-02-11
+Data: 2026-02-12
 
 ## Missão (produto)
 Sustentar o vínculo terapêutico e reduzir faltas pela **constância**:
@@ -49,18 +49,86 @@ Sustentar o vínculo terapêutico e reduzir faltas pela **constância**:
 - Paciente entra com **Telefone + Código** e recebe sessão (via Firebase Auth custom token).
 - Código é **single-use** (após parear, status vira `used`).
 - Admin → Pacientes mostra coluna **Código** (Sem/Ativo/Usado/Revogado + last4).
-- Teste realizado: **A + B + C ok** (gerar, vincular, bloquear reuse).
+
+---
+
+## Presença/Faltas (planilha) — Atualizações concluídas
+
+### ✅ Importação por CSV (Admin)
+Fluxo no Admin → **Presença/Faltas**:
+1) **Selecionar arquivo** (upload CSV)
+2) **Verificar (validação / dryRun)** → mostra resumo, amostras e inconsistências
+3) **Importar** → grava no Firestore
+4) **Limpar** → zera estado e permite novo upload/validação
+
+#### Layout esperado da planilha (CSV)
+Cabeçalho:
+`ID, NOME, DATA, HORA, PROFISSIONAL, SERVIÇOS, LOCAL, STATUS`
+
+- Aceita `SERVIÇOS` com/sem acento e separador `,` ou `;`
+- `DATA`: `dd/mm/aaaa` ou `yyyy-mm-dd`
+- `HORA`: `HH:MM`
+- `STATUS`: opcional (se vazio ou desconhecido, aplica **Status padrão** escolhido no Admin)
+
+#### API (server-side, Admin SDK)
+`POST /api/admin/attendance/import`
+Body:
+- `csvText` (obrigatório)
+- `source` (opcional)
+- `defaultStatus` (opcional)
+- `dryRun` (opcional; quando true não grava, só valida e retorna preview)
+
+Grava em `attendance_logs` com chave composta:
+`{patientId}_{isoDate}_{HHMM}_{profissionalSlug}`
+
+Campos principais:
+- `patientId`
+- `phoneCanonical` (pode ser `null`)
+- `hasPhone` (boolean)
+- `name`, `isoDate`, `time`, `profissional`, `service`, `location`, `status`, `source`
+- `createdAt`, `updatedAt`
+
+#### Validação: Erros x Avisos
+- **Erros**: bloqueiam a linha (ex.: ID vazio, DATA/HORA inválidas, duplicada no arquivo)
+- **Avisos**: não bloqueiam (ex.: NOME vazio, STATUS não reconhecido, **sem phoneCanonical**)
+
+Inclui botão:
+- **Baixar inconsistências (CSV)** (erros + avisos, com `field`, `message`, `rawLine`, etc.)
+
+#### UX do upload
+- O upload virou **botão** (“Selecionar arquivo”), sem o controle padrão “Escolher arquivo / Nenhum arquivo escolhido”.
+- Exibe o **nome do arquivo** ao lado.
+
+---
+
+## Disparos por Constância — Atualizações concluídas
+
+### ✅ Preview “Amostra” não fica mais vazio
+`POST /api/admin/attendance/send-followups`
+- `dryRun` retorna `sample` mesmo quando a linha está bloqueada (para validar placeholders/mensagens).
+- Se o log não tiver telefone, tenta resolver por `patientId` em `users` via:
+  - `patientExternalId` (preferido) ou `patientId` (legado)
+- Contabiliza bloqueios com transparência:
+  - `blockedNoPhone`, `blockedNoToken`, `blockedInactive...`
+- `sample[]` inclui:
+  - `canSend` + `blockedReason` (`no_phone`, `no_token`, `inactive_patient`, `inactive_subscriber`)
+
+---
+
+## Melhorias operacionais concluídas
+
+### ✅ Recarregar dados após import (sem trocar de menu)
+- Após importar, o Admin força refresh interno para atualizar o painel/estatísticas de constância imediatamente.
 
 ---
 
 ## Pendências (prioridade alta)
-1) **Admin → Presença/Faltas**: estabilizar preview/amostra + fluxo “Limpar” + reprocessar.
-2) Deduplicação/consistência de `users` (email/phoneCanonical) para evitar doc sem telefone.
-3) **Futuro**: reintroduzir autenticação alternativa (magic link/OTP) antes de PWA/App.
+1) **Exportar preview normalizado completo (CSV)** (não só inconsistências), para auditoria antes de importar.
+2) **Painel de Constância (Paciente)** alimentado por `attendance_logs`:
+   - reforço de presença (“parabéns pela consistência”)
+   - psicoeducação em caso de falta (sem moralismo; foco em vínculo/continuidade)
+3) Ferramenta de “higiene de cadastro”:
+   - consolidar `patientExternalId`, `phoneCanonical` e evitar duplicidades em `users`.
 
 ## Próximo passo sugerido (1 por vez)
-**Próximo passo (1/1):** corrigir Admin → Presença/Faltas:
-- preview “Amostra” preencher `sample`
-- “Limpar” não deixar estado preso
-- reprocessar upload sem trocar de menu
-- garantir visibilidade “Disparos por constância”
+**Próximo passo (1/1):** adicionar botão “Baixar preview normalizado (CSV)” no fluxo de validação (dryRun).

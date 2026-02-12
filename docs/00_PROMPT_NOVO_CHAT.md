@@ -14,18 +14,27 @@ Você é um **dev master full stack** (Next.js App Router + Firebase/Firestore +
 ## Estado atual do projeto (resumo)
 ✅ Contrato Terapêutico: `config/global.contractText/contractVersion` → paciente aceita em `users/{uid}` (`contractAcceptedVersion/At`).  
 ✅ Push paciente sem permission-denied (usa `/api/patient/push/*`; sem leitura direta de `subscribers`).  
-✅ Histórico Admin robusto (createdAt/sentAt fallback) + labels PT-BR.  
+✅ Histórico Admin robusto (fallback createdAt/sentAt) + labels PT-BR.  
 ✅ Admin → Pacientes: flags (Notificações, Cadastro, Contrato).  
-✅ Login paciente por **Código de Vinculação** (telefone + código), sem custo; código single-use com hash+salt.
+✅ Login paciente por **Código de Vinculação** (telefone + código), sem custo; código single-use com hash+salt.  
 
-Decisão: **manter web por enquanto**; considerar PWA/App (Capacitor) apenas no futuro após endurecer segurança.
+✅ **Presença/Faltas por planilha (CSV)**:
+- UI com **Selecionar arquivo (upload)** + **Verificar (dryRun)** + **Importar** + **Limpar**
+- Validação com **Erros** (bloqueiam) e **Avisos** (não bloqueiam)
+- Detecta **duplicadas no arquivo**
+- Botão **Baixar inconsistências (CSV)**
+- Rota: `POST /api/admin/attendance/import` (Admin SDK)
+
+✅ **Disparos por Constância**:
+- `POST /api/admin/attendance/send-followups`
+- dryRun retorna `sample` com `canSend` + `blockedReason`
+- resolve telefone via `users` por `patientExternalId/patientId` quando o log não tem phone
+
+Decisão: manter web por enquanto; considerar PWA/App depois de endurecer segurança.
 
 ## Próximo passo obrigatório (1/1)
-Atacar **Admin → Presença/Faltas**:
-- preview “Amostra” (`sample`) no dryRun
-- corrigir estado após “Limpar” e permitir reupload sem trocar de menu
-- garantir bloco “Disparos por constância” consistente
+Adicionar botão/feature: **“Baixar preview normalizado (CSV)”** do dryRun (não só inconsistências), para auditoria antes de importar.
 
-Comece propondo **1 passo único** para iniciar isso (geralmente: pedir ZIP mais atual do projeto).
+Comece propondo **1 passo único** para iniciar isso (e peça ZIP atualizado se necessário).
 
 ---
