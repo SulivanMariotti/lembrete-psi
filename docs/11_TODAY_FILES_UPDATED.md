@@ -1,34 +1,30 @@
 # Arquivos mexidos hoje (referência rápida)
 
-> Este arquivo serve só para facilitar retomada no próximo chat.
+> Use como checklist para auditoria/merge.
 
-## Fixes / Melhorias aplicadas (2026-02-11)
-
-### Contrato Terapêutico no paciente
+## Contrato
 - `src/hooks/useData.js`
 
-### Histórico (Admin)
-- `src/hooks/useData.js`
-- `src/components/Admin/AdminHistoryTab.js`
-
-### Histórico com “tipo” amigável (PT-BR)
-- `src/components/Admin/AdminHistoryTab.js`
-
-### Admin → Pacientes (flags)
-- `src/components/Admin/AdminPatientsTab.js`
-
-### Admin → Pacientes (Contrato aceito/pendente)
-- `src/app/api/admin/patients/list/route.js`
-- `src/components/Admin/AdminPanelView.js`
-- `src/components/Admin/AdminPatientsTab.js`
-
-### Push (Paciente) sem permission-denied
+## Push paciente (sem permission-denied)
 - `src/components/Patient/PatientFlow.js`
+- (rotas) `src/app/api/patient/push/status/route.js`
+- (rotas) `src/app/api/patient/push/register/route.js`
 
-### Resolver telefone automaticamente
+## Resolver telefone
 - `src/app/api/patient/resolve-phone/route.js`
 - `src/components/Patient/PatientFlow.js`
 
-## Observação
-- Decisão: manter Web por enquanto; Capacitor/PWA ficam para futuro.
-- Item futuro: reintroduzir autenticação/login seguro do paciente (magic link/OTP) antes de publicar APP.
+## Histórico Admin
+- `src/hooks/useData.js`
+- `src/components/Admin/AdminHistoryTab.js`
+
+## Admin → Pacientes (flags + contrato + código)
+- `src/components/Admin/AdminPatientsTab.js`
+- `src/components/Admin/AdminPanelView.js`
+- `src/app/api/admin/patients/list/route.js`
+
+## Login por Código de Vinculação
+- `src/app/api/admin/patient/pair-code/route.js`
+- `src/app/api/patient/pair/route.js`
+- `src/services/authService.js`
+- `src/components/Patient/PatientLogin.js`

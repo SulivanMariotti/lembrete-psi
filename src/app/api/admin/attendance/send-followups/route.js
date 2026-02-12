@@ -198,6 +198,7 @@ export async function POST(req) {
       sent: 0,
       blocked: 0,
       blockedNoToken: 0,
+      blockedNoPhone: 0,
       blockedInactive: 0,
       blockedInactivePatient: 0,
       blockedInactiveSubscriber: 0,
@@ -223,6 +224,36 @@ export async function POST(req) {
       return doc;
     }
 
+
+    const userByIdCache = new Map();
+
+    async function getUserByPatientId(patientId) {
+      const key = String(patientId || "").trim();
+      if (!key) return null;
+      if (userByIdCache.has(key)) return userByIdCache.get(key);
+
+      // Primeiro tenta patientExternalId (padrão recomendado), depois patientId (legado)
+      let snap = await db
+        .collection("users")
+        .where("role", "==", "patient")
+        .where("patientExternalId", "==", key)
+        .limit(1)
+        .get();
+
+      if (snap.empty) {
+        snap = await db
+          .collection("users")
+          .where("role", "==", "patient")
+          .where("patientId", "==", key)
+          .limit(1)
+          .get();
+      }
+
+      const doc = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+      userByIdCache.set(key, doc);
+      return doc;
+    }
+
     async function getSubscriber(phone) {
       if (subCache.has(phone)) return subCache.get(phone);
       const doc = await db.collection("subscribers").doc(phone).get();
@@ -237,11 +268,29 @@ export async function POST(req) {
       const status = String(current.status || "").toLowerCase() === "present" ? "present" : "absent";
       out.byStatus[status] += 1;
 
-      const phone = canonicalPhone(current.phoneCanonical || current.phone || "");
-      if (!phone) continue;
+      const pid =
+        String(current.patientId || current.patientExternalId || current.id || "").trim() || null;
 
-      // Lookup do paciente (users) — usado para bloquear e para enriquecer placeholders
-      const userDoc = await getUserByPhone(phone);
+      let phone = canonicalPhone(current.phoneCanonical || current.phone || "");
+      let userDoc = null;
+
+      // 1) Se tiver phone no log, busca user por phoneCanonical
+      if (phone) {
+        userDoc = await getUserByPhone(phone);
+      }
+
+      // 2) Se NÃO tiver phone no log (dados legados), tenta resolver pelo patientId em users
+      if (!phone && pid) {
+        userDoc = await getUserByPatientId(pid);
+        const fromUser = canonicalPhone(userDoc?.phoneCanonical || userDoc?.phone || "");
+        if (fromUser) phone = fromUser;
+      }
+
+      // 3) Se achou phone via users mas ainda não tinha userDoc por phone, mantém userDoc existente.
+      // (Se userDoc veio nulo pelo PID mas phone existe, tenta por phone)
+      if (phone && !userDoc) {
+        userDoc = await getUserByPhone(phone);
+      }
 
       const vars = {
         nome: current.name || userDoc?.name || "",
@@ -251,7 +300,7 @@ export async function POST(req) {
         profissional: current.profissional || current.professional || "",
         servico: current.service || "",
         local: current.location || "",
-        id: current.patientId || userDoc?.patientExternalId || "",
+        id: pid || current.patientId || userDoc?.patientExternalId || "",
       };
 
       const title = status === "present" ? tpl.presentTitle : tpl.absentTitle;
@@ -263,13 +312,18 @@ export async function POST(req) {
       // Verifica bloqueios (mas ainda assim devolve amostra em dryRun)
       let blockedReason = null;
 
+      // Sem telefone (dados legados / incompletos)
+      if (!phone) {
+        blockedReason = "no_phone";
+      }
+
       // Paciente inativo (users)
-      if (isInactiveUserDoc(userDoc)) {
+      if (!blockedReason && isInactiveUserDoc(userDoc)) {
         blockedReason = "inactive_patient";
       }
 
-      // Subscriber: token/ativo
-      const sub = await getSubscriber(phone);
+      // Subscriber: token/ativo (só se tiver phone)
+      const sub = phone ? await getSubscriber(phone) : null;
       const token = sub?.pushToken || sub?.token || null;
       if (!blockedReason && sub?.isActive === false) {
         blockedReason = "inactive_subscriber";
@@ -292,6 +346,12 @@ export async function POST(req) {
       }
 
       // Contadores de bloqueio/fluxo
+      if (blockedReason === "no_phone") {
+        out.blocked += 1;
+        out.blockedNoPhone += 1;
+        continue;
+      }
+
       if (blockedReason === "inactive_patient") {
         out.blocked += 1;
         out.blockedInactive += 1;

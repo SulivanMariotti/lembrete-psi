@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Download, UserPlus, UserMinus, X, Key, Flag, Bell, BellOff, CheckCircle, XCircle, FileText } from 'lucide-react';
+import { Search, Download, UserPlus, UserMinus, X, Flag, Bell, BellOff, CheckCircle, XCircle, FileText, KeyRound, Copy, Loader2 } from 'lucide-react';
 import { Button, Card } from '../DesignSystem';
 
 /**
@@ -57,6 +57,45 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
     );
   };
 
+  const PairCodePill = ({ status, last4, createdAt, usedAt }) => {
+    const s = String(status || '').toLowerCase();
+
+    const base =
+      'inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold border w-fit whitespace-nowrap';
+
+    const palette = (() => {
+      if (!s) return 'bg-slate-50 text-slate-700 border-slate-100';
+      if (s === 'active') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+      if (s === 'used') return 'bg-amber-50 text-amber-800 border-amber-100';
+      if (s === 'revoked') return 'bg-red-50 text-red-700 border-red-100';
+      return 'bg-slate-50 text-slate-700 border-slate-100';
+    })();
+
+    const mask = last4 ? `••••${last4}` : '—';
+
+    const label = (() => {
+      if (!s) return 'Sem código';
+      if (s === 'active') return `Código ativo ${mask}`;
+      if (s === 'used') return `Código usado ${mask}`;
+      if (s === 'revoked') return `Código revogado ${mask}`;
+      return `Código ${s} ${mask}`;
+    })();
+
+    const titleParts = [];
+    if (s) titleParts.push(`Status: ${s}`);
+    if (createdAt) titleParts.push(`Criado: ${createdAt}`);
+    if (usedAt) titleParts.push(`Usado: ${usedAt}`);
+    titleParts.push('Se o paciente trocar de aparelho ou perder o acesso, gere um novo código.');
+
+    return (
+      <span className={`${base} ${palette}`} title={titleParts.join(' • ')}>
+        <Flag size={14} />
+        <KeyRound size={14} />
+        <span>{label}</span>
+      </span>
+    );
+  };
+
   // Lista de pacientes carregada do servidor (Admin SDK)
   const [patients, setPatients] = useState([]);
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
@@ -66,11 +105,12 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingPatient, setEditingPatient] = useState(null);
 
-  // Código de Vinculação (pareamento)
+  // Código de Vinculação (pareamento do aparelho)
   const [showPairCodeModal, setShowPairCodeModal] = useState(false);
   const [pairCodeValue, setPairCodeValue] = useState('');
   const [pairCodePatient, setPairCodePatient] = useState(null);
   const [pairCodeLoadingUid, setPairCodeLoadingUid] = useState(null);
+
 
   const adminSecret = useMemo(() => process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '', []);
 
@@ -80,57 +120,59 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
     setNewPatient({ name: '', email: '', phone: '', patientExternalId: '' });
   };
 
+  const closePairCodeModal = () => {
+    setShowPairCodeModal(false);
+    setPairCodeValue('');
+    setPairCodePatient(null);
+  };
 
-const handleGeneratePairCode = async (u) => {
-  const uid = u?.uid || u?.id;
-  if (!uid) {
-    showToast?.('Paciente sem uid. Atualize a lista.', 'error');
-    return;
-  }
+  const copyPairCode = async () => {
+    try {
+      if (!pairCodeValue) return;
+      await navigator.clipboard.writeText(pairCodeValue);
+      showToast?.('Código copiado.', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast?.('Não foi possível copiar automaticamente. Selecione e copie manualmente.', 'error');
+    }
+  };
 
-  setPairCodeLoadingUid(uid);
-  try {
-    const res = await fetch('/api/admin/patient/pair-code', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-secret': adminSecret,
-      },
-      body: JSON.stringify({ uid }),
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.ok || !data?.pairCode) {
-      throw new Error(data?.error || 'Falha ao gerar código.');
+  const handleGeneratePairCode = async (u) => {
+    const uid = u?.uid || u?.id;
+    if (!uid) {
+      showToast?.('Paciente sem uid. Atualize a lista.', 'error');
+      return;
     }
 
-    setPairCodePatient(u);
-    setPairCodeValue(String(data.pairCode));
-    setShowPairCodeModal(true);
+    setPairCodeLoadingUid(uid);
+    try {
+      const res = await fetch('/api/admin/patient/pair-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': adminSecret,
+        },
+        body: JSON.stringify({ uid }),
+      });
 
-    showToast?.('Código gerado. Copie e envie ao paciente (vínculo por constância).', 'success');
-  } catch (e) {
-    console.error(e);
-    showToast?.(e?.message || 'Falha ao gerar código.', 'error');
-  } finally {
-    setPairCodeLoadingUid(null);
-  }
-};
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok || !data?.pairCode) {
+        throw new Error(data?.error || 'Falha ao gerar código.');
+      }
 
-const closePairCodeModal = () => {
-  setShowPairCodeModal(false);
-  setPairCodeValue('');
-  setPairCodePatient(null);
-};
+      setPairCodePatient(u);
+      setPairCodeValue(String(data.pairCode));
+      setShowPairCodeModal(true);
 
-const copyPairCode = async () => {
-  try {
-    await navigator.clipboard.writeText(pairCodeValue);
-    showToast?.('Código copiado ✅', 'success');
-  } catch {
-    showToast?.('Não foi possível copiar automaticamente. Selecione e copie manualmente.', 'error');
-  }
-};
+      showToast?.('Código gerado. Copie e envie ao paciente.', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast?.(e?.message || 'Falha ao gerar código.', 'error');
+    } finally {
+      setPairCodeLoadingUid(null);
+    }
+  };
+
 
   const loadPatients = async () => {
     setIsLoadingPatients(true);
@@ -295,7 +337,7 @@ const copyPairCode = async () => {
 
   const exportCSV = () => {
     try {
-      const headers = ['Nome', 'Email', 'Telefone', 'ID (externo)', 'Push', 'Cadastro', 'Contrato'];
+      const headers = ['Nome', 'Email', 'Telefone', 'ID (externo)', 'Push', 'Cadastro', 'Contrato', 'Código'];
       const rows = filteredPatients.map((p) => [
         String(p?.name || ''),
         String(p?.email || ''),
@@ -304,6 +346,7 @@ const copyPairCode = async () => {
         p?.hasPushToken ? 'SIM' : 'NAO',
         String(p?.status || ''),
         Number(p?.contractAcceptedVersion || 0) >= Number(globalConfig?.contractVersion || 1) ? 'ACEITO' : 'PENDENTE',
+        String(p?.pairCodeStatus || ''),
       ]);
 
       const csv = [headers, ...rows]
@@ -367,13 +410,14 @@ const copyPairCode = async () => {
                 <th className="p-3">Push</th>
                 <th className="p-3">Cadastro</th>
                 <th className="p-3">Contrato</th>
+                <th className="p-3">Código</th>
                 <th className="p-3 text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
               {filteredPatients.length === 0 ? (
                 <tr>
-                  <td className="p-4 opacity-70" colSpan={7}>
+                  <td className="p-4 opacity-70" colSpan={8}>
                     Nenhum paciente encontrado.
                   </td>
                 </tr>
@@ -425,20 +469,36 @@ const copyPairCode = async () => {
                       />
                     </td>
                     <td className="p-3">
+                      <PairCodePill
+                        status={u?.pairCodeStatus}
+                        last4={u?.pairCodeLast4}
+                        createdAt={u?.pairCodeCreatedAt}
+                        usedAt={u?.pairCodeUsedAt}
+                      />
+                    </td>
+                    <td className="p-3">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={() => handleGeneratePairCode(u)}
+                          disabled={pairCodeLoadingUid === (u.uid || u.id)}
+                          title="Gerar novo código de vinculação (troca de aparelho/recuperação de acesso)."
+                        >
+                          {pairCodeLoadingUid === (u.uid || u.id) ? (
+                            <>
+                              <Loader2 size={16} className="mr-2 animate-spin" />
+                              Gerando
+                            </>
+                          ) : (
+                            <>
+                              <KeyRound size={16} className="mr-2" />
+                              Código
+                            </>
+                          )}
+                        </Button>
                         <Button variant="secondary" onClick={() => openEditPatientModal(u)}>
                           Editar
                         </Button>
-<Button
-  variant="secondary"
-  onClick={() => handleGeneratePairCode(u)}
-  disabled={pairCodeLoadingUid === (u.uid || u.id)}
-  title="Gerar código de vinculação (Telefone + Código)"
->
-  <Key size={16} className="mr-2" />
-  Código
-</Button>
-
                         <Button variant="danger" onClick={() => handleRemovePatient(u)}>
                           <UserMinus size={16} className="mr-2" />
                           Desativar
@@ -453,60 +513,60 @@ const copyPairCode = async () => {
         </div>
       </Card>
 
-      
-{/* Modal: Código de Vinculação */}
-{showPairCodeModal && (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-    <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-base font-bold text-slate-900">Código de Vinculação</div>
-          <div className="text-xs text-slate-500 mt-0.5">
-            Paciente: <b>{pairCodePatient?.name || '—'}</b>
+
+      {showPairCodeModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg shadow-xl relative">
+            <div className="p-5 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Código de Vinculação</h3>
+              <button onClick={closePairCodeModal} className="p-2 rounded hover:bg-gray-100">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="bg-slate-50 border rounded-lg p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-900">
+                      {pairCodePatient?.name || 'Paciente'}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Este código é <b>single-use</b>. Depois de vincular um aparelho, para trocar de dispositivo, gere um novo.
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500 text-right">
+                    Entregue ao paciente<br />
+                    (preferencialmente em sessão)
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="font-mono text-lg tracking-widest text-slate-900 select-all">
+                    {pairCodeValue || '—'}
+                  </div>
+                  <Button variant="secondary" onClick={copyPairCode}>
+                    <Copy size={16} className="mr-2" />
+                    Copiar
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-3 text-[12px] text-slate-600 leading-snug">
+                <b>Mensagem sugerida:</b> “Este é seu acesso ao seu espaço de cuidado. A constância sustenta o processo — guarde este código com atenção.”
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <Button onClick={closePairCodeModal} className="bg-slate-900">
+                  Fechar
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={closePairCodeModal}
-          className="p-2 rounded-xl hover:bg-slate-100"
-          title="Fechar"
-        >
-          <X size={18} className="text-slate-500" />
-        </button>
-      </div>
+      )}
 
-      <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
-        <div className="text-xs text-slate-500">
-          Entregue este código ao paciente para ele vincular o aparelho (Telefone + Código).
-          <div className="mt-1 text-[12px] text-slate-400">
-            Se o paciente perder ou trocar de aparelho, gere um novo código (o anterior fica inválido após uso).
-          </div>
-        </div>
-
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <div className="font-mono text-lg tracking-widest text-slate-900 select-all">
-            {pairCodeValue || '—'}
-          </div>
-          <Button onClick={copyPairCode}>Copiar</Button>
-        </div>
-      </div>
-
-      <div className="mt-3 text-[12px] text-slate-600 leading-snug">
-        <b>Mensagem sugerida:</b> “Este é seu acesso ao seu espaço de cuidado. A constância sustenta o processo —
-        guarde este código com atenção.”
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        <Button onClick={closePairCodeModal} className="bg-slate-900">
-          Fechar
-        </Button>
-      </div>
-    </div>
-  </div>
-)}
-
-
-{showUserModal && (
+      {showUserModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl relative">
             <div className="p-5 border-b flex items-center justify-between">

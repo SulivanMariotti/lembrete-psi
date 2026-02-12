@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../../app/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import {
@@ -29,6 +29,7 @@ export default function AdminPanelView({
 
   // STEP43: Painel de Constância (attendance_logs)
   const [attendancePeriodDays, setAttendancePeriodDays] = useState(30);
+  const [attendanceRefreshKey, setAttendanceRefreshKey] = useState(0);
   const [attendanceStats, setAttendanceStats] = useState({
     present: 0,
     absent: 0,
@@ -45,6 +46,9 @@ export default function AdminPanelView({
   const [attendanceImportDefaultStatus, setAttendanceImportDefaultStatus] = useState('absent'); // absent|present
   const [attendanceImportResult, setAttendanceImportResult] = useState(null);
   const [attendanceImportLoading, setAttendanceImportLoading] = useState(false);
+
+  const [attendanceImportDryRunResult, setAttendanceImportDryRunResult] = useState(null);
+  const [attendanceImportValidatedHash, setAttendanceImportValidatedHash] = useState(null);
 
   // Configuração Local (usada pelo Schedule e pela aba Configurações)
   const [localConfig, setLocalConfig] = useState({
@@ -109,12 +113,38 @@ export default function AdminPanelView({
       }
     };
     run();
-  }, [adminTab, attendancePeriodDays]);
+  }, [adminTab, attendancePeriodDays, attendanceRefreshKey]);
 
-  const handleAttendanceImport = async () => {
+  const computeCsvHash = (text) => {
+    const s = String(text || '').trim();
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    }
+    return h.toString(16);
+  };
+
+  const attendanceImportCurrentHash = useMemo(() => computeCsvHash(attendanceImportText), [attendanceImportText]);
+
+  // Se o CSV mudou após validação, invalida o preview automaticamente
+  useEffect(() => {
+    if (!attendanceImportValidatedHash) return;
+    if (attendanceImportCurrentHash !== attendanceImportValidatedHash) {
+      setAttendanceImportDryRunResult(null);
+      setAttendanceImportValidatedHash(null);
+    }
+  }, [attendanceImportCurrentHash, attendanceImportValidatedHash]);
+
+
+
+
+  const handleAttendanceImportValidate = async () => {
     try {
       setAttendanceImportLoading(true);
       setAttendanceImportResult(null);
+      setAttendanceImportDryRunResult(null);
+      setAttendanceImportValidatedHash(null);
+
       const res = await fetch('/api/admin/attendance/import', {
         method: 'POST',
         headers: {
@@ -125,23 +155,79 @@ export default function AdminPanelView({
           csvText: attendanceImportText,
           source: attendanceImportSource,
           defaultStatus: attendanceImportDefaultStatus,
+          dryRun: true,
         }),
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        setAttendanceImportResult({ ok: false, error: data?.error || 'Falha ao importar' });
-        showToast(data?.error || 'Falha ao importar', 'error');
+        const msg = data?.error || 'Falha ao validar';
+        setAttendanceImportResult({ ok: false, error: msg });
+        showToast(msg, 'error');
         return;
       }
+
+      setAttendanceImportDryRunResult({
+        ...data,
+        csvHash: attendanceImportCurrentHash,
+      });
+      setAttendanceImportValidatedHash(attendanceImportCurrentHash);
+
+      showToast(`Validação OK: ${data.wouldImport}/${data.candidates} prontos • Ignorados: ${data.skipped}`);
+    } catch (e) {
+      setAttendanceImportResult({ ok: false, error: e?.message || 'Erro' });
+      showToast('Erro ao validar planilha', 'error');
+    } finally {
+      setAttendanceImportLoading(false);
+    }
+  };
+
+  const handleAttendanceImportCommit = async () => {
+    try {
+      if (!attendanceImportDryRunResult || attendanceImportValidatedHash !== attendanceImportCurrentHash) {
+        showToast('Antes de importar, clique em "Verificar" para validar a planilha.', 'error');
+        return;
+      }
+
+      setAttendanceImportLoading(true);
+      setAttendanceImportResult(null);
+
+      const res = await fetch('/api/admin/attendance/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '',
+        },
+        body: JSON.stringify({
+          csvText: attendanceImportText,
+          source: attendanceImportSource,
+          defaultStatus: attendanceImportDefaultStatus,
+          dryRun: false,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        const msg = data?.error || 'Falha ao importar';
+        setAttendanceImportResult({ ok: false, error: msg });
+        showToast(msg, 'error');
+        return;
+      }
+
       setAttendanceImportResult({
         ok: true,
         imported: data.imported,
         skipped: data.skipped,
         errors: data.errors || [],
       });
+
       showToast(`Importado: ${data.imported} • Ignorados: ${data.skipped}`);
       // Recarrega estatística para refletir imediatamente
-      setAttendancePeriodDays((d) => d); // trigger effect
+      setAttendanceRefreshKey((k) => k + 1);
+
+      // Limpa preview/validação para evitar reimport sem revalidar
+      setAttendanceImportDryRunResult(null);
+      setAttendanceImportValidatedHash(null);
     } catch (e) {
       setAttendanceImportResult({ ok: false, error: e?.message || 'Erro' });
       showToast('Erro ao importar presença/faltas', 'error');
@@ -149,6 +235,14 @@ export default function AdminPanelView({
       setAttendanceImportLoading(false);
     }
   };
+
+  const handleAttendanceImportClear = () => {
+    setAttendanceImportText('');
+    setAttendanceImportDryRunResult(null);
+    setAttendanceImportValidatedHash(null);
+    setAttendanceImportResult(null);
+  };
+
 
   // Salvar configurações globais
   const saveConfig = async (publishNewVersion = false) => {
@@ -324,7 +418,13 @@ export default function AdminPanelView({
             setAttendanceImportText={setAttendanceImportText}
             attendanceImportLoading={attendanceImportLoading}
             attendanceImportResult={attendanceImportResult}
-            handleAttendanceImport={handleAttendanceImport}
+            attendanceImportDryRunResult={attendanceImportDryRunResult}
+            attendanceImportValidatedHash={attendanceImportValidatedHash}
+            attendanceImportCurrentHash={attendanceImportCurrentHash}
+            handleAttendanceImportValidate={handleAttendanceImportValidate}
+            handleAttendanceImportCommit={handleAttendanceImportCommit}
+            handleAttendanceImportClear={handleAttendanceImportClear}
+            showToast={showToast}
           />
         )}
 
