@@ -1,9 +1,13 @@
-# Arquivos alterados — 2026-02-13
+# Files alterados — 2026-02-13
 
-## Step 9.3.9 — Contrato / Status do Contrato
-1) **NOVO** `src/features/patient/components/ContractStatusCard.js`
-2) **EDITADO** `src/components/Patient/PatientFlow.js`
+## Criados
+- `src/features/patient/components/ContractStatusCard.js`
+- `src/features/patient/components/PatientMantraCard.js`
+- `src/features/patient/components/PatientContactCard.js`
 
-## Step 9.3.10 — Mantra / Psicoeducação
-1) **NOVO** `src/features/patient/components/PatientMantraCard.js`
-2) **EDITADO** `src/components/Patient/PatientFlow.js`
+## Alterados
+- `src/components/Patient/PatientFlow.js`
+
+## Observação
+Se ocorrer “Module not found”, conferir se o arquivo foi criado com extensão real `.js`
+(e não `.js.txt`) e se está exatamente no caminho acima.

@@ -1,71 +1,39 @@
-# Lembrete Psi — Onde paramos
+# Onde paramos (Lembrete Psi)
 
-Data: 2026-02-13
+Data: **2026-02-13**
 
-## Missão (produto)
-Sustentar o vínculo terapêutico e reduzir faltas pela **constância**:
-1) lembretes automáticos (48h, 24h, manhã)
-2) psicoeducação no painel do paciente
-3) responsabilização (contrato, constância, histórico/auditoria)
-4) UX deliberada (sem “cancelar sessão” fácil; sessão como contrato)
+## Contexto
+Estamos refatorando o **PatientFlow** (painel do paciente) para reduzir complexidade e consolidar a experiência clínica (constância/psicoeducação), extraindo blocos em componentes reutilizáveis.
 
----
+## Concluído hoje
+### Step 9.3.9 — Extrair Status do Contrato
+- Criado componente: `src/features/patient/components/ContractStatusCard.js`
+- Atualizado: `src/components/Patient/PatientFlow.js` para usar `ContractStatusCard`
+- Ajustes:
+  - Removido bloco antigo do contrato (evitar duplicidade)
+  - Adicionado `acceptContractBusy` para evitar double-click em “Aceitar contrato”
+- Correção aplicada:
+  - **Import duplicado** de `ContractStatusCard` causava build error (“already been declared”).
 
-## Estado atual (confirmado)
+### Step 9.3.10 — Extrair Mantra (Psicoeducação)
+- Criado componente: `src/features/patient/components/PatientMantraCard.js`
+- Atualizado: `src/components/Patient/PatientFlow.js` para usar `PatientMantraCard`
+- Correção aplicada:
+  - Build error “Module not found” por arquivo não estar no caminho/ extensão correta (ex.: `.js.txt`).
+  - Solução: garantir `PatientMantraCard.js` em `src/features/patient/components/`.
 
-### ✅ Painel do paciente — refatoração feature-based (em andamento)
-Estratégia:
-- `src/features/patient/...` → tudo do domínio “paciente” (componentes, hooks, libs)
-- `src/lib/shared/...` → apenas o que é realmente compartilhado
+### Step 9.3.11 — Identificação do paciente (Nome/Telefone)
+- Criado componente: `src/features/patient/components/PatientContactCard.js`
+- Atualizado: `src/components/Patient/PatientFlow.js` para usar `PatientContactCard`
+- Correção aplicada:
+  - Build error “Module not found” por arquivo não estar no caminho/ extensão correta (ex.: `.js.txt`).
+  - Solução: garantir `PatientContactCard.js` em `src/features/patient/components/`.
 
-Refatoração já concluída até agora (Step 9.x):
-1) `lib`: `phone.js`, `dates.js`, `ics.js`, `appointments.js`
-2) `hooks`: `usePushStatus`, `useAppointmentsLastSync`, `usePatientAppointments`, `usePatientNotes`
-3) `components`: `Skeleton`, `PatientHeader`, `NextSessionCard`, `NotificationStatusCard`, `PatientAgendaCard`, `PatientNotesCard`
-4) **9.3.9**: `ContractStatusCard` (Contrato / Status do contrato)
-5) **9.3.10**: `PatientMantraCard` (Mantra/psicoeducação rotativa)
+## Próximo passo sugerido
+### Step 9.3.12 — Notificações / Checklist (UX + componente)
+- Extrair o bloco de **Notificações** e/ou **Checklist** (especialmente para mobile) para um componente (ex.: `PatientNotificationsCard`)
+- Ajustar layout para reduzir altura (evitar itens “um abaixo do outro” ocupando muito espaço)
+- Manter mensagem clínica: **constância** e **presença** como compromisso do processo terapêutico
 
-### ✅ Contrato Terapêutico (modelo de dados)
-1) Admin define em `config/global`:
-   - `contractText` (string)
-   - `contractVersion` (number)
-2) Paciente aceita e grava em `users/{uid}`:
-   - `contractAcceptedVersion` (number)
-   - `contractAcceptedAt` (timestamp)
-3) UI do paciente:
-   - agora centralizada em `src/features/patient/components/ContractStatusCard.js`
-   - `PatientFlow.js` só orquestra estado e action “Aceitar contrato”
-
-### ✅ Mantra / Psicoeducação (UI)
-- agora isolado em `src/features/patient/components/PatientMantraCard.js`
-- objetivo: reforçar constância (“o segredo é a regularidade”) sem moralismo
-
-### ✅ Push / Notificações (sem permission-denied)
-- Painel do paciente **não lê** `subscribers/{phoneCanonical}` direto do Firestore.
-- O paciente usa apenas rotas server-side:
-  - `GET /api/patient/push/status`
-  - `POST /api/patient/push/register`
-- Recuperação de telefone quando ausente:
-  - `GET /api/patient/resolve-phone` (resolve por email e tenta persistir em `users/{uid}`)
-
-### ✅ Presença/Faltas (planilha) — Importação + Disparos por Constância
-1) Import CSV (Admin) com validação (dryRun) + gravação
-2) `attendance_logs` com chave composta:
-   - `{patientId}_{isoDate}_{HHMM}_{profissionalSlug}`
-3) Disparos por constância com `dryRun` retornando `sample` consistente
-4) Bloqueios transparentes:
-   - `blockedNoPhone`, `blockedNoToken`, `inactive_patient`, `inactive_subscriber`
-
----
-
-## Erros corrigidos hoje (e causa)
-1) **Import duplicado** do `ContractStatusCard` no `PatientFlow.js` → removido.
-2) **Module not found**: `PatientMantraCard` → o arquivo não estava no caminho esperado (ou estava com extensão errada tipo `.js.txt`).
-   - fix: criar `src/features/patient/components/PatientMantraCard.js` corretamente.
-
----
-
-## Próximo passo (1 por vez)
-**Step 9.3.11 (sugerido):** extrair “Card do paciente / Seu contato” para componente:
-- `src/features/patient/components/PatientContactCard.js`
-- resultado: `PatientFlow.js` com menos JSX e imports (mais modular).
+## Commit sugerido
+`refactor(paciente): extrair contrato, mantra e identificação em componentes`

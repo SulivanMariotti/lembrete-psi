@@ -8,6 +8,8 @@ import NotificationStatusCard from "../../features/patient/components/Notificati
 import PatientAgendaCard from "../../features/patient/components/PatientAgendaCard";
 import PatientNotesCard from "../../features/patient/components/PatientNotesCard";
 import ContractStatusCard from "../../features/patient/components/ContractStatusCard";
+import PatientMantraCard from "../../features/patient/components/PatientMantraCard";
+import PatientContactCard from "../../features/patient/components/PatientContactCard";
 import {
   app,
   db } from "../../app/firebase";
@@ -21,11 +23,6 @@ import { Button,
   Card,
   Toast } from "../DesignSystem";
 import {
-  User,
-  Phone,
-  Sparkles,
-  ChevronLeft,
-  ChevronRight,
   Users,
   X,
 } from "lucide-react";
@@ -64,9 +61,6 @@ const [profile, setProfile] = useState(null);
 
   const [confirmedIds, setConfirmedIds] = useState(() => new Set());
   const [confirmedLoading, setConfirmedLoading] = useState(false);
-
-  const [mantraIndex, setMantraIndex] = useState(0);
-
   const DEV_SWITCH_ENABLED = String(process.env.NEXT_PUBLIC_DEV_LOGIN || "").toLowerCase() === "true";
   const DEV_IMP_KEY = "LP_IMPERSONATE_PHONE";
 
@@ -173,24 +167,6 @@ useEffect(() => {
     phoneForNote,
     onToast: showToast,
   });
-
-
-  const mantras = useMemo(() => {
-    return [
-      { title: "O segredo é a constância", text: "A terapia funciona na regularidade. A continuidade muda." },
-      { title: "Seu horário é um espaço sagrado", text: "Este encontro é cuidado ativo. Estar presente sustenta o processo." },
-      { title: "Faltar interrompe", text: "Não é só perder uma hora: é quebrar a sequência de evolução que você constrói." },
-      { title: "Responsabilidade com seu cuidado", text: "Este painel te apoia. Sua parte principal é comparecer." },
-    ];
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setMantraIndex((i) => (i + 1) % mantras.length), 9000);
-    return () => clearInterval(t);
-  }, [mantras.length]);
-
-  const currentMantra = mantras[mantraIndex] || mantras[0];
-
   // Perfil
   useEffect(() => {
     if (!user?.uid) return;
@@ -509,64 +485,10 @@ useEffect(() => {
           )}
 
           {/* Mantra */}
-          <Card>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200 shrink-0">
-                  <Sparkles size={18} />
-                </div>
-
-                <div className="min-w-0">
-                  <div className="font-extrabold text-slate-900 truncate">{currentMantra.title}</div>
-                  <div className="text-sm text-slate-600 mt-1">{currentMantra.text}</div>
-                  <div className="text-[11px] text-slate-400 mt-2">Lembrete Psi é tecnologia a serviço do vínculo terapêutico.</div>
-                </div>
-              </div>
-
-              <div className="shrink-0 flex items-center gap-1">
-                <button
-                  type="button"
-                  className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center"
-                  onClick={() => setMantraIndex((i) => (i - 1 + mantras.length) % mantras.length)}
-                  aria-label="Anterior"
-                >
-                  <ChevronLeft size={16} className="text-slate-500" />
-                </button>
-                <button
-                  type="button"
-                  className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center"
-                  onClick={() => setMantraIndex((i) => (i + 1) % mantras.length)}
-                  aria-label="Próximo"
-                >
-                  <ChevronRight size={16} className="text-slate-500" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 mt-3">
-              {mantras.map((_, i) => (
-                <div key={i} className={`h-1.5 w-6 rounded-full ${i === mantraIndex ? "bg-violet-600" : "bg-slate-200"}`} />
-              ))}
-            </div>
-          </Card>
+          <PatientMantraCard />
 
           {/* Card do paciente */}
-          <Card>
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
-                  <User size={20} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs text-slate-400 uppercase tracking-wider">Seu contato</div>
-                  <div className="text-sm font-bold text-slate-900 flex items-center gap-2 mt-1 truncate">
-                    <Phone size={14} className="text-slate-400" />
-                    <span className="text-slate-700">{patientPhoneDisplay || "Telefone não informado"}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Card>
+          <PatientContactCard patientName={patientName} patientPhoneDisplay={patientPhoneDisplay} />
 
           {/* Notificações */}
           <Card>

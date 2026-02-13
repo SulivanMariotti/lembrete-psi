@@ -1,12 +1,14 @@
 # Changelog (patch) — 2026-02-13
 
 ## Added
-- `ContractStatusCard` (UI de contrato + status + ação de aceitar)
-- `PatientMantraCard` (UI de mantra/psicoeducação rotativa)
+- `ContractStatusCard` (status + texto + aceite do contrato)
+- `PatientMantraCard` (cards de psicoeducação/mantra)
+- `PatientContactCard` (identificação do paciente)
 
 ## Changed
-- `PatientFlow.js` passou a orquestrar e delegar UI para componentes (contrato + mantra)
+- `PatientFlow` agora compõe os novos componentes ao invés de conter blocos inline.
 
 ## Fixed
-- Import duplicado do `ContractStatusCard` no `PatientFlow.js`
-- Module-not-found do `PatientMantraCard` (arquivo/caminho/extensão)
+- Build error por import duplicado do `ContractStatusCard`.
+- Build error por módulo não encontrado ao importar `PatientMantraCard`/`PatientContactCard`
+  (arquivo ausente no caminho correto ou extensão incorreta).
