@@ -4,25 +4,41 @@ Data: 2026-02-13
 
 ## Missão (produto)
 Sustentar o vínculo terapêutico e reduzir faltas pela **constância**:
-- lembretes automáticos (48h, 24h, manhã)
-- psicoeducação no painel do paciente
-- responsabilização (contrato, constância, histórico/auditoria)
-- UX deliberada (sem “cancelar sessão” fácil; sessão como contrato)
+1) lembretes automáticos (48h, 24h, manhã)
+2) psicoeducação no painel do paciente
+3) responsabilização (contrato, constância, histórico/auditoria)
+4) UX deliberada (sem “cancelar sessão” fácil; sessão como contrato)
 
 ---
 
 ## Estado atual (confirmado)
 
-### ✅ Contrato Terapêutico
-- Admin define em `config/global`:
-  - `contractText` (string)
-  - `contractVersion` (number)
-- Paciente lê e aceita; grava em `users/{uid}`:
-  - `contractAcceptedVersion` (number)
-  - `contractAcceptedAt` (timestamp)
-- Painel do paciente agora usa componente dedicado:
-  - `src/features/patient/components/ContractStatusCard.js`
-  - `PatientFlow.js` renderiza o componente e removeu o bloco antigo (sem duplicidade)
+### ✅ Painel do paciente — refatoração feature-based (em andamento)
+Estratégia:
+- `src/features/patient/...` → tudo do domínio “paciente” (componentes, hooks, libs)
+- `src/lib/shared/...` → apenas o que é realmente compartilhado
+
+Refatoração já concluída até agora (Step 9.x):
+1) `lib`: `phone.js`, `dates.js`, `ics.js`, `appointments.js`
+2) `hooks`: `usePushStatus`, `useAppointmentsLastSync`, `usePatientAppointments`, `usePatientNotes`
+3) `components`: `Skeleton`, `PatientHeader`, `NextSessionCard`, `NotificationStatusCard`, `PatientAgendaCard`, `PatientNotesCard`
+4) **9.3.9**: `ContractStatusCard` (Contrato / Status do contrato)
+5) **9.3.10**: `PatientMantraCard` (Mantra/psicoeducação rotativa)
+
+### ✅ Contrato Terapêutico (modelo de dados)
+1) Admin define em `config/global`:
+   - `contractText` (string)
+   - `contractVersion` (number)
+2) Paciente aceita e grava em `users/{uid}`:
+   - `contractAcceptedVersion` (number)
+   - `contractAcceptedAt` (timestamp)
+3) UI do paciente:
+   - agora centralizada em `src/features/patient/components/ContractStatusCard.js`
+   - `PatientFlow.js` só orquestra estado e action “Aceitar contrato”
+
+### ✅ Mantra / Psicoeducação (UI)
+- agora isolado em `src/features/patient/components/PatientMantraCard.js`
+- objetivo: reforçar constância (“o segredo é a regularidade”) sem moralismo
 
 ### ✅ Push / Notificações (sem permission-denied)
 - Painel do paciente **não lê** `subscribers/{phoneCanonical}` direto do Firestore.
@@ -30,29 +46,26 @@ Sustentar o vínculo terapêutico e reduzir faltas pela **constância**:
   - `GET /api/patient/push/status`
   - `POST /api/patient/push/register`
 - Recuperação de telefone quando ausente:
-  - `GET /api/patient/resolve-phone` (resolve por email e persiste no `users/{uid}` quando possível)
+  - `GET /api/patient/resolve-phone` (resolve por email e tenta persistir em `users/{uid}`)
 
-### ✅ Histórico (Admin)
-- Leitura robusta com fallback entre `createdAt` e `sentAt` (legado):
-  - `sentAt ← sentAt || createdAt || payload.sentAt || payload.createdAt`
-  - `createdAt ← createdAt || sentAt || payload.createdAt || payload.sentAt`
-- Tipos exibidos com **rótulos amigáveis** (PT-BR) e `type` técnico no hover.
-
-### ✅ Importação Presença/Faltas (CSV) + auditoria
-- Admin → Presença/Faltas:
-  - Verificar (dryRun) com erros/avisos, amostra e contadores
-  - Botões de download:
-    - **Baixar inconsistências (CSV)**
-    - **Baixar preview normalizado (CSV)**
+### ✅ Presença/Faltas (planilha) — Importação + Disparos por Constância
+1) Import CSV (Admin) com validação (dryRun) + gravação
+2) `attendance_logs` com chave composta:
+   - `{patientId}_{isoDate}_{HHMM}_{profissionalSlug}`
+3) Disparos por constância com `dryRun` retornando `sample` consistente
+4) Bloqueios transparentes:
+   - `blockedNoPhone`, `blockedNoToken`, `inactive_patient`, `inactive_subscriber`
 
 ---
 
-## Pendências (prioridade alta)
-1) **Painel de Constância (Paciente)** alimentado por `attendance_logs`:
-   - reforço de presença (“parabéns pela consistência”)
-   - psicoeducação em caso de falta (sem moralismo; foco em vínculo/continuidade)
-2) Ferramenta de “higiene de cadastro”:
-   - consolidar `patientExternalId`, `phoneCanonical` e evitar duplicidades em `users`.
+## Erros corrigidos hoje (e causa)
+1) **Import duplicado** do `ContractStatusCard` no `PatientFlow.js` → removido.
+2) **Module not found**: `PatientMantraCard` → o arquivo não estava no caminho esperado (ou estava com extensão errada tipo `.js.txt`).
+   - fix: criar `src/features/patient/components/PatientMantraCard.js` corretamente.
 
-## Próximo passo sugerido (1 por vez)
-**Step 9.3.10:** ajustar identificação do paciente no topo do Painel do Paciente (nome/saudação) e remover duplicidades (desktop e mobile).
+---
+
+## Próximo passo (1 por vez)
+**Step 9.3.11 (sugerido):** extrair “Card do paciente / Seu contato” para componente:
+- `src/features/patient/components/PatientContactCard.js`
+- resultado: `PatientFlow.js` com menos JSX e imports (mais modular).

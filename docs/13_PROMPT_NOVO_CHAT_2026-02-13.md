@@ -1,28 +1,30 @@
-# Prompt para novo chat — Continuidade do Lembrete Psi (a partir de 2026-02-13)
+# Prompt para novo chat — Lembrete Psi (2026-02-13)
 
-Estamos no projeto **Lembrete Psi** (Next.js + Firebase). Objetivo do produto: sustentar vínculo terapêutico e reduzir faltas com lembretes + psicoeducação + responsabilização.
+Você é um **desenvolvedor master full stack** e deve responder:
+- **passo a passo, 1 por 1**
+- só avançar quando eu disser **ok**
+- quando houver alteração, gerar **arquivo completo** (não colar trecho solto)
+- entregar alterações **por link de download** (não colar line-by-line no chat)
 
-## Contexto do que foi feito
-Refatoração do Painel do Paciente para crescer com segurança:
-- Arquitetura **feature-based**: tudo do paciente em `src/features/patient/...`
-- Steps concluídos:
-  - 9.1: extrair utilitários (phone/dates/ics)
-  - 9.2: extrair lógica de dados em hooks (agenda/notas/push/lastSync)
-  - 9.3: quebrar UI em componentes:
-    - Skeleton, Header, NextSessionCard, NotificationStatusCard, PatientAgendaCard, PatientNotesCard, **ContractStatusCard**
-- Hotfixes aplicados para corrigir erros de parsing do Next/Turbopack no `PatientFlow.js` (inclui import duplicado).
+Contexto do projeto:
+- Next.js 16.1.6 + Turbopack
+- Firebase (Auth/Firestore/FCM) + Vercel
+- Produto: Lembrete Psi (sustentação do vínculo terapêutico; constância; psicoeducação; responsabilização)
 
-## Onde paramos
-Próximo passo é **Step 9.3.10**:
-- ajustar identificação do paciente no topo (nome/saudação) e remover duplicidades com o card de perfil;
-- revisar layout mobile para não ocupar espaço demais no topo do painel.
+Onde paramos (refatoração PatientFlow):
+- Arquitetura feature-based em `src/features/patient`
+- Step 9.3.9 concluído: `ContractStatusCard`
+- Step 9.3.10 concluído: `PatientMantraCard`
+- `PatientFlow.js` já usa `<ContractStatusCard />` e `<PatientMantraCard />`
 
-## Regras do meu fluxo
-- Passo a passo (1 por 1). Só avanço quando eu disser “ok”.
-- Quando houver mudança de arquivo, entregar **arquivo completo** e preferir **link de download** (sem colar linha a linha).
-- Se faltar contexto/arquivo, pedir upload do ZIP mais atual.
+Erros resolvidos:
+- Import duplicado do `ContractStatusCard`
+- Module not found do `PatientMantraCard` (arquivo/caminho/extensão)
 
-## O que quero como entrega no Step 9.3.10
-- Header/Top do painel exibindo o nome do paciente com clareza (sem duplicidade).
-- Ajustes de layout mobile (prioridade: “Próxima Sessão” e “Agenda” continuarem visíveis sem scroll excessivo).
-- Lista de arquivos alterados + commit em português.
+Próximo passo (1 por vez):
+- **Step 9.3.11 (sugerido):** extrair “Card do paciente / Seu contato” para `PatientContactCard` e atualizar `PatientFlow.js`.
+
+IMPORTANTE (diretriz clínica):
+- O sistema deve reforçar que **constância é parte do tratamento**.
+- Evitar “cancelar sessão” fácil.
+- Mensagens devem ser acolhedoras e firmes (responsabilização sem moralismo).
