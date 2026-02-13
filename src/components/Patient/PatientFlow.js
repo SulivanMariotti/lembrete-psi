@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Skeleton from "../../features/patient/components/Skeleton";
 import { app, db } from "../../app/firebase";
 import {collection,
   doc,
@@ -44,43 +45,170 @@ import {
   X,
 } from "lucide-react";
 
-import { onlyDigits, toCanonical, normalizeWhatsappPhone, formatPhoneBR } from "../../features/patient/lib/phone";
-import {
-  parseDateFromAny,
-  brDateParts,
-  monthLabelFromIso,
-  addMinutes,
-  startOfWeek,
-  endOfWeek,
-  weekLabelPT,
-  relativeLabelForDate,
-  toMillis,
-  formatDateTimeBR,
-} from "../../features/patient/lib/dates";
-import { makeIcsDataUrl, startDateTimeFromAppointment } from "../../features/patient/lib/ics";
-
-import { useAppointmentsLastSync } from "../../features/patient/hooks/useAppointmentsLastSync";
-import { usePatientAppointments } from "../../features/patient/hooks/usePatientAppointments";
-import { usePatientNotes } from "../../features/patient/hooks/usePatientNotes";
-import { usePushStatus } from "../../features/patient/hooks/usePushStatus";
-
-function Skeleton({ className = "" }) {
-  return <div className={`animate-pulse rounded-xl bg-slate-100 ${className}`} />;
+function onlyDigits(v) {
+  return String(v || "").replace(/\D/g, "");
 }
 
+function toCanonical(v) {
+  let d = onlyDigits(v).replace(/^0+/, "");
+  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
+  return d;
+}
 
+function normalizeWhatsappPhone(raw) {
+  const d = onlyDigits(raw);
+  if (!d) return "";
+  if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
+  if (d.length === 10 || d.length === 11) return `55${d}`;
+  return d;
+}
 
+function formatPhoneBR(raw) {
+  const d = onlyDigits(raw);
+  if (!d) return "";
+  const pure = d.startsWith("55") && (d.length === 12 || d.length === 13) ? d.slice(2) : d;
 
+  if (pure.length === 11) return `(${pure.slice(0, 2)}) ${pure.slice(2, 7)}-${pure.slice(7)}`;
+  if (pure.length === 10) return `(${pure.slice(0, 2)}) ${pure.slice(2, 6)}-${pure.slice(6)}`;
+  return pure;
+}
 
+function parseDateFromAny(a) {
+  const s = String(a || "").trim();
+  if (!s) return null;
 
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
 
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (br) return new Date(`${br[3]}-${br[2]}-${br[1]}T00:00:00`);
 
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
 
+function brDateParts(dateStrOrIso) {
+  const d = parseDateFromAny(dateStrOrIso);
+  if (!d) return { day: "--", mon: "---", label: String(dateStrOrIso || "") };
+  const day = String(d.getDate()).padStart(2, "0");
+  const monNames = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+  const mon = monNames[d.getMonth()];
+  const label = d.toLocaleDateString("pt-BR");
+  return { day, mon, label };
+}
 
+function monthLabelFromIso(isoDate) {
+  const d = parseDateFromAny(isoDate);
+  if (!d) return "";
+  const months = [
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
+  ];
+  return `${months[d.getMonth()]} ${d.getFullYear()}`;
+}
 
+function addMinutes(date, minutes) {
+  return new Date(date.getTime() + minutes * 60000);
+}
 
+function makeIcsDataUrl({ title, description, startISO, endISO }) {
+  const dt = (iso) => {
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2, "0");
+    const y = d.getUTCFullYear();
+    const m = pad(d.getUTCMonth() + 1);
+    const da = pad(d.getUTCDate());
+    const h = pad(d.getUTCHours());
+    const mi = pad(d.getUTCMinutes());
+    const s = pad(d.getUTCSeconds());
+    return `${y}${m}${da}T${h}${mi}${s}Z`;
+  };
 
+  const uid = `lembretepsi-${Math.random().toString(16).slice(2)}@local`;
+  const ics =
+    "BEGIN:VCALENDAR\n" +
+    "VERSION:2.0\n" +
+    "PRODID:-//Lembrete Psi//PT-BR\n" +
+    "CALSCALE:GREGORIAN\n" +
+    "METHOD:PUBLISH\n" +
+    "BEGIN:VEVENT\n" +
+    `UID:${uid}\n` +
+    `DTSTAMP:${dt(new Date().toISOString())}\n` +
+    `DTSTART:${dt(startISO)}\n` +
+    `DTEND:${dt(endISO)}\n` +
+    `SUMMARY:${String(title || "Atendimento").replace(/\n/g, " ")}\n` +
+    `DESCRIPTION:${String(description || "").replace(/\n/g, " ")}\n` +
+    "END:VEVENT\n" +
+    "END:VCALENDAR";
 
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
+}
+
+function startDateTimeFromAppointment(a) {
+  const iso = a?.isoDate || a?.date || "";
+  const t = String(a?.time || "").trim();
+  const d = parseDateFromAny(iso);
+  if (!d) return null;
+
+  if (t && /^\d{2}:\d{2}$/.test(t)) {
+    return new Date(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}:00`
+    );
+  }
+  return d;
+}
+
+function startOfWeek(d) {
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = date.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfWeek(d) {
+  const s = startOfWeek(d);
+  const e = new Date(s);
+  e.setDate(e.getDate() + 6);
+  e.setHours(23, 59, 59, 999);
+  return e;
+}
+
+function weekLabelPT(d) {
+  const s = startOfWeek(d);
+  const e = endOfWeek(d);
+  const ds = s.toLocaleDateString("pt-BR");
+  const de = e.toLocaleDateString("pt-BR");
+  return `Semana ${ds} → ${de}`;
+}
+
+function relativeLabelForDate(dt) {
+  if (!dt) return null;
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTarget = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+
+  const diffDays = Math.round((startOfTarget.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) return { text: "Hoje", style: "today" };
+  if (diffDays === 1) return { text: "Amanhã", style: "tomorrow" };
+  if (diffDays > 1) return { text: `Em ${diffDays} dias`, style: "future" };
+  if (diffDays === -1) return { text: "Ontem", style: "past" };
+  return { text: `${Math.abs(diffDays)} dias atrás`, style: "past" };
+}
 
 function chipClass(style) {
   if (style === "today") return "bg-emerald-50 border-emerald-100 text-emerald-900";
@@ -181,7 +309,30 @@ function AppointmentMiniRow({ a, isConfirmed }) {
 }
 
 // 🔹 Normaliza Timestamp/Date/string → millis
+function toMillis(v) {
+  if (!v) return null;
+  // Firestore Timestamp
+  if (typeof v === "object" && typeof v.seconds === "number") return v.seconds * 1000;
+  // Date
+  if (v instanceof Date) return v.getTime();
+  // number
+  if (typeof v === "number") return v;
+  // string date
+  const d = new Date(String(v));
+  if (!Number.isNaN(d.getTime())) return d.getTime();
+  return null;
+}
 
+function formatDateTimeBR(ms) {
+  if (!ms || !Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleString("pt-BR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
   
@@ -189,8 +340,12 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const subscribers = null;
 const [profile, setProfile] = useState(null);
 
+  const [appointmentsRaw, setAppointmentsRaw] = useState([]);
+  const [notes, setNotes] = useState([]);
 
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingAppointments, setLoadingAppointments] = useState(true);
+  const [loadingNotes, setLoadingNotes] = useState(true);
 
   const [toast, setToast] = useState({ msg: "", type: "success" });
   const showToast = (msg, type = "success") => {
@@ -215,7 +370,9 @@ const [profile, setProfile] = useState(null);
 
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
+  const [notifHasToken, setNotifHasToken] = useState(false);
   
+  const [appointmentsLastSyncAt, setAppointmentsLastSyncAt] = useState(null);
 const [notifBusy, setNotifBusy] = useState(false);
 
   const [mantraIndex, setMantraIndex] = useState(0);
@@ -306,27 +463,6 @@ useEffect(() => {
 
   const patientName = profile?.name || user?.displayName || "Paciente";
   const patientPhoneDisplay = formatPhoneBR(resolvedPhone || cleanPhoneFromProfile);
-
-  // Step 9.2: hooks por domínio (agenda, notas, push, last-sync)
-  const { appointmentsLastSyncAt } = useAppointmentsLastSync({ user });
-  const { notifHasToken, setNotifHasToken } = usePushStatus({ user, effectivePhone });
-
-  const { appointmentsRaw, appointments, loadingAppointments } = usePatientAppointments({
-    db,
-    user,
-    effectivePhone,
-    loadingProfile,
-    onToast: showToast,
-  });
-
-  const phoneForNote = (resolvedPhone || cleanPhoneFromProfile) || "";
-  const { notes, loadingNotes, saveNote, deleteNote } = usePatientNotes({
-    db,
-    user,
-    phoneForNote,
-    onToast: showToast,
-  });
-
 
   const mantras = useMemo(() => {
     return [
@@ -532,6 +668,96 @@ useEffect(() => {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPushStatus() {
+      try {
+        if (!user) return;
+        const idToken = await user.getIdToken();
+        const res = await fetch("/api/patient/push/status", {
+          method: "GET",
+          headers: { authorization: "Bearer " + idToken },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok && data?.ok) {
+          setNotifHasToken(Boolean(data?.hasToken));
+        }
+      } catch (_) {
+        // silencioso
+      }
+    }
+
+    loadPushStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, effectivePhone]);
+
+
+  
+
+// PASSO 20/45: buscar última atualização da agenda (server-side) para transparência clínica
+useEffect(() => {
+  const run = async () => {
+    try {
+      if (!user) return;
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/appointments/last-sync", {
+        method: "GET",
+        headers: { authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.appointmentsLastSyncAt) {
+        setAppointmentsLastSyncAt(data.appointmentsLastSyncAt);
+      }
+    } catch (_) {}
+  };
+  run();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [user?.uid]);
+// Agenda
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (loadingProfile) return;
+
+    setLoadingAppointments(true);
+
+    const colRef = collection(db, "appointments");
+    const phone = effectivePhone;
+
+    let q = null;
+    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(250));
+    else if (user?.email)
+      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(250));
+    else {
+      setAppointmentsRaw([]);
+      setLoadingAppointments(false);
+      return;
+    }
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setAppointmentsRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoadingAppointments(false);
+      },
+      (err) => {
+        console.error(err);
+        setAppointmentsRaw([]);
+        setLoadingAppointments(false);
+        showToast("Erro ao carregar agenda.", "error");
+      }
+    );
+
+    return () => unsub();
+  }, [user?.uid, user?.email, loadingProfile, effectivePhone]);
+
+  const appointments = useMemo(() => {
+    return (appointmentsRaw || []).filter((a) => String(a.status || "").toLowerCase() !== "cancelled");
+  }, [appointmentsRaw]);
+
   // ✅ Última atualização da agenda (sutil)
   const agendaLastUpdate = useMemo(() => {
     let bestMs = null;
@@ -559,6 +785,35 @@ useEffect(() => {
   }, [appointmentsRaw]);
 
   // Notas
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    setLoadingNotes(true);
+
+    const qNotes = query(collection(db, "patient_notes"), where("patientId", "==", user.uid));
+    const unsub = onSnapshot(
+      qNotes,
+      (snap) => {
+        const arr = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const ta = a.createdAt?.seconds ? a.createdAt.seconds : 0;
+            const tb = b.createdAt?.seconds ? b.createdAt.seconds : 0;
+            return tb - ta;
+          });
+        setNotes(arr);
+        setLoadingNotes(false);
+      },
+      (err) => {
+        console.error(err);
+        setNotes([]);
+        setLoadingNotes(false);
+        showToast("Erro ao carregar notas.", "error");
+      }
+    );
+
+    return () => unsub();
+  }, [user?.uid]);
 
   const handleAcceptContract = async () => {
     try {
@@ -579,7 +834,12 @@ useEffect(() => {
       const content = (noteContent || "").trim();
       if (!content) return;
 
-      await saveNote(content);
+      await addDoc(collection(db, "patient_notes"), {
+        patientId: user.uid,
+        phone: (resolvedPhone || cleanPhoneFromProfile) || "",
+        content,
+        createdAt: new Date(),
+      });
 
       setNoteContent("");
       setNoteModalOpen(false);
@@ -593,7 +853,7 @@ useEffect(() => {
   const handleDeleteNote = async (id) => {
     try {
       if (!confirm("Apagar esta nota?")) return;
-      await deleteNote(id);
+      await deleteDoc(doc(db, "patient_notes", id));
       showToast("Nota apagada.", "success");
     } catch (e) {
       console.error(e);
