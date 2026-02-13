@@ -7,12 +7,12 @@
 - [ ] Bloquear envios server-side para pacientes inativos (agenda + presença/falta) → retornar `blockedInactive`
 
 ## Dados / Consistência
-- [ ] Processar segunda planilha de presença/faltas para painel de constância e disparos futuros
+- [x] Processar segunda planilha de presença/faltas para painel de constância e disparos futuros
 - [ ] Definir modelo NoSQL Firestore (sem joins), denormalização e chave única (ex.: patientId + phone canônico)
 
 ## UX (Paciente)
-- [ ] Identificar paciente no topo do painel (Olá, {nome})
-- [ ] Estado de notificações: “Ativas neste aparelho” / instrução quando inativas
+- [x] Identificar paciente no topo do painel (Olá, {nome})
+- [x] Estado de notificações: “Ativas neste aparelho” / instrução quando inativas
 
 ## Admin
 - [ ] Melhorar fluxo de seleção/“acessar como” paciente (se necessário)
