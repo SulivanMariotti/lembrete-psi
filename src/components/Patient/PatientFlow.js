@@ -7,6 +7,7 @@ import NextSessionCard from "../../features/patient/components/NextSessionCard";
 import NotificationStatusCard from "../../features/patient/components/NotificationStatusCard";
 import PatientAgendaCard from "../../features/patient/components/PatientAgendaCard";
 import PatientNotesCard from "../../features/patient/components/PatientNotesCard";
+import ContractStatusCard from "../../features/patient/components/ContractStatusCard";
 import {
   app,
   db } from "../../app/firebase";
@@ -20,11 +21,6 @@ import { Button,
   Card,
   Toast } from "../DesignSystem";
 import {
-  CheckCircle,
-  AlertTriangle,
-  FileText,
-  ChevronDown,
-  ChevronUp,
   User,
   Phone,
   Sparkles,
@@ -62,9 +58,9 @@ const [profile, setProfile] = useState(null);
     if (typeof showToastFromProps === "function") showToastFromProps(msg, type);
   };
 
-  const [contractOpen, setContractOpen] = useState(false);
-
   const [confirmBusy, setConfirmBusy] = useState(false);
+
+  const [acceptContractBusy, setAcceptContractBusy] = useState(false);
 
   const [confirmedIds, setConfirmedIds] = useState(() => new Set());
   const [confirmedLoading, setConfirmedLoading] = useState(false);
@@ -256,11 +252,6 @@ useEffect(() => {
     };
   }, [user?.uid, user?.email, user?.displayName]);
 
-  useEffect(() => {
-    if (loadingProfile) return;
-    if (needsContractAcceptance) setContractOpen(true);
-  }, [loadingProfile, needsContractAcceptance]);
-
   // Confirmed via API
   useEffect(() => {
     if (!user?.uid) return;
@@ -304,14 +295,21 @@ useEffect(() => {
   const handleAcceptContract = async () => {
     try {
       if (!user?.uid) return;
+      if (acceptContractBusy) return;
+
+      setAcceptContractBusy(true);
+
       await updateDoc(doc(db, "users", user.uid), {
         contractAcceptedVersion: currentContractVersion,
         contractAcceptedAt: new Date(),
       });
+
       showToast("Contrato aceito com sucesso!", "success");
     } catch (e) {
       console.error(e);
       showToast("Erro ao aceitar contrato.", "error");
+    } finally {
+      setAcceptContractBusy(false);
     }
   };
 
@@ -567,16 +565,6 @@ useEffect(() => {
                   </div>
                 </div>
               </div>
-
-              {needsContractAcceptance ? (
-                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-100 text-xs font-semibold">
-                  <AlertTriangle size={14} /> Contrato pendente
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100 text-xs font-semibold">
-                  <CheckCircle size={14} /> Contrato OK
-                </span>
-              )}
             </div>
           </Card>
 
@@ -613,27 +601,14 @@ useEffect(() => {
           />
 
           {/* Contrato */}
-          <Card title="Contrato Terapêutico">
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={() => setContractOpen((v) => !v)}
-                className="w-full flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-100 bg-white hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                  <FileText size={18} className="text-violet-600" />
-                  {needsContractAcceptance ? "Contrato pendente: toque para ver" : "Ver contrato"}
-                </div>
-                {contractOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
-              </button>
+          <ContractStatusCard
+            contractText={contractText}
+            needsContractAcceptance={needsContractAcceptance}
+            currentContractVersion={currentContractVersion}
+            onAcceptContract={handleAcceptContract}
+            acceptBusy={acceptContractBusy}
+          />
 
-              {contractOpen && (
-                <div className="p-3 border border-slate-100 rounded-xl bg-slate-50 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">
-                  {contractText}
-                </div>
-              )}
-            </div>
-          </Card>
 
           {/* Diário */}
           <PatientNotesCard
@@ -644,20 +619,6 @@ useEffect(() => {
             showToast={showToast}
           />
         </div>
-
-{/* Rodapé aceitar contrato */}
-        {needsContractAcceptance && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 p-4">
-            <div className="max-w-5xl mx-auto flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div className="text-sm text-slate-600">
-                <b className="text-slate-800">Ação necessária:</b> aceite o contrato (v{currentContractVersion}) para continuar.
-              </div>
-              <Button onClick={handleAcceptContract} icon={CheckCircle} className="sm:w-auto w-full">
-                Aceitar contrato
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
     </>
   );

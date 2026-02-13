@@ -55,14 +55,12 @@ O painel do paciente continua orientado para **sustentação do vínculo terapê
 - Novo `src/features/patient/components/PatientNotesCard.js`
 - **Hotfix aplicado** para corrigir erro de parsing (JSX mal fechado no PatientFlow)
 
----
-
-## Correções importantes (build/parsing)
-Durante a extração de componentes, ocorreram 2 erros de parsing no Next/Turbopack:
-1) `PatientFlow.js` com `} catch (e) {` solto → corrigido (hotfix 9.3.6)
-2) `PatientFlow.js` com fragment `</>` apontando “Expression expected” → corrigido (hotfix 9.3.8)
-
-**Status atual esperado:** projeto compila e o painel do paciente carrega normalmente.
+#### 9.3.9 — Contrato / Status do Contrato (ContractStatusCard)
+- Novo `src/features/patient/components/ContractStatusCard.js`
+  - Centraliza “Contrato Terapêutico” e o **status** (aceito/pendente)
+  - Mantém o tom clínico: constância, compromisso e cuidado com o processo
+- `PatientFlow.js` passou a renderizar `<ContractStatusCard />` e removeu o bloco antigo (sem duplicidade)
+- Hotfix: removido import duplicado do `ContractStatusCard` que quebrava o build
 
 ---
 
@@ -73,20 +71,16 @@ No painel do paciente:
 - [ ] Notificações: ativar/estado do token sem travar a UI
 - [ ] Agenda: alternar Compacta/Completa e expandir semanas/meses
 - [ ] Diário rápido: criar nota, listar notas e abrir modal
+- [ ] Contrato: status correto + botão “Aceitar contrato” aparece apenas quando pendente
 
 ---
 
-## Próximo passo (para amanhã)
-### Step 9.3.9 — Extrair “Contrato / Status do Contrato” para componente
-- Objetivo: remover o bloco de contrato do `PatientFlow.js` e transformar em componente reutilizável:
-  - `src/features/patient/components/ContractStatusCard.js` (ou nome similar)
-- Resultado esperado: `PatientFlow.js` ainda menor e mais fácil de evoluir.
+## Próximo passo (1 por vez)
+### Step 9.3.10 — Ajustar identificação e duplicidades no topo do Painel do Paciente
+Objetivo:
+- garantir que o paciente veja claramente **quem está logado** (nome) de forma consistente;
+- evitar duplicidade de blocos de identificação/status;
+- revisar layout mobile (sem ocupar espaço demais no topo).
 
----
-
-## Sugestões de commits (PT-BR)
-Você pode registrar por partes, se preferir:
-- `refactor(paciente): extrair utilitários (telefone/datas/ics) para features/patient/lib`
-- `refactor(paciente): extrair hooks de agenda/notas/push do PatientFlow`
-- `refactor(paciente): quebrar PatientFlow em componentes (header/nextSession/notificacoes/agenda/notas)`
-- `fix(paciente): corrigir erros de parsing do PatientFlow após extrações (notificações/notas)`
+Resultado esperado:
+- Header/área superior com nome do paciente (e/ou “Olá, {nome}”) **sem duplicidade** com o card de perfil.

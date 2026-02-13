@@ -4,7 +4,7 @@
 - `src/components/Patient/PatientFlow.js`
   - Redução progressiva do JSX e da lógica
   - Passou a renderizar componentes do domínio `features/patient`
-  - Hotfixes aplicados para corrigir erros de parsing (try/catch solto e JSX mal fechado)
+  - Hotfixes aplicados para corrigir erros de parsing e import duplicado
 
 ## Novos componentes (UI)
 - `src/features/patient/components/Skeleton.js`
@@ -14,6 +14,7 @@
 - `src/features/patient/components/PatientAgendaCard.js`
 - `src/features/patient/components/AppointmentMiniRow.js`
 - `src/features/patient/components/PatientNotesCard.js`
+- `src/features/patient/components/ContractStatusCard.js`
 
 ## Novos hooks (dados)
 - `src/features/patient/hooks/usePushStatus.js`
