@@ -18,7 +18,7 @@ export default function NextSessionCard({
   onConfirmPresence,
 }) {
   return (
-    <Card title="Seu próximo atendimento">
+    <Card title="Seu próximo atendimento" className="border-violet-100 ring-1 ring-violet-100/60 bg-gradient-to-b from-violet-50/50 to-white shadow-md shadow-violet-100/30 hover:shadow-lg hover:shadow-violet-100/40">
       {!nextAppointment ? (
         <div className="text-sm text-slate-500">Nenhum atendimento encontrado.</div>
       ) : (
