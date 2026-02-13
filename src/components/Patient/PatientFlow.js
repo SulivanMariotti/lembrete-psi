@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Skeleton from "../../features/patient/components/Skeleton";
+import PatientHeader from "../../features/patient/components/PatientHeader";
 import { app, db } from "../../app/firebase";
 import {collection,
   doc,
@@ -33,8 +34,6 @@ import {
   ChevronUp,
   User,
   Phone,
-  LogOut,
-  Shield,
   Sparkles,
   ChevronLeft,
   ChevronRight,
@@ -357,9 +356,7 @@ const [profile, setProfile] = useState(null);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteSearch, setNoteSearch] = useState("");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const [confirmBusy, setConfirmBusy] = useState(false);
+const [confirmBusy, setConfirmBusy] = useState(false);
 
   const [confirmedIds, setConfirmedIds] = useState(() => new Set());
   const [confirmedLoading, setConfirmedLoading] = useState(false);
@@ -1121,75 +1118,14 @@ useEffect(() => {
       <div className={`min-h-screen bg-slate-50 ${needsContractAcceptance ? "pb-24" : "pb-10"}`}>
         <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
           {/* Header */}
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
-              <div className="text-lg font-extrabold text-slate-900 truncate">Olá, {patientName}</div>
-              <div className="text-sm text-slate-500 mt-1">Lembretes e organização do seu cuidado — constância terapêutica.</div>
-
-              {DEV_SWITCH_ENABLED && impersonatePhone ? (
-                <div className="mt-2 inline-flex items-center gap-2 text-[11px] px-2 py-1 rounded-full border border-amber-100 bg-amber-50 text-amber-900">
-                  <Users size={14} />
-                  Visualizando agenda de: <b>{formatPhoneBR(impersonatePhone)}</b>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="hidden sm:flex gap-2">
-              {DEV_SWITCH_ENABLED ? (
-                <Button onClick={() => setDevPanelOpen((v) => !v)} variant="secondary" icon={Users}>
-                  Trocar paciente
-                </Button>
-              ) : null}
-
-              <Button onClick={onAdminAccess} variant="secondary" icon={Shield}>
-                Admin
-              </Button>
-              <Button onClick={onLogout} variant="secondary" icon={LogOut}>
-                Sair
-              </Button>
-            </div>
-
-            <div className="sm:hidden relative">
-              <Button variant="secondary" onClick={() => setMobileMenuOpen((v) => !v)}>
-                Menu
-              </Button>
-              {mobileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-30">
-                  {DEV_SWITCH_ENABLED ? (
-                    <button
-                      className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 flex items-center gap-2"
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        setDevPanelOpen(true);
-                      }}
-                    >
-                      <Users size={16} className="text-slate-500" /> Trocar paciente
-                    </button>
-                  ) : null}
-
-                  <button
-                    className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 flex items-center gap-2"
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      onAdminAccess();
-                    }}
-                  >
-                    <Shield size={16} className="text-slate-500" /> Admin
-                  </button>
-                  <button
-                    className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 flex items-center gap-2"
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      onLogout();
-                    }}
-                  >
-                    <LogOut size={16} className="text-slate-500" /> Sair
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+          <PatientHeader
+            patientName={patientName}
+            devSwitchEnabled={DEV_SWITCH_ENABLED}
+            impersonatePhone={impersonatePhone}
+            setDevPanelOpen={setDevPanelOpen}
+            onAdminAccess={onAdminAccess}
+            onLogout={onLogout}
+          />
 
           {/* DEV painel */}
           {DEV_SWITCH_ENABLED && devPanelOpen && (
