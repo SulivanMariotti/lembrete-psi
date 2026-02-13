@@ -59,6 +59,11 @@ import {
 } from "../../features/patient/lib/dates";
 import { makeIcsDataUrl, startDateTimeFromAppointment } from "../../features/patient/lib/ics";
 
+import { useAppointmentsLastSync } from "../../features/patient/hooks/useAppointmentsLastSync";
+import { usePatientAppointments } from "../../features/patient/hooks/usePatientAppointments";
+import { usePatientNotes } from "../../features/patient/hooks/usePatientNotes";
+import { usePushStatus } from "../../features/patient/hooks/usePushStatus";
+
 function Skeleton({ className = "" }) {
   return <div className={`animate-pulse rounded-xl bg-slate-100 ${className}`} />;
 }
@@ -184,12 +189,8 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   const subscribers = null;
 const [profile, setProfile] = useState(null);
 
-  const [appointmentsRaw, setAppointmentsRaw] = useState([]);
-  const [notes, setNotes] = useState([]);
 
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [loadingAppointments, setLoadingAppointments] = useState(true);
-  const [loadingNotes, setLoadingNotes] = useState(true);
 
   const [toast, setToast] = useState({ msg: "", type: "success" });
   const showToast = (msg, type = "success") => {
@@ -214,9 +215,7 @@ const [profile, setProfile] = useState(null);
 
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
-  const [notifHasToken, setNotifHasToken] = useState(false);
   
-  const [appointmentsLastSyncAt, setAppointmentsLastSyncAt] = useState(null);
 const [notifBusy, setNotifBusy] = useState(false);
 
   const [mantraIndex, setMantraIndex] = useState(0);
@@ -307,6 +306,27 @@ useEffect(() => {
 
   const patientName = profile?.name || user?.displayName || "Paciente";
   const patientPhoneDisplay = formatPhoneBR(resolvedPhone || cleanPhoneFromProfile);
+
+  // Step 9.2: hooks por domínio (agenda, notas, push, last-sync)
+  const { appointmentsLastSyncAt } = useAppointmentsLastSync({ user });
+  const { notifHasToken, setNotifHasToken } = usePushStatus({ user, effectivePhone });
+
+  const { appointmentsRaw, appointments, loadingAppointments } = usePatientAppointments({
+    db,
+    user,
+    effectivePhone,
+    loadingProfile,
+    onToast: showToast,
+  });
+
+  const phoneForNote = (resolvedPhone || cleanPhoneFromProfile) || "";
+  const { notes, loadingNotes, saveNote, deleteNote } = usePatientNotes({
+    db,
+    user,
+    phoneForNote,
+    onToast: showToast,
+  });
+
 
   const mantras = useMemo(() => {
     return [
@@ -512,96 +532,6 @@ useEffect(() => {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadPushStatus() {
-      try {
-        if (!user) return;
-        const idToken = await user.getIdToken();
-        const res = await fetch("/api/patient/push/status", {
-          method: "GET",
-          headers: { authorization: "Bearer " + idToken },
-        });
-        const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        if (res.ok && data?.ok) {
-          setNotifHasToken(Boolean(data?.hasToken));
-        }
-      } catch (_) {
-        // silencioso
-      }
-    }
-
-    loadPushStatus();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.uid, effectivePhone]);
-
-
-  
-
-// PASSO 20/45: buscar última atualização da agenda (server-side) para transparência clínica
-useEffect(() => {
-  const run = async () => {
-    try {
-      if (!user) return;
-      const idToken = await user.getIdToken();
-      const res = await fetch("/api/appointments/last-sync", {
-        method: "GET",
-        headers: { authorization: `Bearer ${idToken}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data?.appointmentsLastSyncAt) {
-        setAppointmentsLastSyncAt(data.appointmentsLastSyncAt);
-      }
-    } catch (_) {}
-  };
-  run();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [user?.uid]);
-// Agenda
-  useEffect(() => {
-    if (!user?.uid) return;
-    if (loadingProfile) return;
-
-    setLoadingAppointments(true);
-
-    const colRef = collection(db, "appointments");
-    const phone = effectivePhone;
-
-    let q = null;
-    if (phone) q = query(colRef, where("phone", "==", phone), orderBy("isoDate", "asc"), limit(250));
-    else if (user?.email)
-      q = query(colRef, where("email", "==", (user.email || "").toLowerCase()), orderBy("isoDate", "asc"), limit(250));
-    else {
-      setAppointmentsRaw([]);
-      setLoadingAppointments(false);
-      return;
-    }
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setAppointmentsRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        setLoadingAppointments(false);
-      },
-      (err) => {
-        console.error(err);
-        setAppointmentsRaw([]);
-        setLoadingAppointments(false);
-        showToast("Erro ao carregar agenda.", "error");
-      }
-    );
-
-    return () => unsub();
-  }, [user?.uid, user?.email, loadingProfile, effectivePhone]);
-
-  const appointments = useMemo(() => {
-    return (appointmentsRaw || []).filter((a) => String(a.status || "").toLowerCase() !== "cancelled");
-  }, [appointmentsRaw]);
-
   // ✅ Última atualização da agenda (sutil)
   const agendaLastUpdate = useMemo(() => {
     let bestMs = null;
@@ -629,35 +559,6 @@ useEffect(() => {
   }, [appointmentsRaw]);
 
   // Notas
-  useEffect(() => {
-    if (!user?.uid) return;
-
-    setLoadingNotes(true);
-
-    const qNotes = query(collection(db, "patient_notes"), where("patientId", "==", user.uid));
-    const unsub = onSnapshot(
-      qNotes,
-      (snap) => {
-        const arr = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => {
-            const ta = a.createdAt?.seconds ? a.createdAt.seconds : 0;
-            const tb = b.createdAt?.seconds ? b.createdAt.seconds : 0;
-            return tb - ta;
-          });
-        setNotes(arr);
-        setLoadingNotes(false);
-      },
-      (err) => {
-        console.error(err);
-        setNotes([]);
-        setLoadingNotes(false);
-        showToast("Erro ao carregar notas.", "error");
-      }
-    );
-
-    return () => unsub();
-  }, [user?.uid]);
 
   const handleAcceptContract = async () => {
     try {
@@ -678,12 +579,7 @@ useEffect(() => {
       const content = (noteContent || "").trim();
       if (!content) return;
 
-      await addDoc(collection(db, "patient_notes"), {
-        patientId: user.uid,
-        phone: (resolvedPhone || cleanPhoneFromProfile) || "",
-        content,
-        createdAt: new Date(),
-      });
+      await saveNote(content);
 
       setNoteContent("");
       setNoteModalOpen(false);
@@ -697,7 +593,7 @@ useEffect(() => {
   const handleDeleteNote = async (id) => {
     try {
       if (!confirm("Apagar esta nota?")) return;
-      await deleteDoc(doc(db, "patient_notes", id));
+      await deleteNote(id);
       showToast("Nota apagada.", "success");
     } catch (e) {
       console.error(e);

@@ -1,28 +1,17 @@
-/**
- * Utils de telefone (Paciente)
- * - Mantém funções puras, sem dependência de React/Firebase
- */
+// src/features/patient/lib/phone.js
 
-/** Remove tudo que não for dígito */
 export function onlyDigits(v) {
   return String(v || "").replace(/\D/g, "");
 }
 
-/**
- * Retorna número "canônico" sem código do país (55) e sem zeros à esquerda.
- * Ex.: "+55 (11) 98888-7777" => "11988887777"
- */
+// Canonical phone (sem +55). Ex.: 11999998888
 export function toCanonical(v) {
   let d = onlyDigits(v).replace(/^0+/, "");
   if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
   return d;
 }
 
-/**
- * Normaliza para padrão WhatsApp com DDI 55 quando aplicável.
- * - 10/11 dígitos => prefixa "55"
- * - já vem com 55 (12/13 dígitos) => mantém
- */
+// WhatsApp phone (com 55). Ex.: 5511999998888
 export function normalizeWhatsappPhone(raw) {
   const d = onlyDigits(raw);
   if (!d) return "";
@@ -31,7 +20,7 @@ export function normalizeWhatsappPhone(raw) {
   return d;
 }
 
-/** Formata número BR (com ou sem 55) para exibição: (11) 98888-7777 */
+// Formata no padrão BR: (11) 99999-8888
 export function formatPhoneBR(raw) {
   const d = onlyDigits(raw);
   if (!d) return "";

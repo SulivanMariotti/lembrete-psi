@@ -1,14 +1,5 @@
-/**
- * Utils de datas (Paciente)
- * - Mantém funções puras, sem dependência de React/Firebase
- */
+// src/features/patient/lib/dates.js
 
-/**
- * Faz parse de datas em múltiplos formatos comuns:
- * - "YYYY-MM-DD"
- * - "DD/MM/YYYY"
- * - qualquer string que o Date() entenda
- */
 export function parseDateFromAny(a) {
   const s = String(a || "").trim();
   if (!s) return null;
@@ -24,7 +15,6 @@ export function parseDateFromAny(a) {
   return d;
 }
 
-/** Retorna { day, mon, label } para UI (ex.: 07 / FEV / 07/02/2026) */
 export function brDateParts(dateStrOrIso) {
   const d = parseDateFromAny(dateStrOrIso);
   if (!d) return { day: "--", mon: "---", label: String(dateStrOrIso || "") };
@@ -35,7 +25,6 @@ export function brDateParts(dateStrOrIso) {
   return { day, mon, label };
 }
 
-/** "Fevereiro 2026" */
 export function monthLabelFromIso(isoDate) {
   const d = parseDateFromAny(isoDate);
   if (!d) return "";
@@ -63,7 +52,7 @@ export function addMinutes(date, minutes) {
 export function startOfWeek(d) {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const day = date.getDay();
-  const diff = (day === 0 ? -6 : 1) - day; // segunda como início
+  const diff = (day === 0 ? -6 : 1) - day;
   date.setDate(date.getDate() + diff);
   date.setHours(0, 0, 0, 0);
   return date;
@@ -85,10 +74,6 @@ export function weekLabelPT(d) {
   return `Semana ${ds} → ${de}`;
 }
 
-/**
- * Retorna label relativo (Hoje/Amanhã/Em X dias/Ontem/...)
- * Útil para chips de UI.
- */
 export function relativeLabelForDate(dt) {
   if (!dt) return null;
 
@@ -105,7 +90,7 @@ export function relativeLabelForDate(dt) {
   return { text: `${Math.abs(diffDays)} dias atrás`, style: "past" };
 }
 
-/** Normaliza Timestamp/Date/string → millis */
+// 🔹 Normaliza Timestamp/Date/string → millis
 export function toMillis(v) {
   if (!v) return null;
   // Firestore Timestamp

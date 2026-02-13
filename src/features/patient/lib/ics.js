@@ -1,8 +1,6 @@
-/**
- * Utils de calendário/ICS (Paciente)
- * - Mantém funções puras, sem dependência de React/Firebase
- */
-import { parseDateFromAny } from "./dates";
+// src/features/patient/lib/ics.js
+
+import { addMinutes, parseDateFromAny } from "./dates";
 
 export function makeIcsDataUrl({ title, description, startISO, endISO }) {
   const dt = (iso) => {
@@ -37,10 +35,6 @@ export function makeIcsDataUrl({ title, description, startISO, endISO }) {
   return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 }
 
-/**
- * Converte um "appointment" em Date do início (considera isoDate/date + time HH:MM)
- * Retorna null se não conseguir.
- */
 export function startDateTimeFromAppointment(a) {
   const iso = a?.isoDate || a?.date || "";
   const t = String(a?.time || "").trim();
@@ -53,4 +47,17 @@ export function startDateTimeFromAppointment(a) {
     );
   }
   return d;
+}
+
+// Helpers para ICS com base no Appointment
+export function buildIcsForAppointment({ appointment, title, description, minutes = 50 }) {
+  const start = startDateTimeFromAppointment(appointment);
+  if (!start) return null;
+  const end = addMinutes(start, minutes);
+  return makeIcsDataUrl({
+    title,
+    description,
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  });
 }
