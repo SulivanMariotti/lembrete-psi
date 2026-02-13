@@ -1,15 +1,12 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Skeleton from "../../features/patient/components/Skeleton";
 import PatientHeader from "../../features/patient/components/PatientHeader";
-import NextSessionCard from "../../features/patient/components/NextSessionCard";
+import PatientSessionsCard from "../../features/patient/components/PatientSessionsCard";
 import PatientNotificationsCard from "../../features/patient/components/PatientNotificationsCard";
-import PatientAgendaCard from "../../features/patient/components/PatientAgendaCard";
 import PatientNotesCard from "../../features/patient/components/PatientNotesCard";
 import ContractStatusCard from "../../features/patient/components/ContractStatusCard";
 import PatientMantraCard from "../../features/patient/components/PatientMantraCard";
-import PatientContactCard from "../../features/patient/components/PatientContactCard";
 import {
   app,
   db } from "../../app/firebase";
@@ -27,7 +24,7 @@ import {
   X,
 } from "lucide-react";
 
-import { onlyDigits, toCanonical, normalizeWhatsappPhone, formatPhoneBR } from "../../features/patient/lib/phone";
+import { onlyDigits, toCanonical, normalizeWhatsappPhone } from "../../features/patient/lib/phone";
 import { brDateParts, addMinutes, relativeLabelForDate } from "../../features/patient/lib/dates";
 import { makeIcsDataUrl, startDateTimeFromAppointment } from "../../features/patient/lib/ics";
 
@@ -45,7 +42,6 @@ export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfi
   // STEP42: o paciente não acessa a coleção subscribers no client
   const subscribers = null;
 const [profile, setProfile] = useState(null);
-
 
   const [loadingProfile, setLoadingProfile] = useState(true);
 
@@ -146,7 +142,6 @@ useEffect(() => {
   const contractText = String(globalConfig?.contractText || "Contrato não configurado.");
 
   const patientName = profile?.name || user?.displayName || "Paciente";
-  const patientPhoneDisplay = formatPhoneBR(resolvedPhone || cleanPhoneFromProfile);
 
   // Step 9.2: hooks por domínio (agenda, notas, push, last-sync)
   const { appointmentsLastSyncAt } = useAppointmentsLastSync({ user });
@@ -430,16 +425,16 @@ useEffect(() => {
     return String(getLocationFromAppointment(nextAppointment) || "").trim();
   }, [nextAppointment]);
 
-
   return (
     <>
       {toast?.msg && <Toast message={toast.msg} type={toast.type} onClose={() => setToast({ msg: "" })} />}
 
       <div className={`min-h-screen bg-slate-50 ${needsContractAcceptance ? "pb-24" : "pb-10"}`}>
-        <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
+        <div className="max-w-5xl mx-auto px-4 pt-4 sm:pt-6 space-y-4 sm:space-y-6">
           {/* Header */}
 <PatientHeader
   patientName={patientName}
+  patientPhone={resolvedPhone || cleanPhoneFromProfile}
   devSwitchEnabled={DEV_SWITCH_ENABLED}
   impersonatePhone={impersonatePhone}
   setDevPanelOpen={setDevPanelOpen}
@@ -487,10 +482,24 @@ useEffect(() => {
           {/* Mantra */}
           <PatientMantraCard />
 
-          {/* Card do paciente */}
-          <PatientContactCard patientName={patientName} patientPhoneDisplay={patientPhoneDisplay} />
+          {/* Sessões (prioridade: próxima sessão + agenda) */}
+          <PatientSessionsCard
+            nextAppointment={nextAppointment}
+            nextLabel={nextLabel}
+            nextStatusChip={nextStatusChip}
+            nextServiceLabel={nextServiceLabel}
+            nextPlaceLabel={nextPlaceLabel}
+            nextMeta={nextMeta}
+            confirmBusy={confirmBusy}
+            confirmedLoading={confirmedLoading}
+            onConfirmPresence={handleConfirmPresence}
+            appointments={appointments}
+            appointmentsRaw={appointmentsRaw}
+            loading={loadingAppointments}
+            confirmedIds={confirmedIds}
+          />
 
-          {/* Notificações */}
+          {/* Notificações (compacto, mobile-first) */}
           <PatientNotificationsCard
             app={app}
             user={user}
@@ -499,37 +508,15 @@ useEffect(() => {
             showToast={showToast}
           />
 
-          {/* Próximo atendimento */}
-<NextSessionCard
-  nextAppointment={nextAppointment}
-  nextLabel={nextLabel}
-  nextStatusChip={nextStatusChip}
-  nextServiceLabel={nextServiceLabel}
-  nextPlaceLabel={nextPlaceLabel}
-  nextMeta={nextMeta}
-  confirmBusy={confirmBusy}
-  confirmedLoading={confirmedLoading}
-  onConfirmPresence={handleConfirmPresence}
-/>
-
-          {/* Agenda */}
-          <PatientAgendaCard
-            appointments={appointments}
-            appointmentsRaw={appointmentsRaw}
-            loading={loadingAppointments}
-            confirmedIds={confirmedIds}
-          />
-
-          {/* Contrato */}
+          {/* Contrato: mostra sempre quando pendente; quando OK, esconde no mobile para reduzir altura */}
           <ContractStatusCard
+            className={!needsContractAcceptance ? "hidden sm:block" : ""}
             contractText={contractText}
             needsContractAcceptance={needsContractAcceptance}
             currentContractVersion={currentContractVersion}
             onAcceptContract={handleAcceptContract}
             acceptBusy={acceptContractBusy}
           />
-
-
           {/* Diário */}
           <PatientNotesCard
             notes={notes}

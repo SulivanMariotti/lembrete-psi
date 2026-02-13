@@ -1,15 +1,19 @@
 # Atualização do projeto — 2026-02-13
 
 ## O que foi feito
-- Continuidade da refatoração do painel do paciente (PatientFlow) com foco em mobile:
-  - Criado `PatientNotificationsCard` e integrado no `PatientFlow`
-  - Removido wrapper externo pesado para reduzir altura/“espaço perdido”
+- Finalização da refatoração do painel do paciente:
+  - limpeza do `PatientFlow` removendo import morto
+  - checklist de validação rápida (smoke checks)
 
-## Por que isso importa (visão clínica/UX)
-- O paciente precisa encontrar rapidamente:
-  - se as notificações estão ativas
-  - como ativar quando não estiver
-- Quanto menos fricção e mais clareza, maior a chance de constância e presença.
+## Por que isso importa
+- Import morto e restos de refatoração geram ruído e aumentam chance de regressões
+- Smoke checks garantem que o essencial do processo terapêutico não “quebrou”:
+  - agenda → presença → contrato → notificações → notas
 
-## Próximo alvo
-- Step 9.3.13: agenda/sessões em componente próprio com layout compacto no celular.
+## Smoke checks (rápido)
+1) Contrato pendente: aparece botão “Aceitar contrato” e muda estado após aceitar  
+2) Contrato aceito: não exibe botão “Aceitar”  
+3) Agenda com sessão futura: “Próximo atendimento” correto  
+4) Agenda vazia: estado vazio OK  
+5) Notificações on/off: mensagens e CTA corretos  
+6) Notas: salvar e persistir após reload

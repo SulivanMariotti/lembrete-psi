@@ -7,6 +7,7 @@ import { formatPhoneBR } from "../lib/phone";
 
 export default function PatientHeader({
   patientName,
+  patientPhone,
   devSwitchEnabled,
   impersonatePhone,
   setDevPanelOpen,
@@ -20,7 +21,15 @@ export default function PatientHeader({
       <div className="min-w-0">
         <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
         <div className="text-lg font-extrabold text-slate-900 truncate">Olá, {patientName}</div>
-        <div className="text-sm text-slate-500 mt-1">Lembretes e organização do seu cuidado — constância terapêutica.</div>
+        <div className="text-sm text-slate-500 mt-1">
+          Lembretes e organização do seu cuidado — constância terapêutica.
+          {patientPhone ? (
+            <>
+              <span className="mx-2 text-slate-300">•</span>
+              <span className="text-slate-600">{formatPhoneBR(patientPhone)}</span>
+            </>
+          ) : null}
+        </div>
 
         {devSwitchEnabled && impersonatePhone ? (
           <div className="mt-2 inline-flex items-center gap-2 text-[11px] px-2 py-1 rounded-full border border-amber-100 bg-amber-50 text-amber-900">

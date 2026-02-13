@@ -1,10 +1,7 @@
 # Changelog (patch) — 2026-02-13
 
-## Added
-- `PatientNotificationsCard` (wrapper compacto para notificações)
-
 ## Changed
-- `PatientFlow` passou a usar `PatientNotificationsCard` no lugar do wrapper antigo.
+- `PatientFlow` cleanup: removido import não utilizado (`Skeleton`)
 
-## UX
-- Menos altura no mobile e remoção de título redundante.
+## Docs
+- Adicionado checklist de smoke checks para validação rápida do painel do paciente

@@ -2,41 +2,41 @@
 
 Data: **2026-02-13**
 
-## Contexto
-Refatoração do **PatientFlow** (painel do paciente) para reduzir complexidade e consolidar a experiência clínica
-(constância/psicoeducação), extraindo blocos em componentes reutilizáveis.
+## Objetivo
+Refatorar o painel do paciente (**PatientFlow**) para:
+- reduzir complexidade
+- melhorar UX no mobile (menos altura/scroll)
+- reforçar pilares clínicos: **constância**, **psicoeducação** e **responsabilização**
 
-## Concluído hoje
-### Step 9.3.9 — Extrair Status do Contrato
-- Criado: `src/features/patient/components/ContractStatusCard.js`
-- Integrado em: `src/components/Patient/PatientFlow.js`
-- Fix: import duplicado de `ContractStatusCard` (build error).
+## Concluído
+### 9.3.9 — Contrato
+- `ContractStatusCard` criado e integrado.
 
-### Step 9.3.10 — Extrair Mantra (Psicoeducação)
-- Criado: `src/features/patient/components/PatientMantraCard.js`
-- Integrado em: `src/components/Patient/PatientFlow.js`
-- Fix: “Module not found” (arquivo no caminho/extensão correta).
+### 9.3.10 — Mantra/Psicoeducação
+- `PatientMantraCard` criado e integrado.
 
-### Step 9.3.11 — Identificação do paciente (Nome/Telefone)
-- Criado: `src/features/patient/components/PatientContactCard.js`
-- Integrado em: `src/components/Patient/PatientFlow.js`
-- Fix: “Module not found” (arquivo no caminho/extensão correta).
+### 9.3.12 — Notificações (compacto)
+- `PatientNotificationsCard` criado e integrado (mobile-friendly).
 
-### Step 9.3.12 — Notificações (Mobile-friendly)
-- Criado: `src/features/patient/components/PatientNotificationsCard.js`
-- Integrado em: `src/components/Patient/PatientFlow.js`
-- Mudança UX:
-  - Wrapper mais compacto (sem título redundante)
-  - Menos altura no mobile (remove Card externo “engordando” o bloco)
-  - Mantém o núcleo: notificações ativas neste aparelho (e call-to-action quando não estiver)
+### 9.3.13 — Sessões/Agenda
+- `PatientSessionsCard` criado e integrado (agrupar próxima sessão + agenda).
+
+### 9.3.14 — Estados reutilizáveis + aplicação
+- Criados: `InlineLoading`, `EmptyState`, `InlineError`
+- Aplicados em: `PatientAgendaCard` e `PatientNotesCard`
+
+### 9.3.15 — Compactação final mobile
+- `PatientFlow` reordenado (hierarquia clínica)
+- `PatientHeader` mostra telefone compacto
+- Removida duplicidade (sem `PatientContactCard` no fluxo)
+
+### 9.3.16 — Limpeza final + smoke checks
+- `PatientFlow`: removido import morto (`Skeleton`) e alinhamento final do arquivo
+- Checklist de smoke checks adicionado à documentação para validar estados principais
 
 ## Próximo passo sugerido
-### Step 9.3.13 — Agenda compacta / Sessões (com foco em constância)
-- Extrair o bloco de agenda/sessões para componente (ex.: `PatientSessionsCard`)
-- Ajustar layout no mobile (menos “quebra de linha” e menos espaço vertical)
-- Reforçar psicoeducação:
-  - “O seu horário é um espaço sagrado de cuidado”
-  - “Faltar interrompe um processo de evolução; a cura acontece na continuidade”
+- Se smoke checks OK: encerrar etapa de refatoração do painel do paciente e voltar para backlog principal
+- Se algum cenário falhar: corrigir regressão pontual (1 passo por vez)
 
 ## Commit sugerido
-`refactor(paciente): extrair notificações em componente e compactar layout`
+`chore(paciente): smoke checks + cleanup imports`

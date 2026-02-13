@@ -3,8 +3,10 @@
 import React, { useMemo, useState } from "react";
 import { Search, Plus, Trash2, CheckCircle } from "lucide-react";
 
-import Skeleton from "./Skeleton";
 import { Button, Card } from "../../../components/DesignSystem";
+import InlineLoading from "./InlineLoading";
+import EmptyState from "./EmptyState";
+import InlineError from "./InlineError";
 
 /**
  * Diário rápido (Notas)
@@ -15,7 +17,7 @@ import { Button, Card } from "../../../components/DesignSystem";
  * - deleteNote(id: string): Promise<void>
  * - showToast(msg: string, type?: 'success'|'error'): void
  */
-export default function PatientNotesCard({ notes, loadingNotes, saveNote, deleteNote, showToast }) {
+export default function PatientNotesCard({ notes, loadingNotes, saveNote, deleteNote, showToast, error = null, onRetry = null }) {
   const [noteSearch, setNoteSearch] = useState("");
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
@@ -84,17 +86,22 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
             </Button>
           </div>
 
-          {loadingNotes ? (
-            <div className="space-y-3">
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
+          {error ? (
+            <InlineError
+              title="Não foi possível carregar suas notas"
+              description={typeof error === "string" ? error : "Tente novamente em instantes."}
+              actionLabel={typeof onRetry === "function" ? "Recarregar" : ""}
+              onAction={onRetry}
+            />
+          ) : loadingNotes ? (
+            <div className="py-2">
+              <InlineLoading label="Carregando suas notas…" />
             </div>
           ) : filteredNotes.length === 0 ? (
-            <div className="text-sm text-slate-500">
-              Nenhuma nota ainda.
-              <div className="text-xs text-slate-400 mt-1">Use “Nova” para registrar lembretes, tarefas ou observações.</div>
-            </div>
+            <EmptyState
+              title="Nenhuma nota ainda"
+              description="Use “Nova” para registrar lembretes, tarefas ou observações para sua sessão."
+            />
           ) : (
             <div className="space-y-2">
               {filteredNotes.map((n) => {

@@ -3,8 +3,10 @@
 import React, { useMemo, useState } from "react";
 import { Button, Card } from "../../../components/DesignSystem";
 import { Calendar, CalendarCheck } from "lucide-react";
-import Skeleton from "./Skeleton";
 import AppointmentMiniRow from "./AppointmentMiniRow";
+import InlineLoading from "./InlineLoading";
+import EmptyState from "./EmptyState";
+import InlineError from "./InlineError";
 import {
   startOfWeek,
   weekLabelPT,
@@ -14,7 +16,7 @@ import {
 } from "../lib/dates";
 import { startDateTimeFromAppointment } from "../lib/ics";
 
-export default function PatientAgendaCard({ appointments = [], appointmentsRaw = [], loading = false, confirmedIds }) {
+export default function PatientAgendaCard({ appointments = [], appointmentsRaw = [], loading = false, confirmedIds, error = null, onRetry = null }) {
   const [agendaView, setAgendaView] = useState("compact");
   const [showAllWeeks, setShowAllWeeks] = useState(false);
   const [showAllMonths, setShowAllMonths] = useState(false);
@@ -135,14 +137,23 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
         </div>
       </div>
 
-      {loading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-14" />
-          <Skeleton className="h-14" />
-          <Skeleton className="h-14" />
+      {error ? (
+        <InlineError
+          title="Não foi possível carregar sua agenda"
+          description={typeof error === "string" ? error : "Tente novamente em instantes."}
+          actionLabel={typeof onRetry === "function" ? "Recarregar" : ""}
+          onAction={onRetry}
+        />
+      ) : loading ? (
+        <div className="py-2">
+          <InlineLoading label="Carregando agenda…" />
         </div>
       ) : (appointments || []).length === 0 ? (
-        <div className="text-sm text-slate-500">Nenhum agendamento encontrado.</div>
+        <EmptyState
+          title="Nenhum agendamento encontrado"
+          description="Assim que sua agenda estiver disponível, ela aparecerá aqui. Seu horário é um espaço sagrado de cuidado."
+          Icon={Calendar}
+        />
       ) : (
         <div className="space-y-5">
           {agendaGroups.highlights.length > 0 && (

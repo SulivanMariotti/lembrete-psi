@@ -1,12 +1,7 @@
 # Files alterados — 2026-02-13
 
-## Criados
-- `src/features/patient/components/PatientNotificationsCard.js`
-
 ## Alterados
-- `src/components/Patient/PatientFlow.js`
+- `src/components/Patient/PatientFlow.js` (cleanup: remove import morto)
 
-## Nota
-Se ocorrer “Module not found”, conferir:
-- arquivo no caminho correto
-- extensão real `.js` (não `.js.txt`)
+## Notas
+- Smoke checks recomendados após a limpeza para garantir ausência de regressões.
