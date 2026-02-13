@@ -1,5 +1,3 @@
-// src/features/patient/lib/appointments.js
-
 export function chipClass(style) {
   if (style === "today") return "bg-emerald-50 border-emerald-100 text-emerald-900";
   if (style === "tomorrow") return "bg-violet-50 border-violet-100 text-violet-900";
@@ -19,14 +17,7 @@ export function prettyServiceLabel(serviceType) {
 
 // fallback robusto: campo novo `serviceType`, mas suporta variações antigas
 export function getServiceTypeFromAppointment(a) {
-  return (
-    a?.serviceType ||
-    a?.servico ||
-    a?.service ||
-    a?.tipoServico ||
-    a?.tipo_servico ||
-    ""
-  );
+  return a?.serviceType || a?.servico || a?.service || a?.tipoServico || a?.tipo_servico || "";
 }
 
 export function getLocationFromAppointment(a) {
