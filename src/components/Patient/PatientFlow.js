@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Skeleton from "../../features/patient/components/Skeleton";
 import PatientHeader from "../../features/patient/components/PatientHeader";
 import NextSessionCard from "../../features/patient/components/NextSessionCard";
-import NotificationStatusCard from "../../features/patient/components/NotificationStatusCard";
+import PatientNotificationsCard from "../../features/patient/components/PatientNotificationsCard";
 import PatientAgendaCard from "../../features/patient/components/PatientAgendaCard";
 import PatientNotesCard from "../../features/patient/components/PatientNotesCard";
 import ContractStatusCard from "../../features/patient/components/ContractStatusCard";
@@ -491,15 +491,13 @@ useEffect(() => {
           <PatientContactCard patientName={patientName} patientPhoneDisplay={patientPhoneDisplay} />
 
           {/* Notificações */}
-          <Card>
-            <NotificationStatusCard
-              app={app}
-              user={user}
-              notifHasToken={notifHasToken}
-              setNotifHasToken={setNotifHasToken}
-              showToast={showToast}
-            />
-          </Card>
+          <PatientNotificationsCard
+            app={app}
+            user={user}
+            notifHasToken={notifHasToken}
+            setNotifHasToken={setNotifHasToken}
+            showToast={showToast}
+          />
 
           {/* Próximo atendimento */}
 <NextSessionCard

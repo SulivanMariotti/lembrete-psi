@@ -1,24 +1,15 @@
 # Atualização do projeto — 2026-02-13
 
 ## O que foi feito
-- Refatoração do painel do paciente (**PatientFlow**), extraindo 3 blocos em componentes:
-  1. **Contrato Terapêutico** → `ContractStatusCard`
-  2. **Mantra/Psicoeducação** → `PatientMantraCard`
-  3. **Identificação (nome/telefone)** → `PatientContactCard`
+- Continuidade da refatoração do painel do paciente (PatientFlow) com foco em mobile:
+  - Criado `PatientNotificationsCard` e integrado no `PatientFlow`
+  - Removido wrapper externo pesado para reduzir altura/“espaço perdido”
 
-## Por que isso é importante (visão clínica/UX)
-- Reduz o “ruído” da tela e reforça mensagens-chave:
-  - **O segredo da terapia é a constância**
-  - O horário do paciente é um **espaço de cuidado**
-- Torna o código mais modular e menos propenso a regressões em alterações futuras.
-
-## Problemas encontrados e correções
-- `Identifier 'ContractStatusCard' has already been declared`  
-  → import duplicado no `PatientFlow.js`.
-- `Module not found: Can't resolve ...PatientMantraCard`  
-  → arquivo ausente no caminho certo ou extensão errada (ex.: `.js.txt`).
-- `Module not found: Can't resolve ...PatientContactCard`  
-  → mesmo cenário do item acima.
+## Por que isso importa (visão clínica/UX)
+- O paciente precisa encontrar rapidamente:
+  - se as notificações estão ativas
+  - como ativar quando não estiver
+- Quanto menos fricção e mais clareza, maior a chance de constância e presença.
 
 ## Próximo alvo
-- Step 9.3.12: extrair e compactar **Notificações/Checklist** (melhorar mobile).
+- Step 9.3.13: agenda/sessões em componente próprio com layout compacto no celular.
