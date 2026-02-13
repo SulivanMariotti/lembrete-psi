@@ -102,10 +102,10 @@ async function loadTemplates(db) {
   const cfg = snap.exists ? snap.data() : {};
 
   const tpl = {
-    presentTitle: "Presença é constância",
+    presentTitle: "💜 Permittá • Lembrete Psi — Parabéns pela presença",
     presentBody:
       "Olá {nome}. Sua presença em {data} às {hora} é um passo de cuidado. A continuidade fortalece o processo.",
-    absentTitle: "Retomar a constância é cuidado",
+    absentTitle: "💜 Permittá • Lembrete Psi — Senti sua falta hoje",
     absentBody:
       "Olá {nome}. Percebemos sua ausência em {data} às {hora}. Quando você retorna, o processo continua. Se precisar, fale com a clínica.",
   };

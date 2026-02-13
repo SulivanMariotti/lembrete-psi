@@ -11,7 +11,6 @@
   - **Erros** (bloqueiam linha): ID vazio, DATA/HORA inválidas, duplicada no arquivo
   - **Avisos** (não bloqueiam): campos vazios, status desconhecido, sem phoneCanonical
 - Download: **Baixar inconsistências (CSV)** (erros + avisos com `field`, `line`, `message`, `rawLine` etc.)
-- Download: **Baixar preview normalizado (CSV)** (no dryRun) — exporta o que *seria importado* já com `isoDate`, `time`, `status` e máscara de telefone quando disponível
 - UX: upload virou **botão** (“Selecionar arquivo”) e exibe nome do arquivo
 
 ### 2) Disparos por Constância (followups)
@@ -23,11 +22,25 @@
 ### 3) Admin: refresh após import
 - Depois de importar presença/faltas, o Admin atualiza o painel/estatísticas sem precisar trocar de menu.
 
+### 4) Preview normalizado (dryRun)
+- No dryRun do import, existe o botão **“Baixar preview normalizado (CSV)”** para auditoria do que seria gravado (antes do Importar).
+
+### 5) Títulos de Notificação (Push)
+- Branding padronizado: **💜 Permittá • Lembrete Psi — ...**
+- Títulos de lembretes (48h/24h/hoje) são configuráveis no **Admin → Configurações** e salvos em `config/global`:
+  - `reminderTitlePrefix`, `reminderTitle1`, `reminderTitle2`, `reminderTitle3`, `reminderTitleDefault`, `reminderTitleMulti`.
+- Botão **“Aplicar padrão Permittá 💜”** preenche:
+  - títulos dos lembretes (Push)
+  - títulos de Presença/Falta (follow-ups)
+
 ---
 
 ## Arquivos impactados (principais)
 - `src/app/api/admin/attendance/import/route.js`
 - `src/components/Admin/AdminAttendanceImportCard.js`
+- `src/app/api/admin/reminders/send/route.js`
+- `src/components/Admin/AdminConfigTab.js`
+- `firebase-messaging-sw.js`
 - `src/app/api/admin/attendance/send-followups/route.js`
 - `src/components/Admin/AdminPanelView.js`
 - (apoio UI) `src/components/Admin/AdminAttendanceTab.js`
@@ -37,7 +50,7 @@
 ## Como validar rapidamente
 1) Admin → Presença/Faltas:
    - Selecionar CSV → Verificar
-   - Checar: resumo, erros/avisos e botões “Baixar inconsistências” + “Baixar preview normalizado”
+   - Checar: resumo, erros/avisos e botão “Baixar inconsistências”
 2) Importar:
    - Checar: contagens e atualização imediata do painel
 3) Disparos por Constância:
@@ -46,9 +59,9 @@
 ---
 
 ## Próximo passo sugerido (1 por vez)
-- Fix: ao clicar em **Limpar** na Agenda (Admin → Agenda), garantir que o upload do CSV possa ser repetido sem precisar trocar de menu e que o bloco “Envios pendentes” sempre zere o preview e o botão.
+- Revisar e endurecer permissões (Firestore Rules) e/ou mover leituras sensíveis do painel do paciente para rotas server-side (evitar `permission-denied`).
 
 ---
 
 ## Sugestão de commit
-`feat(attendance): add normalized preview export in dryRun; docs update`
+`feat(attendance): upload+validate CSV, warnings & issues export; fix followups sample; refresh after import`

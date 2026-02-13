@@ -29,6 +29,9 @@ Quando configuração quebra, o lembrete falha — e quando o lembrete falha, a 
 > Observação: bloqueios críticos (paciente inativo / janela proibida) devem estar **server-side**.
 
 ### 2.2 Lembretes de agenda (msg1/2/3)
+
+> Observação: `msgXTitle` é usado para canais de texto (ex.: WhatsApp). Para **Push**, ver 2.3.
+
 - `msg1Title` (string) *(opcional)*
 - `msg1Body` (string)
 - `msg2Title` (string) *(opcional)*
@@ -41,7 +44,21 @@ Offsets (tempo antes da sessão):
 - `msg2OffsetHours` (number) *(ex.: 24)*
 - `msg3OffsetHours` (number) *(ex.: 8 ou “manhã da sessão”)*
 
-### 2.3 Presença/Falta (follow-ups)
+### 2.3 Títulos de Push (lembretes)
+
+Esses títulos aparecem nas **notificações do paciente**.  
+O **corpo** do texto continua vindo dos templates `msg1/2/3`.
+
+- `reminderTitlePrefix` (string) *(ex.: `💜 Permittá • Lembrete Psi — `)*
+- `reminderTitle1` (string) *(sufixo do título do lembrete 48h / slot1)*
+- `reminderTitle2` (string) *(sufixo do título do lembrete 24h / slot2)*
+- `reminderTitle3` (string) *(sufixo do título do lembrete “hoje” / slot3)*
+- `reminderTitleDefault` (string) *(fallback)*
+- `reminderTitleMulti` (string) *(título para pacote “misto”; pode ser **título completo**)*
+
+> Regra: se `reminderTitleMulti` estiver vazio, o sistema usa `reminderTitlePrefix + "Seus lembretes"`.
+
+### 2.4 Presença/Falta (follow-ups)
 - `attendanceFollowupPresentTitle` (string)
 - `attendanceFollowupPresentBody` (string)
 - `attendanceFollowupAbsentTitle` (string)

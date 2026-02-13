@@ -53,19 +53,34 @@ export default function AdminPanelView({
   // Configuração Local (usada pelo Schedule e pela aba Configurações)
   const [localConfig, setLocalConfig] = useState({
     reminderOffsetsHours: [48, 24, 12],
+
+    // Templates de lembrete (body)
     msg1: '',
     msg2: '',
     msg3: '',
     msg48h: '',
     msg24h: '',
     msg12h: '',
+
+    // Títulos dos lembretes (push)
+    reminderTitlePrefix: '💜 Permittá • Lembrete Psi — ',
+    reminderTitle1: 'Seu espaço em 48h',
+    reminderTitle2: 'Amanhã: seu horário',
+    reminderTitle3: 'Hoje: sessão no seu horário',
+    reminderTitleDefault: 'Seu espaço de cuidado',
+    reminderTitleMulti: '💜 Permittá • Lembrete Psi — Seus lembretes',
+
     whatsapp: '',
     contractText: '',
     contractVersion: 1,
-    attendanceFollowupPresentTitle: 'Presença é constância',
-    attendanceFollowupPresentBody: 'Parabéns por ter comparecido. A continuidade é o que sustenta o processo e fortalece o cuidado consigo.',
-    attendanceFollowupAbsentTitle: 'Retomar a constância é cuidado',
-    attendanceFollowupAbsentBody: 'Hoje você faltou. Faltar não é apenas perder uma hora; é interromper um processo de evolução. Se precisar, fale com a clínica para apoiar seu retorno.',
+
+    // Presença / Falta (push)
+    attendanceFollowupPresentTitle: '💜 Permittá • Lembrete Psi — Parabéns pela presença',
+    attendanceFollowupPresentBody:
+      'Parabéns por ter comparecido. A continuidade é o que sustenta o processo e fortalece o cuidado consigo.',
+    attendanceFollowupAbsentTitle: '💜 Permittá • Lembrete Psi — Senti sua falta hoje',
+    attendanceFollowupAbsentBody:
+      'Hoje você faltou. Faltar não é apenas perder uma hora; é interromper um processo de evolução. Se precisar, fale com a clínica para apoiar seu retorno.',
 });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -259,11 +274,23 @@ export default function AdminPanelView({
         msg1: localConfig.msg1 || localConfig.msg48h || '',
         msg2: localConfig.msg2 || localConfig.msg24h || '',
         msg3: localConfig.msg3 || localConfig.msg12h || '',
+
+        // Títulos dos lembretes (push)
+        reminderTitlePrefix: localConfig.reminderTitlePrefix || '',
+        reminderTitle1: localConfig.reminderTitle1 || '',
+        reminderTitle2: localConfig.reminderTitle2 || '',
+        reminderTitle3: localConfig.reminderTitle3 || '',
+        reminderTitleDefault: localConfig.reminderTitleDefault || '',
+        reminderTitleMulti: localConfig.reminderTitleMulti || '',
+
         whatsapp: localConfig.whatsapp || '',
         contractText: localConfig.contractText || '',
         contractVersion: publishNewVersion
           ? Number(localConfig.contractVersion || 1) + 1
-          : Number(localConfig.contractVersion || 1),        attendanceFollowupPresentTitle: localConfig.attendanceFollowupPresentTitle || '',
+          : Number(localConfig.contractVersion || 1),
+
+        // Presença / Falta (push)
+        attendanceFollowupPresentTitle: localConfig.attendanceFollowupPresentTitle || '',
         attendanceFollowupPresentBody: localConfig.attendanceFollowupPresentBody || '',
         attendanceFollowupAbsentTitle: localConfig.attendanceFollowupAbsentTitle || '',
         attendanceFollowupAbsentBody: localConfig.attendanceFollowupAbsentBody || '',

@@ -92,6 +92,76 @@ function pickTemplate(cfg, reminderType) {
   return cfg?.msg2 || cfg?.msg1 || cfg?.msg3 || cfg?.msg24h || cfg?.msg48h || cfg?.msg12h || "";
 }
 
+
+const BRAND_DEFAULT_PREFIX = "💜 Permittá • Lembrete Psi";
+
+function normalizeReminderSlot(reminderType) {
+  const rt = String(reminderType || "").toLowerCase().trim();
+  if (!rt) return "";
+  if (rt === "slot1" || rt.includes("slot1") || rt === "1" || rt.includes("48")) return "slot1";
+  if (rt === "slot2" || rt.includes("slot2") || rt === "2" || rt.includes("24")) return "slot2";
+  if (rt === "slot3" || rt.includes("slot3") || rt === "3" || rt.includes("12")) return "slot3";
+  return "";
+}
+
+function joinTitle(prefix, suffix) {
+  const p = String(prefix || "").trim();
+  const s = String(suffix || "").trim();
+  if (!p) return s;
+  if (!s) return p;
+
+  const needsSpace = !p.endsWith(" ") && !s.startsWith(" ");
+  // Se o prefixo já termina com pontuação/dash, só concatena
+  if (/[—\-:•]$/.test(p)) return p + (needsSpace ? " " : "") + s;
+
+  // Caso padrão: separa com " — "
+  return p + " — " + s;
+}
+
+function resolveReminderTitle(cfg, slotKey) {
+  const defaultsFull = {
+    slot1: "💜 Permittá • Lembrete Psi — Seu espaço em 48h",
+    slot2: "💜 Permittá • Lembrete Psi — Amanhã: seu horário",
+    slot3: "💜 Permittá • Lembrete Psi — Hoje: sessão no seu horário",
+    multi: "💜 Permittá • Lembrete Psi — Seus lembretes",
+    fallback: "💜 Permittá • Lembrete Psi — Seu espaço de cuidado",
+  };
+
+  const suffixDefaults = {
+    slot1: "Seu espaço em 48h",
+    slot2: "Amanhã: seu horário",
+    slot3: "Hoje: sessão no seu horário",
+    multi: "Seus lembretes",
+    fallback: "Seu espaço de cuidado",
+  };
+
+  const keyMap = {
+    slot1: "reminderTitle1",
+    slot2: "reminderTitle2",
+    slot3: "reminderTitle3",
+    multi: "reminderTitleMulti",
+    fallback: "reminderTitleDefault",
+  };
+
+  const k = keyMap[slotKey] || keyMap.fallback;
+  const raw = cfg && cfg[k] != null ? String(cfg[k]).trim() : "";
+  const prefix = cfg && cfg.reminderTitlePrefix != null ? String(cfg.reminderTitlePrefix).trim() : "";
+
+  // Se o campo específico existir, usa. Se parecer "sufixo", concatena com prefixo se houver.
+  if (raw) {
+    if (prefix && !raw.includes("Permittá") && !raw.includes("Lembrete Psi")) return joinTitle(prefix, raw);
+    return raw;
+  }
+
+  // Se não houver campo específico, tenta montar com prefixo configurável
+  if (prefix) {
+    const suf = suffixDefaults[slotKey] || suffixDefaults.fallback;
+    return joinTitle(prefix, suf);
+  }
+
+  return defaultsFull[slotKey] || defaultsFull.fallback;
+}
+
 // concorrência limitada para fallback send()
 async function sendWithConcurrency(messaging, messages, concurrency = 20) {
   const results = new Array(messages.length);
@@ -150,7 +220,6 @@ export async function POST(req) {
     // Templates
     const cfgSnap = await db.collection("config").doc("global").get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    const defaultTitle = "Lembrete Psi • Sua sessão";
 
     // Agrupa por telefone
     const byPhone = new Map();
@@ -258,9 +327,15 @@ export async function POST(req) {
       const finalBody =
         extraCount > 0 ? `${bodyText}\n\nVocê tem mais ${extraCount} lembrete(s) pendente(s) nesta seleção.` : bodyText;
 
+
+      const slotKeys = items.map((x) => normalizeReminderSlot(x.reminderType)).filter(Boolean);
+      const uniqSlots = Array.from(new Set(slotKeys));
+      const titleKey = uniqSlots.length > 1 ? "multi" : uniqSlots.length === 1 ? uniqSlots[0] : "fallback";
+      const notificationTitle = resolveReminderTitle(cfg, titleKey);
+
       messages.push({
         token: meta.token,
-        notification: { title: defaultTitle, body: finalBody },
+        notification: { title: notificationTitle, body: finalBody },
         data: {
           kind: "appointment_reminder",
           phoneCanonical: phone,
