@@ -531,6 +531,7 @@ useEffect(() => {
           ) : null}
           {/* Diário */}
           <PatientNotesCard
+            patientUid={user?.uid || null}
             notes={notes}
             nextSessionDateTimeLabel={nextSessionDateTimeLabel}
             loadingNotes={loadingNotes}

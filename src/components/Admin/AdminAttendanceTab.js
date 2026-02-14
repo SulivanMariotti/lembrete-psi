@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarCheck, UserMinus, Activity } from 'lucide-react';
+import { CalendarCheck, UserMinus, Activity, Copy } from 'lucide-react';
 import { Card, StatCard } from '../DesignSystem';
 import AdminAttendanceImportCard from './AdminAttendanceImportCard';
 import AdminAttendanceFollowupsCard from './AdminAttendanceFollowupsCard';
@@ -15,6 +15,7 @@ export default function AdminAttendanceTab({
   attendanceError,
   attendanceLoading,
   attendanceStats,
+  patientNameByPhone = {},
   attendanceImportSource,
   setAttendanceImportSource,
   attendanceImportDefaultStatus,
@@ -31,6 +32,20 @@ export default function AdminAttendanceTab({
   handleAttendanceImportClear,
   showToast,
 }) {
+  const resolvePatientName = (phoneCanonical) => {
+    const key = String(phoneCanonical || '').replace(/\D/g, '');
+    return patientNameByPhone?.[key] || null;
+  };
+
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(String(text || ''));
+      showToast?.('Telefone copiado');
+    } catch (e) {
+      // ignore
+    }
+  };
+
   return (
     <>
       {/* STEP43: Constância Terapêutica (Presença/Faltas) */}
@@ -91,7 +106,7 @@ export default function AdminAttendanceTab({
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
                 <tr className="text-left">
-                  <th className="px-4 py-2 font-semibold text-slate-600">Paciente (phoneCanonical)</th>
+                  <th className="px-4 py-2 font-semibold text-slate-600">Paciente</th>
                   <th className="px-4 py-2 font-semibold text-slate-600">Faltas</th>
                 </tr>
               </thead>
@@ -105,7 +120,24 @@ export default function AdminAttendanceTab({
                 ) : (
                   attendanceStats.topAbsent.map((row) => (
                     <tr key={row.phoneCanonical} className="border-t border-slate-200">
-                      <td className="px-4 py-2 text-slate-700">{row.phoneCanonical}</td>
+                      <td className="px-4 py-2 text-slate-700">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-medium text-slate-800 truncate">
+                              {resolvePatientName(row.phoneCanonical) || '—'}
+                            </div>
+                            <div className="text-[11px] text-slate-500 truncate">{row.phoneCanonical}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(row.phoneCanonical)}
+                            className="shrink-0 p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600"
+                            title="Copiar telefone"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </div>
+                      </td>
                       <td className="px-4 py-2 text-slate-700">{row.count}</td>
                     </tr>
                   ))
@@ -122,6 +154,7 @@ export default function AdminAttendanceTab({
       </Card>
 
       {/* STEP44: Importar Presença/Faltas */}
+      <div id="attendance-import" className="scroll-mt-24">
       <AdminAttendanceImportCard
         attendanceImportSource={attendanceImportSource}
         setAttendanceImportSource={setAttendanceImportSource}
@@ -138,9 +171,13 @@ export default function AdminAttendanceTab({
         handleAttendanceImportCommit={handleAttendanceImportCommit}
         handleAttendanceImportClear={handleAttendanceImportClear}
       />
+      </div>
+
 
       {/* STEP45: Disparos por constância */}
-      <AdminAttendanceFollowupsCard showToast={showToast} />
+      <div id="attendance-followups" className="scroll-mt-24">
+        <AdminAttendanceFollowupsCard showToast={showToast} />
+      </div>
     </>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Plus, Trash2, CheckCircle, Loader2, Sparkles, History, CalendarCheck } from "lucide-react";
+import { Search, Plus, Trash2, CheckCircle, Loader2, Sparkles, History, CalendarCheck, Star } from "lucide-react";
 
 import { Button, Card } from "../../../components/DesignSystem";
 import InlineLoading from "./InlineLoading";
@@ -25,13 +25,14 @@ const QUICK_PROMPTS = [
   { label: "Algo que me ativou", value: "Uma situação que me ativou e como eu reagi: " },
 ];
 
-export default function PatientNotesCard({ notes, loadingNotes, saveNote, deleteNote, showToast, error = null, onRetry = null, nextSessionDateTimeLabel = null }) {
+export default function PatientNotesCard({ patientUid = null, notes, loadingNotes, saveNote, deleteNote, showToast, error = null, onRetry = null, nextSessionDateTimeLabel = null }) {
   const [historySearch, setHistorySearch] = useState("");
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [busyAction, setBusyAction] = useState(null); // 'save' | 'delete' | null
   const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [pinnedNoteId, setPinnedNoteId] = useState(null);
   const textareaRef = useRef(null);
 
   const busy = Boolean(busyAction);
@@ -55,8 +56,48 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
 
   const notesArr = useMemo(() => (Array.isArray(notes) ? notes : []), [notes]);
 
+  const pinnedStorageKey = useMemo(() => {
+    const baseKey = 'lp:pinnedNote';
+    return patientUid ? `${baseKey}:${patientUid}` : baseKey;
+  }, [patientUid]);
+
+  useEffect(() => {
+    try {
+      const v = window?.localStorage?.getItem(pinnedStorageKey);
+      setPinnedNoteId(v || null);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedStorageKey]);
+
+  useEffect(() => {
+    try {
+      if (pinnedNoteId) window?.localStorage?.setItem(pinnedStorageKey, pinnedNoteId);
+      else window?.localStorage?.removeItem(pinnedStorageKey);
+    } catch {
+      // ignore
+    }
+  }, [pinnedStorageKey, pinnedNoteId]);
+
   const notesCount = notesArr.length;
-  const latestNotes = useMemo(() => notesArr.slice(0, 2), [notesArr]);
+
+  const pinnedNote = useMemo(() => {
+    if (!pinnedNoteId) return null;
+    return notesArr.find((n) => n?.id === pinnedNoteId) || null;
+  }, [notesArr, pinnedNoteId]);
+
+  const previewNotes = useMemo(() => {
+    if (!pinnedNote) return notesArr.slice(0, 2);
+    const rest = notesArr.filter((n) => n?.id !== pinnedNote.id);
+    return [pinnedNote, ...rest.slice(0, 1)];
+  }, [notesArr, pinnedNote]);
+
+  useEffect(() => {
+    if (!pinnedNoteId) return;
+    const exists = notesArr.some((n) => n?.id === pinnedNoteId);
+    if (!exists) setPinnedNoteId(null);
+  }, [notesArr, pinnedNoteId]);
 
   const filteredNotes = useMemo(() => {
     const q = String(historySearch || "").trim().toLowerCase();
@@ -85,6 +126,12 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
     } finally {
       setBusyAction(null);
     }
+  };
+
+  const togglePinned = (id) => {
+    if (busy) return;
+    setPinnedNoteId((prev) => (prev === id ? null : id));
+    showToast?.(pinnedNoteId === id ? 'Destaque removido.' : 'Nota destacada para a próxima sessão.', 'success');
   };
 
   const handleDeleteNote = async (id) => {
@@ -198,11 +245,17 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
             />
           ) : (
             <div className="space-y-2">
-              <div className="text-xs font-semibold text-slate-700">Últimas anotações</div>
-              {latestNotes.map((n) => {
+              <div className="text-xs font-semibold text-slate-700">{pinnedNote ? "Em destaque e mais recente" : "Últimas anotações"}</div>
+              {previewNotes.map((n, idx) => {
                 const when = n?.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString("pt-BR") : "";
                 return (
                   <div key={n.id} className="p-4 rounded-2xl border border-slate-100 bg-white">
+                    {pinnedNote && idx === 0 ? (
+                      <div className="inline-flex items-center gap-2 mb-2 text-[11px] font-semibold text-violet-700">
+                        <Star size={14} className="text-violet-600" />
+                        <span>Em destaque para sua próxima sessão</span>
+                      </div>
+                    ) : null}
                     <div className="text-sm text-slate-700 whitespace-pre-wrap break-words max-h-[4.75rem] overflow-hidden">
                       {n.content}
                     </div>
@@ -323,6 +376,10 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
                 />
               </div>
 
+              <div className="text-[11px] text-slate-400">
+                Dica: você pode <span className="font-semibold text-slate-600">destacar</span> uma nota para manter em evidência até a próxima sessão.
+              </div>
+
               {loadingNotes ? (
                 <div className="py-2">
                   <InlineLoading label="Carregando suas notas…" />
@@ -342,15 +399,27 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
                           <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">{n.content}</div>
                           {when ? <div className="text-[11px] text-slate-400 mt-2">{when}</div> : null}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteNote(n.id)}
-                          className="text-slate-400 hover:text-red-500 transition-colors mt-1"
-                          title="Apagar"
-                          disabled={busy}
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => togglePinned(n.id)}
+                            className={`transition-colors mt-1 ${pinnedNoteId === n.id ? 'text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            title={pinnedNoteId === n.id ? 'Remover destaque' : 'Destacar para a próxima sessão'}
+                            aria-pressed={pinnedNoteId === n.id}
+                            disabled={busy}
+                          >
+                            <Star size={18} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteNote(n.id)}
+                            className="text-slate-400 hover:text-red-500 transition-colors"
+                            title="Apagar"
+                            disabled={busy}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

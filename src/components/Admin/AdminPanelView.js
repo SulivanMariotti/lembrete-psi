@@ -40,6 +40,42 @@ export default function AdminPanelView({
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState(null);
 
+  // Preferência do Admin: período do painel de constância (persistido)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('lp_admin_attendancePeriodDays');
+      const v = Number(raw);
+      if ([7, 30, 90].includes(v)) setAttendancePeriodDays(v);
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lp_admin_attendancePeriodDays', String(attendancePeriodDays));
+    } catch (e) {
+      // ignore
+    }
+  }, [attendancePeriodDays]);
+
+  const normalizePhoneCanonical = (value) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.length > 11 && digits.startsWith('55')) return digits.slice(2);
+    return digits;
+  };
+
+  const patientNameByPhone = useMemo(() => {
+    const map = {};
+    (subscribers || []).forEach((s) => {
+      const p = normalizePhoneCanonical(s?.phoneCanonical || s?.phone);
+      if (!p) return;
+      if (!map[p]) map[p] = String(s?.name || '').trim() || null;
+    });
+    return map;
+  }, [subscribers]);
+
   // STEP44: Importar Presença/Faltas (CSV) para attendance_logs via API server-side
   const [attendanceImportText, setAttendanceImportText] = useState('');
   const [attendanceImportSource, setAttendanceImportSource] = useState('planilha');
@@ -101,7 +137,7 @@ export default function AdminPanelView({
   // STEP43-FIX: carregar estatísticas de constância via API (Admin SDK), evitando rules no client
   useEffect(() => {
     const run = async () => {
-      if (adminTab !== 'attendance') return;
+      if (!['attendance','dashboard'].includes(adminTab)) return;
       try {
         setAttendanceLoading(true);
         setAttendanceError(null);
@@ -322,6 +358,29 @@ export default function AdminPanelView({
 
   const totalMessagesSent = (historyLogs || []).reduce((acc, curr) => acc + (curr.count || 0), 0);
 
+  // Dashboard -> atalhos para Presença/Faltas (com scroll para seções)
+  const goToAttendance = () => setAdminTab('attendance');
+
+  const goToAttendanceImport = () => {
+    setAdminTab('attendance');
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        const el = document.getElementById('attendance-import');
+        if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 60);
+    }
+  };
+
+  const goToAttendanceFollowups = () => {
+    setAdminTab('attendance');
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        const el = document.getElementById('attendance-followups');
+        if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 60);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Sidebar */}
@@ -417,6 +476,15 @@ export default function AdminPanelView({
             activeUsersCount={activeUsersCount}
             subscribersCount={(subscribers || []).length}
             totalMessagesSent={totalMessagesSent}
+            attendancePeriodDays={attendancePeriodDays}
+            setAttendancePeriodDays={setAttendancePeriodDays}
+            attendanceLoading={attendanceLoading}
+            attendanceError={attendanceError}
+            attendanceStats={attendanceStats}
+            patientNameByPhone={patientNameByPhone}
+            onGoToAttendance={goToAttendance}
+            onGoToAttendanceImport={goToAttendanceImport}
+            onGoToAttendanceFollowups={goToAttendanceFollowups}
           />
         )}
 
@@ -437,6 +505,7 @@ export default function AdminPanelView({
             attendanceError={attendanceError}
             attendanceLoading={attendanceLoading}
             attendanceStats={attendanceStats}
+            patientNameByPhone={patientNameByPhone}
             attendanceImportSource={attendanceImportSource}
             setAttendanceImportSource={setAttendanceImportSource}
             attendanceImportDefaultStatus={attendanceImportDefaultStatus}
