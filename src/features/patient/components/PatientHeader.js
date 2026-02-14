@@ -37,13 +37,15 @@ export default function PatientHeader({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
-          <div className="text-lg font-extrabold text-slate-900 truncate">Olá, {patientName}</div>
+          <div className="text-lg font-extrabold text-slate-900 truncate">{patientName}</div>
 
           {patientPhone ? (
-            <div className="mt-2 inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-full border border-slate-100 bg-slate-50 text-slate-700">
-              <Phone size={14} className="text-slate-500" />
-              <span className="text-slate-500">WhatsApp</span>
-              <span className="font-semibold text-slate-800">{formatPhoneBR(patientPhone)}</span>
+            <div className="mt-2 inline-flex items-center gap-2.5 text-xs px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-800 shadow-sm">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+                <Phone size={14} className="text-violet-600" />
+                WhatsApp
+              </span>
+              <span className="font-semibold text-slate-900">{formatPhoneBR(patientPhone)}</span>
             </div>
           ) : null}
 
@@ -68,11 +70,11 @@ export default function PatientHeader({
             Contrato
           </Button>
 
-          <Button onClick={onAdminAccess} variant="secondary" icon={Shield}>
+          <Button onClick={onAdminAccess} variant="secondary" icon={Shield} className="text-slate-900 hover:text-slate-900">
             Admin
           </Button>
 
-          <Button onClick={onLogout} variant="secondary" icon={LogOut}>
+          <Button onClick={onLogout} variant="secondary" icon={LogOut} className="text-slate-900 hover:text-slate-900">
             Sair
           </Button>
         </div>
@@ -108,23 +110,23 @@ export default function PatientHeader({
               </button>
 
               <button
-                className="w-full text-left px-4 py-3 text-sm text-slate-800 font-medium hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-3 text-sm text-slate-900 font-semibold hover:bg-slate-50 flex items-center gap-2"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onAdminAccess();
                 }}
               >
-                <Shield size={16} className="text-slate-600" /> Admin
+                <Shield size={16} className="text-slate-900" /> Admin
               </button>
 
               <button
-                className="w-full text-left px-4 py-3 text-sm text-slate-800 font-medium hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-3 text-sm text-slate-900 font-semibold hover:bg-slate-50 flex items-center gap-2"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onLogout();
                 }}
               >
-                <LogOut size={16} className="text-slate-600" /> Sair
+                <LogOut size={16} className="text-slate-900" /> Sair
               </button>
             </div>
           )}

@@ -87,35 +87,41 @@ export default function NextSessionCard({
               </div>
 
               {/* Informações (sem truncate no mobile) */}
-              <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-600">
-                <div className="flex items-start gap-2">
-                  <BriefcaseMedical size={16} className="text-slate-400 mt-0.5 shrink-0" />
-                  <div className="leading-snug">
-                    <div className="text-[12px] text-slate-500">Serviço</div>
-                    <div className="font-semibold text-slate-900 text-[15px] sm:text-sm whitespace-normal break-words">
-                      {nextServiceLabel || "Sessão"}
+              <div className="mt-3 rounded-2xl border border-slate-100 bg-white/70 p-3 sm:p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-slate-700">
+                  <div className="flex items-start gap-2">
+                    <BriefcaseMedical size={16} className="text-slate-500 mt-0.5 shrink-0" />
+                    <div className="leading-snug min-w-0">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Serviço</div>
+                      <div className="font-semibold text-slate-900 text-[15px] sm:text-sm whitespace-normal break-words">
+                        {nextServiceLabel || "Sessão"}
+                      </div>
+                    </div>
+                  </div>
+              
+                  <div className="flex items-start gap-2">
+                    <UserRound size={16} className="text-slate-500 mt-0.5 shrink-0" />
+                    <div className="leading-snug min-w-0">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Profissional</div>
+                      <div className="font-semibold text-slate-900 text-[15px] sm:text-sm whitespace-normal break-words">
+                        {profissional}
+                      </div>
+                    </div>
+                  </div>
+              
+                  <div className="flex items-start gap-2">
+                    <MapPin size={16} className="text-slate-500 mt-0.5 shrink-0" />
+                    <div className="leading-snug min-w-0">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Local</div>
+                      <div className="font-semibold text-slate-900 text-[15px] sm:text-sm whitespace-normal break-words">
+                        {place}
+                      </div>
                     </div>
                   </div>
                 </div>
-
-                <div className="flex items-start gap-2">
-                  <UserRound size={16} className="text-slate-400 mt-0.5 shrink-0" />
-                  <div className="leading-snug">
-                    <div className="text-[12px] text-slate-500">Profissional</div>
-                    <div className="font-semibold text-slate-900 text-[15px] sm:text-sm whitespace-normal break-words">{profissional}</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2">
-                  <MapPin size={16} className="text-slate-400 mt-0.5 shrink-0" />
-                  <div className="leading-snug">
-                    <div className="text-[12px] text-slate-500">Local</div>
-                    <div className="font-semibold text-slate-900 text-[15px] sm:text-sm whitespace-normal break-words">{place}</div>
-                  </div>
-                </div>
-
+              
                 {confirmedLoading ? (
-                  <div className="text-[11px] text-slate-400">Atualizando confirmações…</div>
+                  <div className="mt-2 text-[11px] text-slate-400">Atualizando confirmações…</div>
                 ) : null}
               </div>
             </div>
