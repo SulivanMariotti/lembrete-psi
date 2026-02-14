@@ -1,12 +1,13 @@
 // src/app/api/admin/patient/delete/route.js
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 /**
  * Admin server-side: desativar (soft-delete) paciente
  *
  * Endpoint: POST /api/admin/patient/delete
- * Proteção: header x-admin-secret == env ADMIN_PANEL_SECRET
+ * Proteção: Authorization Bearer (idToken) + role admin
  *
  * BUGFIX URGENTE:
  * - Antes, o endpoint criava um NOVO doc em users/{p_base64(email)} ao invés de atualizar
@@ -96,11 +97,8 @@ export async function POST(req) {
   try {
     initAdmin();
 
-    const secret = req.headers.get("x-admin-secret") || "";
-    const expected = process.env.ADMIN_PANEL_SECRET || "";
-    if (!expected || secret !== expected) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const body = await req.json().catch(() => ({}));
 

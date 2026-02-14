@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
@@ -26,17 +27,9 @@ export async function GET(req) {
   try {
     initAdmin();
 
-    const authHeader = req.headers.get("authorization") || "";
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    const idToken = match?.[1];
-
-    if (!idToken) {
-      return NextResponse.json({ ok: false, error: "Missing Authorization token." }, { status: 401 });
-    }
-
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    const uid = decoded?.uid;
-    if (!uid) return NextResponse.json({ ok: false, error: "Invalid token." }, { status: 401 });
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
+    const uid = auth.uid;
 
     const userSnap = await admin.firestore().collection("users").doc(uid).get();
     const userData = userSnap.exists ? userSnap.data() : null;

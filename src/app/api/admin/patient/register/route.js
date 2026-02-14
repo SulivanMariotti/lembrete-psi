@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 /**
  * POST /api/admin/patient/register
@@ -55,11 +56,8 @@ export async function POST(req) {
   try {
     initAdmin();
 
-    const adminSecret = req.headers.get("x-admin-secret") || "";
-    const requiredSecret = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
-    if (requiredSecret && adminSecret !== requiredSecret) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const body = await req.json().catch(() => ({}));
     const name = String(body.name || "").trim();

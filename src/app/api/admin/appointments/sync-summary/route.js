@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 /**
  * PASSO 27/45 — Server-side log do resumo de sincronização
  *
  * Endpoint: POST /api/admin/appointments/sync-summary
- * Proteção: header x-admin-secret == env ADMIN_PANEL_SECRET
+ * Proteção: Authorization Bearer (idToken) + role admin
  *
  * Body esperado:
  * {
@@ -38,11 +39,8 @@ export async function POST(req) {
   try {
     initAdmin();
 
-    const secret = req.headers.get('x-admin-secret') || '';
-    const expected = process.env.ADMIN_PANEL_SECRET || '';
-    if (!expected || secret !== expected) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const body = await req.json().catch(() => ({}));
 

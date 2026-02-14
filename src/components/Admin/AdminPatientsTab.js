@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Download, UserPlus, UserMinus, X, Flag, Bell, BellOff, CheckCircle, XCircle, FileText, KeyRound, Copy, Loader2 } from 'lucide-react';
 import { Button, Card } from '../DesignSystem';
+import { adminFetch } from '../../services/adminApi';
 
 /**
  * AdminPatientsTab
@@ -111,9 +112,6 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
   const [pairCodePatient, setPairCodePatient] = useState(null);
   const [pairCodeLoadingUid, setPairCodeLoadingUid] = useState(null);
 
-
-  const adminSecret = useMemo(() => process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '', []);
-
   const closePatientModal = () => {
     setShowUserModal(false);
     setEditingPatient(null);
@@ -146,11 +144,10 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
 
     setPairCodeLoadingUid(uid);
     try {
-      const res = await fetch('/api/admin/patient/pair-code', {
+      const res = await adminFetch('/api/admin/patient/pair-code', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
         },
         body: JSON.stringify({ uid }),
       });
@@ -177,11 +174,10 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
   const loadPatients = async () => {
     setIsLoadingPatients(true);
     try {
-      const res = await fetch('/api/admin/patients/list', {
+      const res = await adminFetch('/api/admin/patients/list', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
         },
         body: JSON.stringify({
           limit: 2000,
@@ -202,10 +198,6 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
   };
 
   useEffect(() => {
-    if (!adminSecret) {
-      showToast?.('Falta configurar NEXT_PUBLIC_ADMIN_PANEL_SECRET (admin).', 'error');
-      return;
-    }
     loadPatients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -240,9 +232,6 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
     if (!newPatient.email || !newPatient.name || !newPatient.phone) {
       return showToast?.('Preencha todos os campos.', 'error');
     }
-    if (!adminSecret) {
-      return showToast?.('Falta configurar NEXT_PUBLIC_ADMIN_PANEL_SECRET (admin).', 'error');
-    }
 
     try {
       const payload = {
@@ -254,11 +243,10 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
         ...(editingPatient?.previousEmail ? { previousEmail: editingPatient.previousEmail } : {}),
       };
 
-      const res = await fetch('/api/admin/patient/register', {
+      const res = await adminFetch('/api/admin/patient/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
         },
         body: JSON.stringify(payload),
       });
@@ -279,10 +267,6 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
 
   const handleRemovePatient = async (u) => {
     try {
-      if (!adminSecret) {
-        return showToast?.('Falta configurar NEXT_PUBLIC_ADMIN_PANEL_SECRET (admin).', 'error');
-      }
-
       // IMPORTANT: enviar UID real do doc, para atualizar o registro correto no Firestore
       const uid = String(u?.uid || u?.id || '').trim(); // backend usa docId real
       const patientExternalId = String(u?.patientExternalId || '').trim() || null;
@@ -293,11 +277,10 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
         return showToast?.('Paciente inválido (sem uid/email/telefone/id externo).', 'error');
       }
 
-      const res = await fetch('/api/admin/patient/delete', {
+      const res = await adminFetch('/api/admin/patient/delete', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
         },
         body: JSON.stringify({
           uid: uid || undefined,

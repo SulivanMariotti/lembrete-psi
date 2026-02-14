@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 /**
  * POST /api/admin/attendance/send-followups
@@ -7,16 +8,12 @@ export const runtime = "nodejs";
  * Envia mensagens de reforço (presença) e psicoeducação (falta) com base em logs importados.
  *
  * Segurança:
- * - Header: x-admin-secret deve igualar NEXT_PUBLIC_ADMIN_PANEL_SECRET (se definido)
+ * - Authorization Bearer (idToken) + role admin
  *
  * Placeholders suportados nos templates (config/global):
  * - {nome}, {data}, {dataIso}, {hora}, {profissional}, {servico}, {local}, {id}
  * - Compatível também com {{nome}} etc.
  */
-
-function getAdminSecret() {
-  return process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
-}
 
 function normalizeDigits(s) {
   return String(s || "").replace(/\D+/g, "");
@@ -29,36 +26,21 @@ function canonicalPhone(raw) {
   return d;
 }
 
-function signedAdmin(req) {
-  const secret = getAdminSecret();
-  if (!secret) return true;
-  const got = req.headers.get("x-admin-secret") || "";
-  return got === secret;
+function getServiceAccount() {
+  const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
+  if (b64) {
+    const json = Buffer.from(b64, "base64").toString("utf-8");
+    return JSON.parse(json);
+  }
+  const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
+  if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var");
+  return JSON.parse(raw);
 }
 
-function ensureAdmin() {
+function initAdmin() {
   if (admin.apps?.length) return;
-
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      "Missing Firebase Admin env vars. Need FIREBASE_PROJECT_ID (or NEXT_PUBLIC_FIREBASE_PROJECT_ID), FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY."
-    );
-  }
-
-  // Vercel/CI geralmente salva com \n escapado
-  privateKey = privateKey.replace(/\\n/g, "\n");
-
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
-  });
+  const serviceAccount = getServiceAccount();
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 }
 
 function formatDateBR(iso) {
@@ -137,11 +119,10 @@ function parseBodyRange(body) {
 
 export async function POST(req) {
   try {
-    if (!signedAdmin(req)) {
-      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
-    ensureAdmin();
+    initAdmin();
     const db = admin.firestore();
 
     const body = await req.json().catch(() => ({}));

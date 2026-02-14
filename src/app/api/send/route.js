@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
@@ -85,6 +86,10 @@ function resolveReminderTitle(cfg, reminderType) {
 export async function POST(req) {
   try {
     initAdmin();
+
+    // Protege endpoint legado (/api/send) — envio de push é ação sensível.
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const body = await req.json();
     const items = Array.isArray(body?.items) ? body.items : [];

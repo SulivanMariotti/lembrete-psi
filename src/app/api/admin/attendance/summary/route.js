@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 /**
  * GET /api/admin/attendance/summary?days=7|30|90
@@ -47,6 +48,9 @@ function pickTimestamp(data) {
 export async function GET(req) {
   try {
     initAdmin();
+
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const { searchParams } = new URL(req.url);
     const days = clampDays(searchParams.get("days"));

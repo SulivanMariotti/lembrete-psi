@@ -29,6 +29,7 @@ import {
 
 import { Button, Card, Badge } from '../DesignSystem';
 import { parseCSV } from '../../services/dataService';
+import { adminFetch } from '../../services/adminApi';
 
 function onlyDigits(value) {
   return String(value || '').replace(/\D/g, '');
@@ -153,10 +154,8 @@ const cancelMissingFutureAppointments = async ({ list, currentIdsSet, uploadId }
   }
 };
 
-const DEV_LOGIN = String(process.env.NEXT_PUBLIC_DEV_LOGIN || '').toLowerCase() === 'true';
-
 export default function AdminScheduleTab({ subscribers, dbAppointments, showToast, globalConfig, localConfig }) {
-  const STATUS_BATCH_URL = `/api/admin/push/status-batch${DEV_LOGIN ? '?dev=1' : ''}`;
+  const STATUS_BATCH_URL = '/api/admin/push/status-batch';
 
   const fileInputRef = useRef(null);
 
@@ -538,11 +537,10 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
 
       // Log resumo do upload no history (server-side)
       try {
-        const adminSecret = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '';
-        if (adminSecret && verificationSummary?.total) {
-          await fetch('/api/admin/appointments/sync-summary', {
+        if (verificationSummary?.total) {
+          await adminFetch('/api/admin/appointments/sync-summary', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               uploadId,
               totalAppointments: verificationSummary.total,
@@ -595,11 +593,10 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
 
     let hasTokenByPhone = {};
     try {
-      const res = await fetch(STATUS_BATCH_URL, {
+      const res = await adminFetch(STATUS_BATCH_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '',
         },
         body: JSON.stringify({ phones: phonesUnique }),
       });
@@ -721,11 +718,10 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
     setIsSending(true);
     setSendMode('sending');
     try {
-      const res = await fetch('/api/admin/reminders/send', {
+      const res = await adminFetch('/api/admin/reminders/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '',
         },
         body: JSON.stringify({
           uploadId: sendPreview?.uploadId || lastUploadId || globalConfig?.appointmentsLastUploadId || null,

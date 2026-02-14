@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
@@ -36,49 +37,11 @@ function toPhoneCanonical(raw) {
   return d;
 }
 
-async function requireAdminOrDevBypass(req) {
-  // Dev bypass (for local testing only):
-  // Enable by setting NEXT_PUBLIC_DEV_LOGIN=true (already used in the project).
-  const devBypassEnabled = String(process.env.NEXT_PUBLIC_DEV_LOGIN || "").toLowerCase() === "true";
-  const url = new URL(req.url);
-  const devParam = url.searchParams.get("dev") === "1";
-
-  if (devBypassEnabled && devParam) {
-    return { ok: true, uid: "DEV_BYPASS" };
-  }
-
-  const authHeader = req.headers.get("authorization") || "";
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  const idToken = match?.[1];
-
-  if (!idToken) {
-    return {
-      ok: false,
-      res: NextResponse.json({ ok: false, error: "Missing Authorization token." }, { status: 401 }),
-    };
-  }
-
-  const decoded = await admin.auth().verifyIdToken(idToken);
-  const uid = decoded?.uid;
-  if (!uid) {
-    return { ok: false, res: NextResponse.json({ ok: false, error: "Invalid token." }, { status: 401 }) };
-  }
-
-  const userSnap = await admin.firestore().collection("users").doc(uid).get();
-  const user = userSnap.exists ? userSnap.data() : null;
-
-  if (!user || user.role !== "admin") {
-    return { ok: false, res: NextResponse.json({ ok: false, error: "Admin only." }, { status: 403 }) };
-  }
-
-  return { ok: true, uid };
-}
-
 export async function POST(req) {
   try {
     initAdmin();
 
-    const auth = await requireAdminOrDevBypass(req);
+    const auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
 
     const body = await req.json().catch(() => ({}));

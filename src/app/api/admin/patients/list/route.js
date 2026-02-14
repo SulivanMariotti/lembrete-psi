@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 /**
  * Admin API: List Patients (server-side via Firebase Admin SDK)
  *
@@ -19,46 +20,24 @@ import admin from "@/lib/firebaseAdmin";
  *  - subscribers/{phoneCanonical}.token OR .pushToken
  *  - and subscribers doc isActive !== false
  *
- * Security: if NEXT_PUBLIC_ADMIN_PANEL_SECRET is defined, requires header:
- *   x-admin-secret: <secret>
+ * Security: Authorization Bearer (idToken) + role admin
  */
 
-function getAdminSecret() {
-  return process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
-}
-
-function assertAdminSecret(req) {
-  const secret = getAdminSecret();
-  if (!secret) return;
-  const headerSecret = req.headers.get("x-admin-secret") || "";
-  if (headerSecret !== secret) {
-    const err = new Error("Unauthorized (missing/invalid x-admin-secret)");
-    // @ts-ignore
-    err.statusCode = 401;
-    throw err;
+function getServiceAccount() {
+  const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
+  if (b64) {
+    const json = Buffer.from(b64, "base64").toString("utf-8");
+    return JSON.parse(json);
   }
+  const raw = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
+  if (!raw) throw new Error("Missing FIREBASE_ADMIN_SERVICE_ACCOUNT(_B64) env var");
+  return JSON.parse(raw);
 }
 
 function initAdmin() {
   if (admin.apps?.length) return admin;
-
-  const projectId =
-    process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      "Missing Firebase Admin env vars. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY."
-    );
-  }
-
-  privateKey = privateKey.replace(/\\n/g, "\n");
-
-  admin.initializeApp({
-    credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-  });
-
+  const serviceAccount = getServiceAccount();
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
   return admin;
 }
 
@@ -208,7 +187,8 @@ function jsonError(err) {
 
 export async function POST(req) {
   try {
-    assertAdminSecret(req);
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     let body = {};
     try {
@@ -229,7 +209,8 @@ export async function POST(req) {
 
 export async function GET(req) {
   try {
-    assertAdminSecret(req);
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const url = new URL(req.url);
     const limit = clampLimit(url.searchParams.get("limit"));

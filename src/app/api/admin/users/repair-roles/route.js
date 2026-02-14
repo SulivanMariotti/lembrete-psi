@@ -1,31 +1,12 @@
 import { NextResponse } from 'next/server';
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 // POST /api/admin/users/repair-roles
 // Corrige docs legados em users/{uid} que ficaram com role ausente (null/undefined),
 // definindo role:"patient" quando o registro aparenta ser um paciente válido.
-// Segurança: exige x-admin-secret == NEXT_PUBLIC_ADMIN_PANEL_SECRET (se definido).
-
-function getAdminApp() {
-  if (admin.apps?.length) return admin.app();
-
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
-
-  if (!projectId || !clientEmail || !privateKeyRaw) {
-    throw new Error('Missing Firebase Admin envs (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY).');
-  }
-
-  const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
-
-  return admin.initializeApp({
-    credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-  });
-}
-
 function getDb() {
-  return getAdminApp().firestore();
+  return admin.firestore();
 }
 
 function isTruthy(v) {
@@ -34,11 +15,8 @@ function isTruthy(v) {
 
 export async function POST(req) {
   try {
-    const expected = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '';
-    const secretHeader = req.headers.get('x-admin-secret') || '';
-    if (expected && secretHeader !== expected) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const body = await req.json().catch(() => ({}));
     const limit = Math.min(Math.max(Number(body?.limit || 500), 1), 2000);

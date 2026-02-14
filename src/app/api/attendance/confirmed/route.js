@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAuth } from "@/lib/server/requireAuth";
 export const runtime = "nodejs";
 /**
  * GET /api/attendance/confirmed
@@ -40,6 +41,9 @@ function initAdmin() {
 export async function GET(req) {
   try {
     initAdmin();
+
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.res;
 
     const { searchParams } = new URL(req.url);
     const appointmentId = (searchParams.get("appointmentId") || "").trim();

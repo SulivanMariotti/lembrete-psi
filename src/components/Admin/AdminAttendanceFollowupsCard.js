@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Bell, Send } from 'lucide-react';
 import { Button, Card } from '../DesignSystem';
+import { adminFetch } from '../../services/adminApi';
 
 /**
  * Card: Disparos por Constância (Presença/Falta)
@@ -29,12 +30,6 @@ export default function AdminAttendanceFollowupsCard({ showToast }) {
 
   const followupBusy = followupPreviewLoading || followupSendLoading;
 
-  const adminSecret = useMemo(() => {
-    // rota exige x-admin-secret == NEXT_PUBLIC_ADMIN_PANEL_SECRET (se definido)
-    // como o painel é restrito ao Admin, usar NEXT_PUBLIC_* aqui é ok.
-    return process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '';
-  }, []);
-
   const previewStale = Boolean(previewResult?.ok) && lastPreviewKey !== followupKey;
   const isPreviewValid = Boolean(previewResult?.ok) && lastPreviewKey === followupKey;
 
@@ -47,11 +42,10 @@ export default function AdminAttendanceFollowupsCard({ showToast }) {
       const days = Math.max(1, Number(followupDays) || 30);
       const limit = Math.max(1, Number(followupLimit) || 200);
 
-      const res = await fetch('/api/admin/attendance/send-followups', {
+      const res = await adminFetch('/api/admin/attendance/send-followups', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(adminSecret ? { 'x-admin-secret': adminSecret } : {}),
         },
         body: JSON.stringify({ days, limit, dryRun }),
       });

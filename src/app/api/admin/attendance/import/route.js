@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 /**
  * POST /api/admin/attendance/import
@@ -167,14 +168,11 @@ export async function POST(req) {
   try {
     initAdmin();
 
-    const body = await req.json().catch(() => ({}));
-    const headerSecret = req.headers.get("x-admin-secret") || "";
-    const adminSecret = String(body.adminSecret || headerSecret || "");
-    const requiredSecret = process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
-    if (requiredSecret && adminSecret !== requiredSecret) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    const body = await req.json().catch(() => ({}));
+
 
     const csvText = String(body.csvText || "").trim();
     if (!csvText) return NextResponse.json({ ok: false, error: "csvText vazio" }, { status: 400 });

@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import crypto from "crypto";
+import { requireAdmin } from "@/lib/server/requireAdmin";
 export const runtime = "nodejs";
 
 /**
@@ -12,8 +13,7 @@ export const runtime = "nodejs";
  * - Retorna o código UMA vez (para o Admin copiar e entregar ao paciente)
  *
  * Segurança:
- * - Se NEXT_PUBLIC_ADMIN_PANEL_SECRET estiver definido, exige header:
- *   x-admin-secret: <secret>
+ * - Authorization Bearer (idToken) + role admin
  *
  * Body:
  * { uid: string }
@@ -33,22 +33,6 @@ function getServiceAccount() {
 function initAdmin() {
   if (admin.apps?.length) return;
   admin.initializeApp({ credential: admin.credential.cert(getServiceAccount()) });
-}
-
-function getAdminSecret() {
-  return process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || "";
-}
-
-function assertAdminSecret(req) {
-  const secret = getAdminSecret();
-  if (!secret) return;
-  const headerSecret = req.headers.get("x-admin-secret") || "";
-  if (headerSecret !== secret) {
-    const err = new Error("Unauthorized (missing/invalid x-admin-secret)");
-    // @ts-ignore
-    err.statusCode = 401;
-    throw err;
-  }
 }
 
 function generateReadableCode() {
@@ -74,7 +58,8 @@ function jsonError(err) {
 
 export async function POST(req) {
   try {
-    assertAdminSecret(req);
+    const auth = await requireAdmin(req);
+    if (!auth.ok) return auth.res;
 
     const body = await req.json().catch(() => ({}));
     const uid = String(body?.uid || "").trim();

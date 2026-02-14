@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { db } from '../../app/firebase';
 import { doc, setDoc } from 'firebase/firestore';
+import { adminFetch } from '../../services/adminApi';
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -142,10 +143,9 @@ export default function AdminPanelView({
       try {
         setAttendanceLoading(true);
         setAttendanceError(null);
-        const res = await fetch(
-          `/api/admin/attendance/summary?days=${attendancePeriodDays}`,
-          { method: 'GET' }
-        );
+        const res = await adminFetch(`/api/admin/attendance/summary?days=${attendancePeriodDays}`, {
+          method: 'GET',
+        });
         const data = await res.json();
         if (!res.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar constância');
         setAttendanceStats({
@@ -197,11 +197,10 @@ export default function AdminPanelView({
       setAttendanceImportDryRunResult(null);
       setAttendanceImportValidatedHash(null);
 
-      const res = await fetch('/api/admin/attendance/import', {
+      const res = await adminFetch('/api/admin/attendance/import', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '',
         },
         body: JSON.stringify({
           csvText: attendanceImportText,
@@ -244,11 +243,10 @@ export default function AdminPanelView({
       setAttendanceImportLoading(true);
       setAttendanceImportResult(null);
 
-      const res = await fetch('/api/admin/attendance/import', {
+      const res = await adminFetch('/api/admin/attendance/import', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': process.env.NEXT_PUBLIC_ADMIN_PANEL_SECRET || '',
         },
         body: JSON.stringify({
           csvText: attendanceImportText,
