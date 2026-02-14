@@ -117,3 +117,14 @@
 ## 7) Nota clínica (ética)
 
 O sistema não substitui o trabalho clínico — ele **sustenta a borda**: organização, lembrança e psicoeducação leve para proteger o vínculo. A mensagem deve sempre servir à continuidade do cuidado.
+
+---
+
+## 8) Biblioteca de frases (base)
+
+Para manter consistência de tom (e facilitar criação de cards, mantras e variações de lembretes), usamos uma biblioteca curada de frases.
+
+- **Base completa**: ver `35_BIBLIOTECA_DE_FRASES_BASE.md`
+- **Regra de superfície (painel do paciente)**:
+  - não usar frases que incentivem **agendamento**, **cancelamento/remarcação** ou “**avise com antecedência**”;
+  - no painel do paciente, o foco é **lembrar a sessão** + **conscientizar constância**, sem CTA de contato.

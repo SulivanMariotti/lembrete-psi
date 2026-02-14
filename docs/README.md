@@ -41,6 +41,8 @@ O foco do produto é sustentar o vínculo terapêutico: **constância é cuidado
 - **30** — Deploy e checklist de ambiente — `30_DEPLOY_ENV_CHECKLIST.md`
 - **31** — Glossário (termos) — `31_GLOSSARY_TERMS.md`
 
+- **35** — Biblioteca de frases base (tom de voz) — `35_BIBLIOTECA_DE_FRASES_BASE.md`
+
 ## Regras rápidas
 
 - **Next.js App Router**: endpoints devem ser `.../route.js` (não existe `routeXXX.js`).
