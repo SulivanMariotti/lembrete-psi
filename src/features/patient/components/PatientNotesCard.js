@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Plus, Trash2, CheckCircle, Loader2, Sparkles } from "lucide-react";
+import { Search, Plus, Trash2, CheckCircle, Loader2, Sparkles, History } from "lucide-react";
 
 import { Button, Card } from "../../../components/DesignSystem";
 import InlineLoading from "./InlineLoading";
@@ -26,8 +26,9 @@ const QUICK_PROMPTS = [
 ];
 
 export default function PatientNotesCard({ notes, loadingNotes, saveNote, deleteNote, showToast, error = null, onRetry = null }) {
-  const [noteSearch, setNoteSearch] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
   const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [busyAction, setBusyAction] = useState(null); // 'save' | 'delete' | null
   const [lastSavedAt, setLastSavedAt] = useState(null);
@@ -52,12 +53,16 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteModalOpen]);
 
+  const notesArr = useMemo(() => (Array.isArray(notes) ? notes : []), [notes]);
+
+  const notesCount = notesArr.length;
+  const latestNotes = useMemo(() => notesArr.slice(0, 2), [notesArr]);
+
   const filteredNotes = useMemo(() => {
-    const q = String(noteSearch || "").trim().toLowerCase();
-    const arr = Array.isArray(notes) ? notes : [];
-    if (!q) return arr;
-    return arr.filter((n) => String(n?.content || "").toLowerCase().includes(q));
-  }, [notes, noteSearch]);
+    const q = String(historySearch || "").trim().toLowerCase();
+    if (!q) return notesArr;
+    return notesArr.filter((n) => String(n?.content || "").toLowerCase().includes(q));
+  }, [notesArr, historySearch]);
 
   const handleSaveNote = async () => {
     if (busy) return;
@@ -131,20 +136,27 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-              <input
-                className="w-full pl-9 p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700 text-sm"
-                placeholder="Buscar nas suas notas..."
-                value={noteSearch}
-                onChange={(e) => setNoteSearch(e.target.value)}
-              />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setNoteModalOpen(true)} icon={Plus} className="shrink-0">
+                Nova
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setHistoryModalOpen(true);
+                  setHistorySearch("");
+                }}
+                icon={History}
+                className="shrink-0"
+              >
+                Histórico
+              </Button>
             </div>
 
-            <Button onClick={() => setNoteModalOpen(true)} icon={Plus} className="shrink-0">
-              Nova
-            </Button>
+            <div className="text-[11px] text-slate-400 sm:ml-auto">
+              {notesCount === 0 ? "" : `${notesCount} nota${notesCount === 1 ? "" : "s"}`}
+            </div>
           </div>
 
           <div className="flex items-center justify-between text-[11px] text-slate-400">
@@ -171,33 +183,38 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
             <div className="py-2">
               <InlineLoading label="Carregando suas notas…" />
             </div>
-          ) : filteredNotes.length === 0 ? (
+          ) : notesCount === 0 ? (
             <EmptyState
               title="Nenhuma nota ainda"
               description="Use “Nova” para registrar algo que você quer levar para a sessão. Pequenas anotações ajudam a manter a continuidade do seu processo."
             />
           ) : (
             <div className="space-y-2">
-              {filteredNotes.map((n) => {
+              <div className="text-xs font-semibold text-slate-700">Últimas anotações</div>
+              {latestNotes.map((n) => {
                 const when = n?.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString("pt-BR") : "";
                 return (
-                  <div key={n.id} className="p-4 rounded-2xl border border-slate-100 bg-white flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">{n.content}</div>
-                      {when ? <div className="text-[11px] text-slate-400 mt-2">{when}</div> : null}
+                  <div key={n.id} className="p-4 rounded-2xl border border-slate-100 bg-white">
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap break-words max-h-[4.75rem] overflow-hidden">
+                      {n.content}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteNote(n.id)}
-                      className="text-slate-400 hover:text-red-500 transition-colors mt-1"
-                      title="Apagar"
-                      disabled={busy}
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    {when ? <div className="text-[11px] text-slate-400 mt-2">{when}</div> : null}
                   </div>
                 );
               })}
+
+              {notesCount > 2 ? (
+                <button
+                  type="button"
+                  className="w-full p-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-700 hover:bg-slate-100 transition"
+                  onClick={() => {
+                    setHistoryModalOpen(true);
+                    setHistorySearch("");
+                  }}
+                >
+                  Ver histórico completo ({notesCount})
+                </button>
+              ) : null}
             </div>
           )}
         </div>
@@ -263,6 +280,89 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
                 </Button>
                 <Button onClick={handleSaveNote} className="flex-1" icon={CheckCircle} disabled={busy}>
                   Salvar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Histórico */}
+      {historyModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="font-bold text-slate-800">Histórico de anotações</div>
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+                disabled={busy}
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                <input
+                  className="w-full pl-9 p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700 text-sm"
+                  placeholder="Buscar nas suas notas..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                />
+              </div>
+
+              {loadingNotes ? (
+                <div className="py-2">
+                  <InlineLoading label="Carregando suas notas…" />
+                </div>
+              ) : filteredNotes.length === 0 ? (
+                <EmptyState
+                  title="Nenhum resultado"
+                  description={historySearch ? "Não encontramos notas com esse termo." : "Você ainda não registrou anotações."}
+                />
+              ) : (
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                  {filteredNotes.map((n) => {
+                    const when = n?.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString("pt-BR") : "";
+                    return (
+                      <div key={n.id} className="p-4 rounded-2xl border border-slate-100 bg-white flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">{n.content}</div>
+                          {when ? <div className="text-[11px] text-slate-400 mt-2">{when}</div> : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNote(n.id)}
+                          className="text-slate-400 hover:text-red-500 transition-colors mt-1"
+                          title="Apagar"
+                          disabled={busy}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={() => setHistoryModalOpen(false)} className="flex-1" disabled={busy}>
+                  Fechar
+                </Button>
+                <Button
+                  onClick={() => {
+                    setHistoryModalOpen(false);
+                    setNoteModalOpen(true);
+                  }}
+                  className="flex-1"
+                  icon={Plus}
+                  disabled={busy}
+                >
+                  Nova
                 </Button>
               </div>
             </div>
