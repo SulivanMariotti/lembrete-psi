@@ -68,6 +68,46 @@ body {
     --accent-600: var(--brand-600);
     --accent-700: var(--brand-700);
     --accent-800: var(--brand-800);
+
+    /* Neutrals (surface) tuned to Permittá — keeps alerts untouched */
+    --surface-bg: #fbf3f8;          /* page background */
+    --surface-muted: #f7e7f1;       /* subtle fills (chips/sections) */
+    --surface-muted-2: #f0d6e6;     /* stronger fills (hover/active) */
+    --surface-border: #edd0e1;      /* soft borders */
+    --surface-border-strong: #e3b7d0; /* stronger borders */
+    --surface-shadow: 90 23 78;     /* rgb (brand-800) */
+    --surface-card-rgb: 255 250 252; /* near-white card surface */
+  }
+
+  /* Page + neutrals harmonization (patient) */
+  .skin-patient .bg-slate-50 { background-color: var(--surface-bg) !important; }
+  .skin-patient .bg-slate-100 { background-color: var(--surface-muted) !important; }
+  .skin-patient .bg-slate-200 { background-color: var(--surface-muted-2) !important; }
+  .skin-patient .bg-white { background-color: rgb(var(--surface-card-rgb)) !important; }
+  .skin-patient .bg-white\/95 { background-color: rgb(var(--surface-card-rgb) / 0.95) !important; }
+  .skin-patient .bg-white\/90 { background-color: rgb(var(--surface-card-rgb) / 0.90) !important; }
+  .skin-patient .bg-white\/80 { background-color: rgb(var(--surface-card-rgb) / 0.80) !important; }
+  .skin-patient .bg-white\/70 { background-color: rgb(var(--surface-card-rgb) / 0.70) !important; }
+  .skin-patient .bg-white\/60 { background-color: rgb(var(--surface-card-rgb) / 0.60) !important; }
+  .skin-patient .bg-white\/50 { background-color: rgb(var(--surface-card-rgb) / 0.50) !important; }
+  .skin-patient .hover\:bg-white:hover { background-color: rgb(var(--surface-card-rgb)) !important; }
+  .skin-patient .hover\:bg-white\/90:hover { background-color: rgb(var(--surface-card-rgb) / 0.90) !important; }
+  .skin-patient .hover\:bg-white\/70:hover { background-color: rgb(var(--surface-card-rgb) / 0.70) !important; }
+  .skin-patient .hover\:bg-slate-50:hover { background-color: var(--surface-bg) !important; }
+  .skin-patient .hover\:bg-slate-200:hover { background-color: var(--surface-muted-2) !important; }
+
+  .skin-patient .border-slate-50 { border-color: var(--surface-border) !important; }
+  .skin-patient .border-slate-100 { border-color: var(--surface-border) !important; }
+  .skin-patient .border-slate-200 { border-color: var(--surface-border-strong) !important; }
+  .skin-patient .border-slate-300 { border-color: rgb(213 149 188) !important; } /* brand-300 */
+
+  /* Tinted shadows for a more premium feel (patient) */
+  .skin-patient .shadow-sm { --tw-shadow: 0 1px 2px 0 rgb(var(--surface-shadow) / 0.08) !important; }
+  .skin-patient .hover\:shadow-md:hover {
+    --tw-shadow: 0 4px 6px -1px rgb(var(--surface-shadow) / 0.10), 0 2px 4px -2px rgb(var(--surface-shadow) / 0.06) !important;
+  }
+  .skin-patient .shadow-xl {
+    --tw-shadow: 0 20px 25px -5px rgb(var(--surface-shadow) / 0.10), 0 8px 10px -6px rgb(var(--surface-shadow) / 0.06) !important;
   }
 
   /* Core swaps */
@@ -104,4 +144,90 @@ body {
   }
   .skin-patient .before\:bg-violet-500\/30::before { background-color: rgb(163 94 135 / 0.3) !important; }
   .skin-patient .text-violet-800\/70 { color: rgb(90 23 78 / 0.7) !important; }
+
+  /* Admin skin: swap violet → Permittá brand (admin area) */
+  .skin-admin {
+    --accent-50: var(--brand-50);
+    --accent-100: var(--brand-100);
+    --accent-200: var(--brand-200);
+    --accent-300: var(--brand-300);
+    --accent-600: var(--brand-600);
+    --accent-700: var(--brand-700);
+    --accent-800: var(--brand-800);
+
+    /* Neutrals (surface) tuned to Permittá — keeps alerts untouched */
+    --surface-bg: #fbf3f8;
+    --surface-muted: #f7e7f1;
+    --surface-muted-2: #f0d6e6;
+    --surface-border: #edd0e1;
+    --surface-border-strong: #e3b7d0;
+    --surface-shadow: 90 23 78;
+    --surface-card-rgb: 255 250 252;
+  }
+
+  /* Page + neutrals harmonization (admin) */
+  .skin-admin .bg-slate-50 { background-color: var(--surface-bg) !important; }
+  .skin-admin .bg-slate-100 { background-color: var(--surface-muted) !important; }
+  .skin-admin .bg-slate-200 { background-color: var(--surface-muted-2) !important; }
+  .skin-admin .bg-white { background-color: rgb(var(--surface-card-rgb)) !important; }
+  .skin-admin .bg-white\/95 { background-color: rgb(var(--surface-card-rgb) / 0.95) !important; }
+  .skin-admin .bg-white\/90 { background-color: rgb(var(--surface-card-rgb) / 0.90) !important; }
+  .skin-admin .bg-white\/80 { background-color: rgb(var(--surface-card-rgb) / 0.80) !important; }
+  .skin-admin .bg-white\/70 { background-color: rgb(var(--surface-card-rgb) / 0.70) !important; }
+  .skin-admin .bg-white\/60 { background-color: rgb(var(--surface-card-rgb) / 0.60) !important; }
+  .skin-admin .bg-white\/50 { background-color: rgb(var(--surface-card-rgb) / 0.50) !important; }
+  .skin-admin .hover\:bg-white:hover { background-color: rgb(var(--surface-card-rgb)) !important; }
+  .skin-admin .hover\:bg-white\/90:hover { background-color: rgb(var(--surface-card-rgb) / 0.90) !important; }
+  .skin-admin .hover\:bg-white\/70:hover { background-color: rgb(var(--surface-card-rgb) / 0.70) !important; }
+  .skin-admin .hover\:bg-slate-50:hover { background-color: var(--surface-bg) !important; }
+  .skin-admin .hover\:bg-slate-200:hover { background-color: var(--surface-muted-2) !important; }
+
+  .skin-admin .border-slate-50 { border-color: var(--surface-border) !important; }
+  .skin-admin .border-slate-100 { border-color: var(--surface-border) !important; }
+  .skin-admin .border-slate-200 { border-color: var(--surface-border-strong) !important; }
+  .skin-admin .border-slate-300 { border-color: rgb(213 149 188) !important; }
+
+  /* Tinted shadows for a more premium feel (admin) */
+  .skin-admin .shadow-sm { --tw-shadow: 0 1px 2px 0 rgb(var(--surface-shadow) / 0.08) !important; }
+  .skin-admin .hover\:shadow-md:hover {
+    --tw-shadow: 0 4px 6px -1px rgb(var(--surface-shadow) / 0.10), 0 2px 4px -2px rgb(var(--surface-shadow) / 0.06) !important;
+  }
+  .skin-admin .shadow-xl {
+    --tw-shadow: 0 20px 25px -5px rgb(var(--surface-shadow) / 0.10), 0 8px 10px -6px rgb(var(--surface-shadow) / 0.06) !important;
+  }
+
+  /* Core swaps */
+  .skin-admin .text-violet-900 { color: var(--brand-900) !important; }
+  .skin-admin .text-violet-800 { color: var(--brand-800) !important; }
+  .skin-admin .text-violet-700 { color: var(--brand-700) !important; }
+  .skin-admin .text-violet-600 { color: var(--brand-600) !important; }
+  .skin-admin .text-violet-500 { color: var(--brand-500) !important; }
+
+  .skin-admin .bg-violet-600 { background-color: var(--brand-600) !important; }
+  .skin-admin .bg-violet-50 { background-color: var(--brand-50) !important; }
+  .skin-admin .bg-violet-100 { background-color: var(--brand-100) !important; }
+  .skin-admin .bg-violet-200 { background-color: var(--brand-200) !important; }
+
+  .skin-admin .border-violet-100 { border-color: var(--brand-100) !important; }
+  .skin-admin .border-violet-200 { border-color: var(--brand-200) !important; }
+
+  .skin-admin .hover\:bg-violet-700:hover { background-color: var(--brand-700) !important; }
+  .skin-admin .hover\:bg-violet-50:hover { background-color: var(--brand-50) !important; }
+
+  /* Ring + focus ring */
+  .skin-admin .ring-violet-200 { --tw-ring-color: rgb(233 175 211) !important; }
+  .skin-admin .focus\:ring-violet-200:focus { --tw-ring-color: rgb(233 175 211) !important; }
+
+  /* Shadow tint */
+  .skin-admin .shadow-violet-200 { --tw-shadow-color: rgb(233 175 211) !important; }
+
+  /* Classes with opacity modifiers (Tailwind escapes '/') */
+  .skin-admin .ring-violet-200\/70 { --tw-ring-color: rgb(233 175 211 / 0.7) !important; }
+  .skin-admin .from-violet-50\/60 {
+    --tw-gradient-from: rgb(252 242 248 / 0.6) !important;
+    --tw-gradient-to: rgb(252 242 248 / 0) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+  }
+  .skin-admin .before\:bg-violet-500\/30::before { background-color: rgb(163 94 135 / 0.3) !important; }
+  .skin-admin .text-violet-800\/70 { color: rgb(90 23 78 / 0.7) !important; }
 }

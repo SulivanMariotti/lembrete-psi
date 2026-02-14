@@ -95,6 +95,7 @@ export default function App() {
   if (isAdminMode) {
     return (
       <>
+        <div className="skin-admin">
         {toast?.msg && (
           <Toast
             message={toast.msg}
@@ -112,6 +113,7 @@ export default function App() {
             globalConfig={globalConfig}
             showToast={showToast}
           />
+        </div>
         </div>
       </>
     );
