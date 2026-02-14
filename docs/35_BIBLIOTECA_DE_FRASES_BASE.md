@@ -1,13 +1,11 @@
-# 35 — Biblioteca de Frases Base (Tom de Voz)
+# Biblioteca de Frases Base (Permittá / Lembrete Psi)
 
-> Objetivo: manter consistência de tom no **Lembrete Psi** e na comunicação clínica da **Permittá**.
+> Uso: base de copy para mantras, cards rotativos e mensagens de reforço.
 >
-> Nota de superfície:
-> - ✅ **Pode**: cards de psicoeducação, mantras, textos institucionais, materiais e campanhas.
-> - 🚫 **Não usar no Painel do Paciente**: frases que incentivem **agendamento**, **cancelamento/remarcação**, “**avise com antecedência**” ou criem CTA de contato.
->
-> Legenda:
-> - **⚠️ Restrita (não usar no Painel do Paciente)** — manter apenas para materiais externos/operacionais.
+> **Regra do Painel do Paciente (diretriz do projeto):**
+> - O painel do paciente é **uso exclusivo** para lembrar da sessão e conscientizar sobre **presença/constância**.
+> - **Não** exibir mensagens do tipo “avise com antecedência” nem oferecer atalhos de contato (ex.: WhatsApp) que facilitem cancelamento/remarcação.
+> - Se houver WhatsApp, apenas para **reforço de compromisso/confirmar presença**, nunca como CTA de cancelamento/remarcação.
 
 ---
 
@@ -24,8 +22,6 @@
 - Sua mente é sua casa. Cuide bem dela.
 - O autocuidado começa quando você aprende a dizer não.
 
----
-
 ## ✨ Foco na Jornada Terapêutica (Ética e Vínculo)
 
 - Um espaço seguro para ser exatamente quem você é.
@@ -39,22 +35,20 @@
 - Um olhar profissional para as suas questões mais humanas.
 - Sua história merece ser ouvida com respeito e ética.
 
----
-
 ## 🗓️ Foco em Rotina e Compromisso (Prática)
 
+> **Nota:** frases com “antecedência” devem ser usadas fora do painel do paciente (ex.: materiais institucionais / comunicação administrativa), pois no painel evitamos CTAs que facilitem cancelamento/remarcação.
+
 - Cuidar da mente é o compromisso mais importante da semana.
-- ⚠️ Já reservou o seu horário de autocuidado hoje?
-- ⚠️ Priorize-se. A agenda da vida começa por você.
+- Já reservou o seu horário de autocuidado hoje?
+- Priorize-se. A agenda da vida começa por você.
 - Compromisso com a sua saúde mental é inegociável.
 - Valorize o seu tempo e o seu processo terapêutico.
 - Organizar a mente ajuda a organizar a vida.
-- ⚠️ 24h de antecedência: respeito ao seu tempo e ao profissional.
+- 24h de antecedência: respeito ao seu tempo e ao profissional.
 - Qualidade no atendimento nasce da organização e do respeito.
 - A constância na terapia é o que gera resultados reais.
-- ⚠️ Agende seu momento. A Permittá está aqui para te acolher.
-
----
+- Agende seu momento. A Permittá está aqui para te acolher.
 
 ## 💭 Frases Curtas e Inspiradoras
 
@@ -69,8 +63,6 @@
 - Seja sua melhor companhia.
 - Ética, transparência e cuidado.
 
----
-
 ## 🏠 Identidade Permittá (Conexão)
 
 - Clínica Permittá: Acolhendo histórias, transformando vidas.
@@ -83,11 +75,3 @@
 - Acolhimento que conecta, ética que protege.
 - Ética do CRP e cuidado com o coração.
 - Estamos prontos para te ouvir. ✨
-
----
-
-## Sugestão de uso (rápido)
-
-- **Mantra fixo do painel**: preferir frases curtas e firmes (ex.: “Constância é cuidado.”).
-- **Cards rotativos**: usar categorias 🌿/✨/💭 com 1–2 frases + 1 linha de psicoeducação.
-- **Notificações de lembrete**: escolher frases que reforcem compromisso (sem CTA de contato).

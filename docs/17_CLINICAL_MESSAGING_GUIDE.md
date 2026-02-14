@@ -75,6 +75,12 @@
 - Cancelamento exige contato humano (barreira saudável).
 - Não pedir confirmação toda semana para não fragilizar o contrato.
 
+### 3.4 Limites do painel do paciente (diretriz)
+- O painel do paciente é **uso exclusivo** para lembrar da sessão e conscientizar sobre **presença/constância**.
+- **Não** usar microcopy do tipo “avise com antecedência”.
+- **Não** incluir CTA/atalhos de contato (ex.: WhatsApp) na Agenda que facilitem cancelamento/remarcação.
+- Se houver WhatsApp no produto, apenas para **reforço de compromisso/confirmar presença**, nunca como CTA de cancelamento/remarcação.
+
 ---
 
 ## 4) Diretrizes de tom (Do/Don’t)
@@ -120,11 +126,10 @@ O sistema não substitui o trabalho clínico — ele **sustenta a borda**: organ
 
 ---
 
-## 8) Biblioteca de frases (base)
+## 8) Biblioteca de frases base
 
-Para manter consistência de tom (e facilitar criação de cards, mantras e variações de lembretes), usamos uma biblioteca curada de frases.
+Para cards/mantras e textos institucionais, usar a biblioteca:
 
-- **Base completa**: ver `35_BIBLIOTECA_DE_FRASES_BASE.md`
-- **Regra de superfície (painel do paciente)**:
-  - não usar frases que incentivem **agendamento**, **cancelamento/remarcação** ou “**avise com antecedência**”;
-  - no painel do paciente, o foco é **lembrar a sessão** + **conscientizar constância**, sem CTA de contato.
+- `docs/35_BIBLIOTECA_DE_FRASES_BASE.md`
+
+> Atenção: frases com “antecedência” e CTAs operacionais não devem aparecer no painel do paciente.

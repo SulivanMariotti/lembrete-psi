@@ -49,8 +49,13 @@ Isso evita envio mesmo se alguém tentar forçar pelo front.
 ## UX (clínico)
 - Sem botão “Cancelar sessão”
 - Sem “Confirmar presença” como condição para a sessão existir
+- **Painel do paciente:** uso exclusivo para lembrar da sessão e conscientizar presença/constância.
+  - **Não** exibir mensagens do tipo “avise com antecedência”.
+  - **Não** oferecer atalhos de contato (ex.: WhatsApp) na Agenda que facilitem cancelamento/remarcação.
+  - Se existir WhatsApp no produto, apenas para **reforço de compromisso/confirmar presença**, nunca como CTA de cancelamento/remarcação.
 
-**Diretriz (painel do paciente):** uso exclusivo para **lembrar da sessão** e **conscientizar sobre presença/constância**.
-- Não exibir avisos do tipo “avise com antecedência”
-- Não oferecer atalhos de contato no card de agenda para facilitar cancelamento/remarcação
-- Se houver WhatsApp no produto, ele pode existir **apenas como opção de confirmação de presença** (reforço de compromisso), nunca como CTA de cancelamento/remarcação.
+## Branding (Permittá) via skins CSS
+- Estratégia de baixo risco: aplicar tema por escopo com `.skin-patient` e `.skin-admin`.
+- Mapeia classes `violet-*` → `brand-*` somente dentro do skin.
+- Alertas (erro/aviso/sucesso) permanecem `red/amber/green`.
+- Detalhes: `docs/38_CORES_PERMITTA_SKINS.md`.

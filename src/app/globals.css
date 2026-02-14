@@ -128,6 +128,21 @@ body {
   .skin-patient .text-violet-500 { color: var(--brand-500) !important; }
 
   .skin-patient .bg-violet-600 { background-color: var(--brand-600) !important; }
+  /* Step 20: interaction-state completeness (avoid any leftover violet) */
+  .skin-patient .bg-violet-500 { background-color: var(--brand-500) !important; }
+  .skin-patient .bg-violet-700 { background-color: var(--brand-700) !important; }
+
+  .skin-patient .border-violet-600 { border-color: var(--brand-600) !important; }
+  .skin-patient .focus\:border-violet-200:focus { border-color: var(--brand-200) !important; }
+
+  .skin-patient .text-violet-400 { color: var(--brand-400) !important; }
+
+  .skin-patient .ring-violet-100 { --tw-ring-color: rgb(244 203 225) !important; }
+  .skin-patient .focus\:ring-violet-100:focus { --tw-ring-color: rgb(244 203 225) !important; }
+
+  /* Selection tint (patient) */
+  .skin-patient ::selection { background: rgb(233 175 211 / 0.45); }
+
   .skin-patient .bg-violet-50 { background-color: var(--brand-50) !important; }
   .skin-patient .bg-violet-100 { background-color: var(--brand-100) !important; }
   .skin-patient .bg-violet-200 { background-color: var(--brand-200) !important; }
@@ -224,6 +239,21 @@ body {
   .skin-admin .text-violet-500 { color: var(--brand-500) !important; }
 
   .skin-admin .bg-violet-600 { background-color: var(--brand-600) !important; }
+  /* Step 20: interaction-state completeness (avoid any leftover violet) */
+  .skin-admin .bg-violet-500 { background-color: var(--brand-500) !important; }
+  .skin-admin .bg-violet-700 { background-color: var(--brand-700) !important; }
+
+  .skin-admin .border-violet-600 { border-color: var(--brand-600) !important; }
+  .skin-admin .focus\:border-violet-200:focus { border-color: var(--brand-200) !important; }
+
+  .skin-admin .text-violet-400 { color: var(--brand-400) !important; }
+
+  .skin-admin .ring-violet-100 { --tw-ring-color: rgb(244 203 225) !important; }
+  .skin-admin .focus\:ring-violet-100:focus { --tw-ring-color: rgb(244 203 225) !important; }
+
+  /* Selection tint (admin) */
+  .skin-admin ::selection { background: rgb(233 175 211 / 0.45); }
+
   .skin-admin .bg-violet-50 { background-color: var(--brand-50) !important; }
   .skin-admin .bg-violet-100 { background-color: var(--brand-100) !important; }
   .skin-admin .bg-violet-200 { background-color: var(--brand-200) !important; }

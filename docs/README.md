@@ -41,7 +41,12 @@ O foco do produto é sustentar o vínculo terapêutico: **constância é cuidado
 - **30** — Deploy e checklist de ambiente — `30_DEPLOY_ENV_CHECKLIST.md`
 - **31** — Glossário (termos) — `31_GLOSSARY_TERMS.md`
 
-- **35** — Biblioteca de frases base (tom de voz) — `35_BIBLIOTECA_DE_FRASES_BASE.md`
+- **35** — Biblioteca de frases base (Permittá) — `35_BIBLIOTECA_DE_FRASES_BASE.md`
+- **36** — Atualização 2026-02-14 (resumo do chat) — `36_ATUALIZACAO_2026-02-14.md`
+- **37** — Files alterados 2026-02-14 — `37_FILES_ALTERADOS_2026-02-14.md`
+- **38** — Cores Permittá via skins CSS — `38_CORES_PERMITTA_SKINS.md`
+- **39** — Prompt novo chat (handoff 2026-02-14) — `39_PROMPT_NOVO_CHAT_2026-02-14.md`
+- **40** — Próximo passo: auditoria de resíduos de cor — `40_PASSO_21_AUDITORIA_CORES.md`
 
 ## Regras rápidas
 
