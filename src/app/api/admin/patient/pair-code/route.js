@@ -1,8 +1,13 @@
 // src/app/api/admin/patient/pair-code/route.js
 import { NextResponse } from "next/server";
+<<<<<<< HEAD
 import admin from "@/lib/firebaseAdmin";
 import crypto from "crypto";
 export const runtime = "nodejs";
+=======
+import admin from "firebase-admin";
+import crypto from "crypto";
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 
 /**
  * POST /api/admin/patient/pair-code
@@ -136,4 +141,8 @@ export async function POST(req) {
     console.error(err);
     return jsonError(err);
   }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c

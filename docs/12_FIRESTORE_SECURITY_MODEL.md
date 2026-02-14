@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # 12_FIRESTORE_SECURITY_MODEL
+=======
+# 11_FIRESTORE_SECURITY_MODEL.md
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 
 Este documento descreve **o modelo de segurança operacional** do Lembrete Psi (Next.js App Router + Firebase/Firestore), com foco em **evitar falhas críticas** que possam gerar fricção e aumentar risco de faltas (absenteísmo).  
 Princípio do produto: **constância é cuidado** — o sistema remove atrito e sustenta o vínculo terapêutico.
@@ -30,7 +34,11 @@ Campos esperados:
 - `role`: `"patient"` (ou `"admin"`, etc.)
 - `status`: `"active"` | `"inactive"`
 - `deletedAt`: `timestamp` (quando inativado)
+<<<<<<< HEAD
 - `phone`: `string` (telefone canônico do projeto: **somente dígitos, SEM 55**)
+=======
+- `phone`: `string` (telefone canônico, recomendado E.164 sem símbolos)
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 - `phoneCanonical`: `string` (id usado para `subscribers`/`appointments` quando aplicável)
 - `email`: `string`
 - `displayName`: `string`

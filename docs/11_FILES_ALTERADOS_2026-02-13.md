@@ -1,5 +1,6 @@
 # Files alterados — 2026-02-13
 
+<<<<<<< HEAD
 ## Criados (Paciente)
 - `src/features/patient/components/ContractStatusCard.js`
 - `src/features/patient/components/PatientMantraCard.js`
@@ -32,3 +33,10 @@
 Se aparecer “Module not found”, conferir:
 - arquivo no caminho correto
 - extensão real `.js` (não `.js.txt`)
+=======
+## Alterados
+- `src/components/Patient/PatientFlow.js` (cleanup: remove import morto)
+
+## Notas
+- Smoke checks recomendados após a limpeza para garantir ausência de regressões.
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c

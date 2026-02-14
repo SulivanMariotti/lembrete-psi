@@ -12,8 +12,11 @@ Objetivo: reduzir regressões que quebram lembretes (e quebrar lembretes aumenta
 - Agenda do paciente não carrega / tela em branco / listener falha.
 
 **Causa mais comum**
+<<<<<<< HEAD
 
 > **Padrão oficial:** `phoneCanonical` no projeto é **SEM 55** (DDD + número, 10–11 dígitos). Se algum documento estiver com `55...`, ele vai divergir de `subscribers/{phoneCanonical}` e pode causar `permission-denied`.
+=======
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 - Inconsistência entre:
   - `users/{uid}.phoneCanonical` (ou `phone`)
   - `appointments/*.phoneCanonical` (ou `phone`)
@@ -24,7 +27,11 @@ Objetivo: reduzir regressões que quebram lembretes (e quebrar lembretes aumenta
 1. Verifique em `users/{uid}`:
    - `role` (esperado: `"patient"`)
    - `status` (esperado: `"active"`)
+<<<<<<< HEAD
    - `phoneCanonical` (string) — padrão do projeto: **somente dígitos, SEM 55** (ex.: `"11999999999"`)
+=======
+   - `phoneCanonical` (string, ex.: `"5511999999999"` ou `"11999999999"` conforme padrão do projeto)
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 2. Verifique um `appointments/{id}` do mesmo paciente:
    - `phoneCanonical` ou `phone` deve bater com o padrão
 3. Verifique `subscribers/{phoneCanonical}`:

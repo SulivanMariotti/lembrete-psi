@@ -17,6 +17,23 @@ import admin from "@/lib/firebaseAdmin";
  * Retorna: { ok: true, phone: "55..." }
  */
 
+/**
+ * Resolve Phone (Paciente)
+ *
+ * Por que existe:
+ * - O painel do paciente NÃO deve ler a coleção `subscribers` no client.
+ * - As regras de `appointments` dependem do telefone do paciente (phone / phoneCanonical) para liberar leitura.
+ * - Alguns cadastros antigos têm telefone apenas em `subscribers` (docId == phone).
+ *
+ * Fluxo:
+ * - Recebe Authorization: Bearer <idToken>
+ * - Valida o token (Admin SDK)
+ * - Busca telefone no `users/{uid}`
+ * - Fallback: busca `subscribers` por email
+ *
+ * Retorna: { ok: true, phone: "55..." }
+ */
+
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
   if (b64) {

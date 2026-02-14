@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+<<<<<<< HEAD
 import admin from "@/lib/firebaseAdmin";
 export const runtime = "nodejs";
+=======
+import admin from "firebase-admin";
+
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
   if (b64) {
@@ -81,6 +86,7 @@ export async function GET(req) {
       String(userData?.email || "").trim().toLowerCase() ||
       "";
 
+<<<<<<< HEAD
     const role = String(decoded?.role || userData?.role || "").toLowerCase().trim();
     if (role && role !== "patient") {
       return NextResponse.json(
@@ -97,12 +103,19 @@ export async function GET(req) {
       decoded?.phone_number ||
       "";
 
+=======
+    // Aceita múltiplos campos possíveis
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
     const phoneRaw =
       userData?.phoneCanonical ||
       userData?.phone ||
       userData?.phoneNumber ||
       userData?.phoneE164 ||
+<<<<<<< HEAD
       claimPhoneRaw ||
+=======
+      decoded?.phone_number ||
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
       "";
 
     let phoneCanonical = toPhoneCanonical(phoneRaw);
@@ -159,4 +172,8 @@ export async function GET(req) {
       { status: 500 }
     );
   }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
