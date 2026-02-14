@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Button } from "../../../components/DesignSystem";
-import { Users, Shield, LogOut, FileText, X } from "lucide-react";
+import { Users, Shield, LogOut, FileText, X, Phone } from "lucide-react";
 import { formatPhoneBR } from "../lib/phone";
 
 export default function PatientHeader({
@@ -38,15 +38,15 @@ export default function PatientHeader({
         <div className="min-w-0">
           <div className="text-xs text-slate-400 uppercase tracking-wider">Área do Paciente</div>
           <div className="text-lg font-extrabold text-slate-900 truncate">Olá, {patientName}</div>
-          <div className="text-sm text-slate-500 mt-1">
-            Lembretes e organização do seu cuidado — constância terapêutica.
-            {patientPhone ? (
-              <>
-                <span className="mx-2 text-slate-300">•</span>
-                <span className="text-slate-600">{formatPhoneBR(patientPhone)}</span>
-              </>
-            ) : null}
-          </div>
+
+          {patientPhone ? (
+            <div className="mt-2 inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-full border border-slate-100 bg-slate-50 text-slate-700">
+              <Phone size={14} className="text-slate-500" />
+              <span className="text-slate-500">WhatsApp</span>
+              <span className="font-semibold text-slate-800">{formatPhoneBR(patientPhone)}</span>
+            </div>
+          ) : null}
+
 
           {devSwitchEnabled && impersonatePhone ? (
             <div className="mt-2 inline-flex items-center gap-2 text-[11px] px-2 py-1 rounded-full border border-amber-100 bg-amber-50 text-amber-900">
