@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
+import admin from "@/lib/firebaseAdmin";
 import crypto from "crypto";
+export const runtime = "nodejs";
 
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;

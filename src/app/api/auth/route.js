@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
-
+import admin from "@/lib/firebaseAdmin";
+export const runtime = "nodejs";
 function initAdmin() {
   if (admin.apps.length) return;
 

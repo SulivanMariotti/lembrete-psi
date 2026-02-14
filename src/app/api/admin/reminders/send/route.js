@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
-
+import admin from "@/lib/firebaseAdmin";
+export const runtime = "nodejs";
 /**
  * PASSO 32/45 — Disparar lembretes (server-side) usando templates msg1/msg2/msg3
  *
@@ -92,6 +92,76 @@ function pickTemplate(cfg, reminderType) {
   return cfg?.msg2 || cfg?.msg1 || cfg?.msg3 || cfg?.msg24h || cfg?.msg48h || cfg?.msg12h || "";
 }
 
+
+const BRAND_DEFAULT_PREFIX = "💜 Permittá • Lembrete Psi";
+
+function normalizeReminderSlot(reminderType) {
+  const rt = String(reminderType || "").toLowerCase().trim();
+  if (!rt) return "";
+  if (rt === "slot1" || rt.includes("slot1") || rt === "1" || rt.includes("48")) return "slot1";
+  if (rt === "slot2" || rt.includes("slot2") || rt === "2" || rt.includes("24")) return "slot2";
+  if (rt === "slot3" || rt.includes("slot3") || rt === "3" || rt.includes("12")) return "slot3";
+  return "";
+}
+
+function joinTitle(prefix, suffix) {
+  const p = String(prefix || "").trim();
+  const s = String(suffix || "").trim();
+  if (!p) return s;
+  if (!s) return p;
+
+  const needsSpace = !p.endsWith(" ") && !s.startsWith(" ");
+  // Se o prefixo já termina com pontuação/dash, só concatena
+  if (/[—\-:•]$/.test(p)) return p + (needsSpace ? " " : "") + s;
+
+  // Caso padrão: separa com " — "
+  return p + " — " + s;
+}
+
+function resolveReminderTitle(cfg, slotKey) {
+  const defaultsFull = {
+    slot1: "💜 Permittá • Lembrete Psi — Seu espaço em 48h",
+    slot2: "💜 Permittá • Lembrete Psi — Amanhã: seu horário",
+    slot3: "💜 Permittá • Lembrete Psi — Hoje: sessão no seu horário",
+    multi: "💜 Permittá • Lembrete Psi — Seus lembretes",
+    fallback: "💜 Permittá • Lembrete Psi — Seu espaço de cuidado",
+  };
+
+  const suffixDefaults = {
+    slot1: "Seu espaço em 48h",
+    slot2: "Amanhã: seu horário",
+    slot3: "Hoje: sessão no seu horário",
+    multi: "Seus lembretes",
+    fallback: "Seu espaço de cuidado",
+  };
+
+  const keyMap = {
+    slot1: "reminderTitle1",
+    slot2: "reminderTitle2",
+    slot3: "reminderTitle3",
+    multi: "reminderTitleMulti",
+    fallback: "reminderTitleDefault",
+  };
+
+  const k = keyMap[slotKey] || keyMap.fallback;
+  const raw = cfg && cfg[k] != null ? String(cfg[k]).trim() : "";
+  const prefix = cfg && cfg.reminderTitlePrefix != null ? String(cfg.reminderTitlePrefix).trim() : "";
+
+  // Se o campo específico existir, usa. Se parecer "sufixo", concatena com prefixo se houver.
+  if (raw) {
+    if (prefix && !raw.includes("Permittá") && !raw.includes("Lembrete Psi")) return joinTitle(prefix, raw);
+    return raw;
+  }
+
+  // Se não houver campo específico, tenta montar com prefixo configurável
+  if (prefix) {
+    const suf = suffixDefaults[slotKey] || suffixDefaults.fallback;
+    return joinTitle(prefix, suf);
+  }
+
+  return defaultsFull[slotKey] || defaultsFull.fallback;
+}
+
 // concorrência limitada para fallback send()
 async function sendWithConcurrency(messaging, messages, concurrency = 20) {
   const results = new Array(messages.length);
@@ -150,7 +220,6 @@ export async function POST(req) {
     // Templates
     const cfgSnap = await db.collection("config").doc("global").get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    const defaultTitle = "Lembrete Psi • Sua sessão";
 
     // Agrupa por telefone
     const byPhone = new Map();
@@ -179,16 +248,55 @@ export async function POST(req) {
       });
     }
 
-    // Monta 1 mensagem por telefone
+    
+    // Busca users (pacientes) por phoneCanonical para bloquear inativos (server-side)
+    function isUserInactive(u) {
+      if (!u) return false;
+      const st = String(u.status || "").toLowerCase();
+      if (["inactive", "disabled", "archived", "deleted"].includes(st)) return true;
+      if (u.deletedAt || u.disabledAt) return true;
+      if (u.isActive === false || u.disabled === true) return true;
+      if (u.mergedTo) return true;
+      return false;
+    }
+
+    const userInactiveByPhone = {};
+    if (phones.length) {
+      const inChunk = 10; // Firestore 'in' supports up to 10
+      for (let i = 0; i < phones.length; i += inChunk) {
+        const chunk = phones.slice(i, i + inChunk);
+        const snapUsers = await db
+          .collection("users")
+          .where("role", "==", "patient")
+          .where("phoneCanonical", "in", chunk)
+          .get();
+
+        snapUsers.docs.forEach((d) => {
+          const data = d.data() || {};
+          const ph = String(data.phoneCanonical || "").trim();
+          if (!ph) return;
+          userInactiveByPhone[ph] = isUserInactive(data);
+        });
+      }
+    }
+
+// Monta 1 mensagem por telefone
     const messages = [];
     const perPhoneMeta = [];
 
     let skippedInactive = 0;
+    let skippedInactivePatient = 0;
     let skippedNoToken = 0;
 
     for (const phone of phones) {
       const meta = resultsByPhone[phone] || { token: null, inactive: false };
       const items = byPhone.get(phone) || [];
+
+      const patientInactive = userInactiveByPhone[phone] === true;
+      if (patientInactive) {
+        skippedInactivePatient += items.length;
+        continue;
+      }
 
       if (meta.inactive) {
         skippedInactive += items.length;
@@ -219,9 +327,15 @@ export async function POST(req) {
       const finalBody =
         extraCount > 0 ? `${bodyText}\n\nVocê tem mais ${extraCount} lembrete(s) pendente(s) nesta seleção.` : bodyText;
 
+
+      const slotKeys = items.map((x) => normalizeReminderSlot(x.reminderType)).filter(Boolean);
+      const uniqSlots = Array.from(new Set(slotKeys));
+      const titleKey = uniqSlots.length > 1 ? "multi" : uniqSlots.length === 1 ? uniqSlots[0] : "fallback";
+      const notificationTitle = resolveReminderTitle(cfg, titleKey);
+
       messages.push({
         token: meta.token,
-        notification: { title: defaultTitle, body: finalBody },
+        notification: { title: notificationTitle, body: finalBody },
         data: {
           kind: "appointment_reminder",
           phoneCanonical: phone,
@@ -287,7 +401,11 @@ export async function POST(req) {
       sentCount,
       failCount,
       skippedInactive,
+      skippedInactivePatient,
+      blockedInactive: skippedInactivePatient,
+      blockedInactiveSubscriber: skippedInactive,
       skippedNoToken,
+      blockedNoToken: skippedNoToken,
       createdAt: now,
     });
 
@@ -296,7 +414,11 @@ export async function POST(req) {
       sentCount,
       failCount,
       skippedInactive,
+      skippedInactivePatient,
+      blockedInactive: skippedInactivePatient,
+      blockedInactiveSubscriber: skippedInactive,
       skippedNoToken,
+      blockedNoToken: skippedNoToken,
       messagesPrepared: messages.length,
     });
   } catch (e) {

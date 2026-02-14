@@ -1,7 +1,8 @@
 // src/app/api/admin/patients/list/route.js
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
-
+import admin from "@/lib/firebaseAdmin";
 /**
  * Admin API: List Patients (server-side via Firebase Admin SDK)
  *
@@ -142,6 +143,12 @@ async function listPatientsStrict({ limit, includePush }) {
       phone: (d.phone ?? "").toString().trim(),
       email: (d.email ?? "").toString().trim(),
       status: (d.status ?? "active").toString(),
+      contractAcceptedVersion: Number(d?.contractAcceptedVersion ?? 0),
+      contractAcceptedAt: toIso(d?.contractAcceptedAt),
+      pairCodeStatus: (d.pairCodeStatus ?? '').toString(),
+      pairCodeLast4: (d.pairCodeLast4 ?? '').toString(),
+      pairCodeCreatedAt: toIso(d?.pairCodeCreatedAt),
+      pairCodeUsedAt: toIso(d?.pairCodeUsedAt),
       isActive: d?.isActive ?? null,
       disabled: d?.disabled ?? null,
       disabledAt: toIso(d?.disabledAt),

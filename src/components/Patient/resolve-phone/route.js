@@ -1,5 +1,21 @@
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
+import admin from "@/lib/firebaseAdmin";
+/**
+ * Resolve Phone (Paciente)
+ *
+ * Por que existe:
+ * - O painel do paciente NÃO deve ler a coleção `subscribers` no client.
+ * - As regras de `appointments` dependem do telefone do paciente (phone / phoneCanonical) para liberar leitura.
+ * - Alguns cadastros antigos têm telefone apenas em `subscribers` (docId == phone).
+ *
+ * Fluxo:
+ * - Recebe Authorization: Bearer <idToken>
+ * - Valida o token (Admin SDK)
+ * - Busca telefone no `users/{uid}`
+ * - Fallback: busca `subscribers` por email
+ *
+ * Retorna: { ok: true, phone: "55..." }
+ */
 
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
@@ -13,9 +29,13 @@ function getServiceAccount() {
 }
 
 function initAdmin() {
-  if (admin.apps.length) return;
+  if (admin.apps?.length) return;
   const serviceAccount = getServiceAccount();
   admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+}
+
+function onlyDigits(v) {
+  return String(v || "").replace(/\D/g, "");
 }
 
 export async function GET(req) {
@@ -32,15 +52,16 @@ export async function GET(req) {
 
     const decoded = await admin.auth().verifyIdToken(idToken);
     const uid = decoded?.uid;
-    const email = (decoded?.email || "").toLowerCase().trim();
+    const email = String(decoded?.email || decoded?.token?.email || "").toLowerCase().trim();
 
     if (!uid) return NextResponse.json({ ok: false, error: "Invalid token." }, { status: 401 });
 
     // 1) tenta pegar phone no perfil
     const userDoc = await admin.firestore().collection("users").doc(uid).get();
-    let phone = String(userDoc.data()?.phone || userDoc.data()?.phoneNumber || "").replace(/\D/g, "");
+    const u = userDoc.exists ? userDoc.data() || {} : {};
+    let phone = onlyDigits(u?.phone || u?.phoneNumber || u?.phoneCanonical || "");
 
-    // 2) fallback: busca subscriber por email
+    // 2) fallback: busca subscriber por email (docId costuma ser o phone)
     if (!phone && email) {
       const snap = await admin
         .firestore()
@@ -49,7 +70,7 @@ export async function GET(req) {
         .limit(1)
         .get();
       const first = snap.docs?.[0];
-      phone = first?.id ? String(first.id).replace(/\D/g, "") : "";
+      phone = onlyDigits(first?.id || first?.data()?.phone || "");
     }
 
     return NextResponse.json({ ok: true, phone: phone || "" });

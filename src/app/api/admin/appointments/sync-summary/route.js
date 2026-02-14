@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import admin from 'firebase-admin';
-
+import admin from "@/lib/firebaseAdmin";
+export const runtime = "nodejs";
 /**
  * PASSO 27/45 — Server-side log do resumo de sincronização
  *

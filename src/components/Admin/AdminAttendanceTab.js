@@ -23,7 +23,12 @@ export default function AdminAttendanceTab({
   setAttendanceImportText,
   attendanceImportLoading,
   attendanceImportResult,
-  handleAttendanceImport,
+  attendanceImportDryRunResult,
+  attendanceImportValidatedHash,
+  attendanceImportCurrentHash,
+  handleAttendanceImportValidate,
+  handleAttendanceImportCommit,
+  handleAttendanceImportClear,
   showToast,
 }) {
   return (
@@ -126,7 +131,12 @@ export default function AdminAttendanceTab({
         setAttendanceImportText={setAttendanceImportText}
         attendanceImportLoading={attendanceImportLoading}
         attendanceImportResult={attendanceImportResult}
-        handleAttendanceImport={handleAttendanceImport}
+        attendanceImportDryRunResult={attendanceImportDryRunResult}
+        attendanceImportValidatedHash={attendanceImportValidatedHash}
+        attendanceImportCurrentHash={attendanceImportCurrentHash}
+        handleAttendanceImportValidate={handleAttendanceImportValidate}
+        handleAttendanceImportCommit={handleAttendanceImportCommit}
+        handleAttendanceImportClear={handleAttendanceImportClear}
       />
 
       {/* STEP45: Disparos por constância */}

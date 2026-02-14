@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========= HELPERS =========
+    function signedIn() { return request.auth != null; }
+    function isAdmin()  { return signedIn() && request.auth.token.role == "admin"; }
+    function isOwner(userId) { return signedIn() && request.auth.uid == userId; }
+
+    // ========= CONFIG (global) =========
+    // Mantém o comportamento que você descreveu: leitura liberada, escrita só admin.
+    match /config/{id} {
+      allow read: if true;        // pode ler sem login
+      allow write: if isAdmin();  // só admin altera
+    }
+
+    // ========= USERS (perfil) =========
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ========= APPOINTMENTS =========
+    match /appointments/{appointmentId} {
+      // Admin lê tudo.
+      // Paciente lê apenas seus agendamentos:
+      // - por phone == users/{uid}.phone
+      // - ou por phone == users/{uid}.phoneCanonical
+      // - ou por email == request.auth.token.email (fallback do PatientFlow.js)
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && (
+            (
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phone != null
+              && resource.data.phone
+                 == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phone
+            )
+            || (
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phoneCanonical != null
+              && resource.data.phone
+                 == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phoneCanonical
+            )
+            || (
+              request.auth.token.email != null
+              && resource.data.email == request.auth.token.email
+            )
+          )
+        );
+
+      allow write: if isAdmin(); // só admin sobe agenda
+    }
+
+    // ========= PATIENT NOTES =========
+    match /patient_notes/{noteId} {
+      // Admin vê tudo
+      // Paciente vê apenas o que for patientId == uid
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.patientId == request.auth.uid);
+
+      // Paciente pode criar nota apenas para si mesmo
+      allow create: if signedIn() && request.resource.data.patientId == request.auth.uid;
+
+      // Paciente pode editar/apagar apenas suas notas
+      allow update, delete: if isAdmin()
+        || (signedIn() && resource.data.patientId == request.auth.uid);
+    }
+
+    // ========= SUBSCRIBERS (whitelist/push) =========
+    match /subscribers/{id} {
+      // Admin total
+      allow read, write: if isAdmin();
+
+      // ✅ Paciente pode LER apenas o próprio doc (por email)
+      allow read: if signedIn()
+        && request.auth.token.email != null
+        && resource.data.email == request.auth.token.email;
+
+      // ✅ Paciente só pode ATUALIZAR pushToken/lastSeen do próprio doc
+      allow update: if signedIn()
+        && request.auth.token.email != null
+        && resource.data.email == request.auth.token.email
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(["pushToken", "lastSeen"])
+        && request.resource.data.pushToken is string;
+    }
+
+    // ========= HISTORY =========
+    match /history/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // ========= ADMINS =========
+    match /admins/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // fallback
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

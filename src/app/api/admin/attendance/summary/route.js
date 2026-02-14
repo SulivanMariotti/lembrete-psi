@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
-
+import admin from "@/lib/firebaseAdmin";
+export const runtime = "nodejs";
 /**
  * GET /api/admin/attendance/summary?days=7|30|90
  *

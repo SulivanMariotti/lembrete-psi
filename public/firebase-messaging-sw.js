@@ -15,7 +15,7 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('Notificação recebida:', payload);
 
-  const notificationTitle = payload.notification?.title || 'Lembrete Psi';
+  const notificationTitle = payload.notification?.title || '💜 Permittá • Lembrete Psi';
   const notificationOptions = {
     body: payload.notification?.body || 'Nova mensagem recebida.',
     icon: '/icon.png'

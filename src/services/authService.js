@@ -40,6 +40,32 @@ export async function patientLoginByEmail(email) {
   return cred.user;
 }
 
+
+/**
+ * ✅ Login do paciente via Código de Vinculação (telefone + código)
+ * - valida no backend pelo users/{uid}.pairCodeHash
+ * - retorna custom token
+ * - faz signInWithCustomToken
+ */
+export async function patientLoginByPairCode(phone, code) {
+  const auth = getAuth(app);
+
+  const res = await fetch("/api/patient/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, code }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok || !data?.ok || !data?.token) {
+    throw new Error(data?.error || "Falha ao entrar.");
+  }
+
+  const cred = await signInWithCustomToken(auth, data.token);
+  return cred.user;
+}
+
 export async function logoutUser() {
   const auth = getAuth(app);
   await signOut(auth);

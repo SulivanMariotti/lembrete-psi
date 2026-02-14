@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
-
+import admin from "@/lib/firebaseAdmin";
+export const runtime = "nodejs";
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
   if (b64) {
@@ -35,6 +35,53 @@ function pickMessage(item) {
   ).toString().trim();
 }
 
+
+const BRAND_DEFAULT_PREFIX = "💜 Permittá • Lembrete Psi";
+
+function normalizeReminderSlot(reminderType) {
+  const rt = String(reminderType || "").toLowerCase().trim();
+  if (!rt) return "";
+  if (rt === "slot1" || rt.includes("slot1") || rt === "1" || rt.includes("48")) return "slot1";
+  if (rt === "slot2" || rt.includes("slot2") || rt === "2" || rt.includes("24")) return "slot2";
+  if (rt === "slot3" || rt.includes("slot3") || rt === "3" || rt.includes("12")) return "slot3";
+  return "";
+}
+
+function joinTitle(prefix, suffix) {
+  const p = String(prefix || "").trim();
+  const s = String(suffix || "").trim();
+  if (!p) return s;
+  if (!s) return p;
+  if (/[—\-:•]$/.test(p)) return p + " " + s;
+  return p + " — " + s;
+}
+
+function resolveReminderTitle(cfg, reminderType) {
+  const slot = normalizeReminderSlot(reminderType);
+  const defaultsFull = {
+    slot1: "💜 Permittá • Lembrete Psi — Seu espaço em 48h",
+    slot2: "💜 Permittá • Lembrete Psi — Amanhã: seu horário",
+    slot3: "💜 Permittá • Lembrete Psi — Hoje: sessão no seu horário",
+    fallback: "💜 Permittá • Lembrete Psi — Seu espaço de cuidado",
+  };
+  const suffixDefaults = {
+    slot1: "Seu espaço em 48h",
+    slot2: "Amanhã: seu horário",
+    slot3: "Hoje: sessão no seu horário",
+    fallback: "Seu espaço de cuidado",
+  };
+  const keyMap = { slot1: "reminderTitle1", slot2: "reminderTitle2", slot3: "reminderTitle3", fallback: "reminderTitleDefault" };
+  const k = keyMap[slot] || keyMap.fallback;
+  const raw = cfg && cfg[k] != null ? String(cfg[k]).trim() : "";
+  const prefix = cfg && cfg.reminderTitlePrefix != null ? String(cfg.reminderTitlePrefix).trim() : "";
+  if (raw) {
+    if (prefix && !raw.includes("Permittá") && !raw.includes("Lembrete Psi")) return joinTitle(prefix, raw);
+    return raw;
+  }
+  if (prefix) return joinTitle(prefix, suffixDefaults[slot] || suffixDefaults.fallback);
+  return defaultsFull[slot] || defaultsFull.fallback;
+}
+
 export async function POST(req) {
   try {
     initAdmin();
@@ -48,6 +95,9 @@ export async function POST(req) {
 
     const db = admin.firestore();
     const messaging = admin.messaging();
+
+    const cfgSnap = await db.collection("config").doc("global").get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
 
     let sent = 0;
     let skippedNoPhone = 0;
@@ -86,7 +136,7 @@ export async function POST(req) {
         const payload = {
           token,
           notification: {
-            title: "Lembrete Psi",
+            title: resolveReminderTitle(cfg, item.reminderType),
             body: messageText,
           },
           data: {

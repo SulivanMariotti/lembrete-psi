@@ -11,6 +11,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import {
   Bell,
   CalendarCheck,
@@ -152,7 +153,11 @@ const cancelMissingFutureAppointments = async ({ list, currentIdsSet, uploadId }
   }
 };
 
+const DEV_LOGIN = String(process.env.NEXT_PUBLIC_DEV_LOGIN || '').toLowerCase() === 'true';
+
 export default function AdminScheduleTab({ subscribers, dbAppointments, showToast, globalConfig, localConfig }) {
+  const STATUS_BATCH_URL = `/api/admin/push/status-batch${DEV_LOGIN ? '?dev=1' : ''}`;
+
   const fileInputRef = useRef(null);
 
   const [csvInput, setCsvInput] = useState('');
@@ -160,6 +165,9 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
   const [hasVerified, setHasVerified] = useState(false);
   const [hasSynced, setHasSynced] = useState(false);
   const [lastUploadId, setLastUploadId] = useState(null);
+
+  // Push token status by phoneCanonical (fetched from server)
+  const [hasTokenByPhone, setHasTokenByPhone] = useState({});
 
   const [isSending, setIsSending] = useState(false);
   const [sendPreview, setSendPreview] = useState(null);
@@ -190,6 +198,53 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
   useEffect(() => {
     setHasVerified(false);
     setHasSynced(false);
+
+
+    // Fetch push token status from server to avoid false "Sem token"
+    (async () => {
+      try {
+        const phonesUnique = Array.from(
+          new Set(
+            parsed
+              .filter((a) => a.reminderType)
+              .map((a) => normalizePhoneCanonical(a.cleanPhone || a.phoneCanonical || a.phone))
+              .filter((p) => p && (p.length === 10 || p.length === 11))
+          )
+        );
+
+        if (!phonesUnique.length) {
+          setHasTokenByPhone({});
+          return;
+        }
+
+        const auth = getAuth();
+        const user = auth.currentUser;
+        const idToken = user ? await user.getIdToken() : '';
+
+        const res = await fetch(STATUS_BATCH_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          },
+          body: JSON.stringify({ phones: phonesUnique }),
+        });
+
+        if (!res.ok) {
+          // Se não for admin/autenticado, não vamos travar a UI.
+          // Mantém vazio e o badge vai mostrar "Sem token" (mas Preview continua).
+          setHasTokenByPhone({});
+          return;
+        }
+
+        const data = await res.json();
+        const byPhone = data?.byPhone || {};
+        setHasTokenByPhone(byPhone);
+      } catch (e) {
+        setHasTokenByPhone({});
+      }
+    })();
+
     resetSendState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [csvInput]);
@@ -330,7 +385,7 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
   };
 
   // 6. Processar CSV
-  const processCsv = () => {
+  const processCsv = async () => {
     const parsed = parseCSV(csvInput, subscribers, {
       msg48h: localConfig?.msg48h || '',
       msg24h: localConfig?.msg24h || '',
@@ -467,60 +522,12 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
 
       await flush();
 
-      // 2) RECONCILIAÇÃO (antiga + nova)
+            // 2) RECONCILIAÇÃO (fonte da verdade = upload atual)
+      // Cancela sessões FUTURAS que existiam no Firestore para os pacientes do upload,
+      // mas que NÃO estão mais presentes no upload atual.
+      // Importante: não apaga histórico; apenas marca como `status: "cancelled"` com motivo.
       const syncedIdSet = new Set(syncedIds);
-
-      const phoneList = Array.from(phonesInUpload);
-      const chunkSize = 30; // limite do Firestore para "in"
-      const CANCEL_BATCH_LIMIT = 450;
-
-      let cancelBatch = writeBatch(db);
-      let cancelCount = 0;
-
-      const flushCancel = async () => {
-        if (cancelCount === 0) return;
-        await cancelBatch.commit();
-        cancelBatch = writeBatch(db);
-        cancelCount = 0;
-      };
-
-      for (let i = 0; i < phoneList.length; i += chunkSize) {
-        const chunk = phoneList.slice(i, i + chunkSize);
-
-        const q = query(
-          collection(db, 'appointments'),
-          where('phone', 'in', chunk),
-          where('isoDate', '>=', todayIso)
-        );
-
-        const snap = await getDocs(q);
-
-        for (const d of snap.docs) {
-          const data = d.data() || {};
-          const id = d.id;
-
-          if (!syncedIdSet.has(id) && data.status !== 'cancelled') {
-            cancelBatch.set(
-              doc(db, 'appointments', id),
-              {
-                status: 'cancelled',
-                cancelledAt: new Date(),
-                cancelReason: 'removed_from_upload',
-                cancelledBy: 'admin_sync',
-                updatedAt: new Date(),
-              },
-              { merge: true }
-            );
-            cancelCount += 1;
-
-            if (cancelCount >= CANCEL_BATCH_LIMIT) await flushCancel();
-          }
-        }
-      }
-
-      await flushCancel();
-
-      const recon = await cancelMissingFutureAppointments({ list: processedAppointments, currentIdsSet, uploadId });
+      const recon = await cancelMissingFutureAppointments({ list: appointments, currentIdsSet: syncedIdSet, uploadId });
       if (recon?.cancelled) {
         showToast(`Reconciliação: ${recon.cancelled} sessões futuras canceladas (não estavam no upload).`, 'info');
       }
@@ -588,7 +595,7 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
 
     let hasTokenByPhone = {};
     try {
-      const res = await fetch('/api/admin/push/status-batch', {
+      const res = await fetch(STATUS_BATCH_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1070,8 +1077,8 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
                 <div className="text-right">
                   <div className="text-xs font-semibold text-slate-600">{app.timeLabel}</div>
                   <Badge
-                    status={app.isSubscribed ? 'confirmed' : 'missing'}
-                    text={app.isSubscribed ? 'Autorizado' : 'Sem cadastro'}
+                    status={((hasTokenByPhone[normalizePhoneCanonical(app.cleanPhone || app.phoneCanonical || app.phone)] ?? app.isSubscribed) ? 'confirmed' : 'missing')}
+                    text={(hasTokenByPhone[normalizePhoneCanonical(app.cleanPhone || app.phoneCanonical || app.phone)] ? 'Sem Token' : 'Autorizado')}
                   />
                 </div>
               </div>

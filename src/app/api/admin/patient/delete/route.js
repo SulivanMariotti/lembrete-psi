@@ -1,7 +1,7 @@
 // src/app/api/admin/patient/delete/route.js
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
-
+import admin from "@/lib/firebaseAdmin";
+export const runtime = "nodejs";
 /**
  * Admin server-side: desativar (soft-delete) paciente
  *
