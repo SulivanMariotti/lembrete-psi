@@ -6,7 +6,7 @@ import PatientSessionsCard from "../../features/patient/components/PatientSessio
 import PatientNotificationsCard from "../../features/patient/components/PatientNotificationsCard";
 import PatientNotesCard from "../../features/patient/components/PatientNotesCard";
 import ContractStatusCard from "../../features/patient/components/ContractStatusCard";
-import PatientMantraCard from "../../features/patient/components/PatientMantraCard";
+import PatientTopMantraBar from "../../features/patient/components/PatientTopMantraBar";
 import {
   app,
   db } from "../../app/firebase";
@@ -482,8 +482,8 @@ useEffect(() => {
             </Card>
           )}
 
-          {/* Mantra */}
-          <PatientMantraCard />
+          {/* Mantra fixo (topo) */}
+          <PatientTopMantraBar />
 
           {/* Sessões (prioridade: próxima sessão + agenda) */}
           <PatientSessionsCard
