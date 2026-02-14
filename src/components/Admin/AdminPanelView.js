@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { db } from '../../app/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import {
@@ -386,14 +387,35 @@ export default function AdminPanelView({
       {/* Sidebar */}
       <div className="lg:col-span-3">
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 sticky top-4">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <div className="text-xs text-slate-400 uppercase tracking-wider">Painel</div>
-              <div className="text-lg font-black text-slate-900">Admin</div>
+          <div className="flex items-start justify-between gap-3 mb-6">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-white ring-1 ring-slate-200 flex items-center justify-center shadow-lg shadow-slate-200 shrink-0">
+                <Image
+                  src="/brand/permitta-mark-256.png"
+                  alt="Permittá"
+                  width={40}
+                  height={40}
+                  className="object-contain"
+                  priority
+                />
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="text-lg font-extrabold text-slate-900 leading-none truncate">
+                    Lembrete Psi
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-semibold">
+                    Admin
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">Constância terapêutica</div>
+              </div>
             </div>
+
             <button
               onClick={onLogout}
-              className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1"
+              className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 shrink-0 mt-1"
             >
               <LogOut size={14} /> Sair
             </button>

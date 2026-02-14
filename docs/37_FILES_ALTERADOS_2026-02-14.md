@@ -32,6 +32,9 @@
 - `src/components/Admin/AdminDashboardTab.js`
 - `src/components/Admin/AdminAttendanceTab.js`
 
+### Passo 23 — Menu Admin (branding)
+- `src/components/Admin/AdminPanelView.js`
+
 ### Passo 22 — Admin em rota dedicada (/admin)
 - `src/app/admin/page.js` (novo)
 - `src/app/admin/layout.js` (novo)
@@ -63,6 +66,8 @@
 - `docs/41_ATUALIZACAO_2026-02-14_PASSO_21.md`
 - `docs/42_PASSO_22_ADMIN_EM_ADMIN_ROUTE.md`
 - `docs/43_ATUALIZACAO_2026-02-14_PASSO_22.md`
+- `docs/44_PASSO_23_MENU_ADMIN_BRANDING.md`
+- `docs/45_ATUALIZACAO_2026-02-14_PASSO_23.md`
 
 ---
 

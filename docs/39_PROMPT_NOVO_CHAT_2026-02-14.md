@@ -19,7 +19,7 @@ O painel do paciente existe para **lembrar da sessão** e conscientizar sobre **
 - **Não** oferecer atalhos de contato (ex.: WhatsApp) na Agenda que facilitem cancelamento/remarcação.
 - Se houver WhatsApp no produto, apenas para **reforço de compromisso/confirmar presença**, nunca como CTA de cancelamento/remarcação.
 
-## O que foi feito neste chat (Passos 1–22)
+## O que foi feito neste chat (Passos 1–24)
 
 ### Paciente
 - Header: removido “Olá,”, melhorado telefone, contraste do menu.
@@ -38,6 +38,8 @@ O painel do paciente existe para **lembrar da sessão** e conscientizar sobre **
 - Alerta de risco: pacientes com 2+ faltas.
 - Exibir Nome + telefone e botão copiar; período (7/30/90) persistido.
 - **Admin em rota dedicada**: acesso via **`/admin`**.
+- **Menu Admin com branding**: topo do sidebar com logo + "Lembrete Psi" + chip "Admin".
+- **Acesso Admin com branding**: tela de login em **`/admin`** com logo + "Lembrete Psi" + chip "Admin".
 
 ### Branding Permittá
 - Logo da Permittá aplicado na tela de login.
@@ -55,6 +57,8 @@ O painel do paciente existe para **lembrar da sessão** e conscientizar sobre **
 - Passo 21 detalhado: `docs/40_PASSO_21_AUDITORIA_CORES.md`
 - Passo 21 executado: `docs/41_ATUALIZACAO_2026-02-14_PASSO_21.md`
 - Passo 22 (Admin em /admin): `docs/42_PASSO_22_ADMIN_EM_ADMIN_ROUTE.md`
+- Passo 23 (menu Admin branding): `docs/44_PASSO_23_MENU_ADMIN_BRANDING.md`
+- Passo 24 (Acesso Admin branding): `docs/46_PASSO_24_ACESSO_ADMIN_BRANDING.md`
 
 ## Próximo passo
 Escolher o próximo item do backlog (ex.: revisão completa do fluxo mobile no Android/Capacitor, pendências de segurança/Rules, ou evolução do painel de constância/presença/faltas).
