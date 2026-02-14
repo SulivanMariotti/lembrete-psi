@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import Image from "next/image";
 import { patientLoginByEmail, patientLoginByPairCode } from "../../services/authService";
 import { Button, Card } from "../DesignSystem";
-import { Mail, Lock, Sparkles, CheckCircle, Bell, CalendarCheck, NotebookPen, Info, Key } from "lucide-react";
+import { Mail, Lock, CheckCircle, Bell, CalendarCheck, NotebookPen, Info, Key } from "lucide-react";
 
 export default function PatientLogin({ onAdminAccess }) {
   const [mode, setMode] = useState("code"); // code | email
@@ -72,8 +73,15 @@ export default function PatientLogin({ onAdminAccess }) {
         {/* Cabeçalho compacto */}
         <div className="text-center px-2">
           <div className="flex items-center justify-center gap-2 text-violet-700">
-            <div className="w-9 h-9 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-lg shadow-violet-200">
-              <Sparkles size={18} />
+            <div className="w-11 h-11 rounded-2xl bg-white ring-1 ring-slate-200 flex items-center justify-center shadow-lg shadow-slate-200">
+              <Image
+                src="/brand/permitta-mark-256.png"
+                alt="Permittá"
+                width={40}
+                height={40}
+                className="object-contain"
+                priority
+              />
             </div>
             <div className="text-left">
               <div className="text-[22px] sm:text-[26px] font-extrabold text-slate-900 leading-none">

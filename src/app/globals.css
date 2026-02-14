@@ -3,6 +3,27 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Brand palette (Permittá) */
+  --brand-50: #fcf2f8;
+  --brand-100: #f4cbe1;
+  --brand-200: #e9afd3;
+  --brand-300: #d595bc;
+  --brand-400: #bc7aa2;
+  --brand-500: #a35e87;
+  --brand-600: #803469;
+  --brand-700: #6d265c;
+  --brand-800: #5a174e;
+  --brand-900: #42103a;
+
+  /* Default accent (Admin): violet */
+  --accent-50: #f5f3ff;
+  --accent-100: #ede9fe;
+  --accent-200: #ddd6fe;
+  --accent-300: #c4b5fd;
+  --accent-600: #7c3aed;
+  --accent-700: #6d28d9;
+  --accent-800: #5b21b6;
 }
 
 @theme inline {
@@ -10,6 +31,18 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Optional: brand tokens (future use: bg-brand-600, text-brand-700, etc.) */
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,4 +56,52 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Patient skin: swap violet → Permittá brand (patient area only) */
+@layer utilities {
+  .skin-patient {
+    --accent-50: var(--brand-50);
+    --accent-100: var(--brand-100);
+    --accent-200: var(--brand-200);
+    --accent-300: var(--brand-300);
+    --accent-600: var(--brand-600);
+    --accent-700: var(--brand-700);
+    --accent-800: var(--brand-800);
+  }
+
+  /* Core swaps */
+  .skin-patient .text-violet-900 { color: var(--brand-900) !important; }
+  .skin-patient .text-violet-800 { color: var(--brand-800) !important; }
+  .skin-patient .text-violet-700 { color: var(--brand-700) !important; }
+  .skin-patient .text-violet-600 { color: var(--brand-600) !important; }
+  .skin-patient .text-violet-500 { color: var(--brand-500) !important; }
+
+  .skin-patient .bg-violet-600 { background-color: var(--brand-600) !important; }
+  .skin-patient .bg-violet-50 { background-color: var(--brand-50) !important; }
+  .skin-patient .bg-violet-100 { background-color: var(--brand-100) !important; }
+  .skin-patient .bg-violet-200 { background-color: var(--brand-200) !important; }
+
+  .skin-patient .border-violet-100 { border-color: var(--brand-100) !important; }
+  .skin-patient .border-violet-200 { border-color: var(--brand-200) !important; }
+
+  .skin-patient .hover\:bg-violet-700:hover { background-color: var(--brand-700) !important; }
+  .skin-patient .hover\:bg-violet-50:hover { background-color: var(--brand-50) !important; }
+
+  /* Ring + focus ring */
+  .skin-patient .ring-violet-200 { --tw-ring-color: rgb(233 175 211) !important; }
+  .skin-patient .focus\:ring-violet-200:focus { --tw-ring-color: rgb(233 175 211) !important; }
+
+  /* Shadow tint */
+  .skin-patient .shadow-violet-200 { --tw-shadow-color: rgb(233 175 211) !important; }
+
+  /* Classes with opacity modifiers (Tailwind escapes '/') */
+  .skin-patient .ring-violet-200\/70 { --tw-ring-color: rgb(233 175 211 / 0.7) !important; }
+  .skin-patient .from-violet-50\/60 {
+    --tw-gradient-from: rgb(252 242 248 / 0.6) !important;
+    --tw-gradient-to: rgb(252 242 248 / 0) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+  }
+  .skin-patient .before\:bg-violet-500\/30::before { background-color: rgb(163 94 135 / 0.3) !important; }
+  .skin-patient .text-violet-800\/70 { color: rgb(90 23 78 / 0.7) !important; }
 }

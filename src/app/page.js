@@ -129,6 +129,8 @@ export default function App() {
           />
         )}
 
+        <div className="skin-patient">
+
         <PatientFlow
           user={user}
           onLogout={handleLogoutAll}
@@ -136,6 +138,8 @@ export default function App() {
           globalConfig={globalConfig}
           showToast={showToast}
         />
+
+      </div>
       </>
     );
   }
@@ -151,11 +155,15 @@ export default function App() {
         />
       )}
 
+      <div className="skin-patient">
+
       <PatientLogin
         onAdminAccess={handleAdminAccess}
         onLoginSuccess={setUser}
         onLogin={setUser}
       />
+
+    </div>
     </>
   );
 }
