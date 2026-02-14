@@ -21,10 +21,9 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
   const [showAllWeeks, setShowAllWeeks] = useState(false);
   const [showAllMonths, setShowAllMonths] = useState(false);
 
-  // ✅ sutil: última atualização da agenda
+  // ✅ sutil: última atualização da agenda (data/hora apenas)
   const agendaLastUpdate = useMemo(() => {
     let bestMs = null;
-    let bestSource = "";
 
     for (const a of appointmentsRaw || []) {
       const ms =
@@ -35,17 +34,14 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
 
       if (ms && (!bestMs || ms > bestMs)) {
         bestMs = ms;
-        bestSource = String(a?.sourceUploadId || a?.uploadId || "").trim();
       }
     }
 
     if (!bestMs) return null;
 
-    return {
-      label: formatDateTimeBR(bestMs),
-      sourceUploadId: bestSource || "",
-    };
+    return { label: formatDateTimeBR(bestMs) };
   }, [appointmentsRaw]);
+
 
   const agendaGroups = useMemo(() => {
     const now = new Date();
@@ -91,21 +87,20 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
   }, [appointments]);
 
   return (
+
     <Card title="Agenda">
-      <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         <div className="min-w-0">
-          <div className="text-xs text-slate-500">Visualização:</div>
+          <div className="text-xs text-slate-500">Visualização</div>
 
           {agendaLastUpdate?.label ? (
-            <div className="text-[11px] text-slate-400 mt-1 truncate">
-              Agenda atualizada em <b className="text-slate-500">{agendaLastUpdate.label}</b>
-              {agendaLastUpdate.sourceUploadId ? <span className="text-slate-300"> • </span> : null}
-              {agendaLastUpdate.sourceUploadId ? <span>Upload: {agendaLastUpdate.sourceUploadId}</span> : null}
+            <div className="text-[11px] text-slate-400 mt-1 leading-snug">
+              Agenda atualizada em <b className="text-slate-600">{agendaLastUpdate.label}</b>
             </div>
           ) : null}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => {
@@ -113,10 +108,10 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
               setShowAllWeeks(false);
               setShowAllMonths(false);
             }}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-full text-xs font-semibold border ${
               agendaView === "compact"
                 ? "bg-violet-50 border-violet-100 text-violet-900"
-                : "bg-white border-slate-200 text-slate-600"
+                : "bg-white border-slate-200 text-slate-700"
             }`}
           >
             Compacta
@@ -128,8 +123,10 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
               setShowAllWeeks(true);
               setShowAllMonths(true);
             }}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
-              agendaView === "all" ? "bg-violet-50 border-violet-100 text-violet-900" : "bg-white border-slate-200 text-slate-600"
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-full text-xs font-semibold border ${
+              agendaView === "all"
+                ? "bg-violet-50 border-violet-100 text-violet-900"
+                : "bg-white border-slate-200 text-slate-700"
             }`}
           >
             Completa
@@ -138,6 +135,8 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
       </div>
 
       {error ? (
+
+
         <InlineError
           title="Não foi possível carregar sua agenda"
           description={typeof error === "string" ? error : "Tente novamente em instantes."}

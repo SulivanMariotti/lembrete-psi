@@ -33,13 +33,21 @@ export default function AppointmentMiniRow({ a, isConfirmed }) {
             {label}
             {time ? <span className="text-slate-500"> • {time}</span> : null}
           </div>
-          <div className="text-[12px] text-slate-500 truncate">
-            Prof.: <b className="text-slate-700">{prof}</b>
-            {serviceLabel ? <span className="text-slate-400"> • </span> : null}
-            {serviceLabel ? <span className="text-slate-600">{serviceLabel}</span> : null}
-            {place ? <span className="text-slate-400"> • </span> : null}
-            {place ? <span className="text-slate-500">{place}</span> : null}
+
+          <div className="text-[12px] leading-snug mt-0.5">
+            <div className="text-slate-600 whitespace-normal break-words">
+              Prof.: <b className="text-slate-700">{prof}</b>
+              {serviceLabel ? <span className="text-slate-400"> • </span> : null}
+              {serviceLabel ? <span className="text-slate-600">{serviceLabel}</span> : null}
+            </div>
+
+            {place ? (
+              <div className="text-slate-500 whitespace-normal break-words">
+                Local: <span className="text-slate-600">{place}</span>
+              </div>
+            ) : null}
           </div>
+
         </div>
       </div>
 

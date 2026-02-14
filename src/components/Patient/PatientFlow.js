@@ -511,15 +511,17 @@ useEffect(() => {
             showToast={showToast}
           />
 
-          {/* Contrato: mostra sempre quando pendente; quando OK, esconde no mobile para reduzir altura */}
-          <ContractStatusCard
-            className={!needsContractAcceptance ? "hidden sm:block" : ""}
-            contractText={contractText}
-            needsContractAcceptance={needsContractAcceptance}
-            currentContractVersion={currentContractVersion}
-            onAcceptContract={handleAcceptContract}
-            acceptBusy={acceptContractBusy}
-          />
+          {/* Contrato: quando pendente, mostramos o card de aceite (barreira saudável). 
+              Quando OK, o texto segue acessível no menu superior para leitura futura. */}
+          {needsContractAcceptance ? (
+            <ContractStatusCard
+              contractText={contractText}
+              needsContractAcceptance={needsContractAcceptance}
+              currentContractVersion={currentContractVersion}
+              onAcceptContract={handleAcceptContract}
+              acceptBusy={acceptContractBusy}
+            />
+          ) : null}
           {/* Diário */}
           <PatientNotesCard
             notes={notes}
