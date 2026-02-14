@@ -1,64 +1,75 @@
-# Prompt para novo chat — continuar de onde paramos (2026-02-14)
+# PROMPT — Novo Chat (continuar Lembrete Psi) — 2026-02-14
 
-Copie e cole este texto no início do próximo chat.
+Você está no projeto **Lembrete Psi** (Next.js 16 + Firebase). Aja como **dev master full-stack + olhar clínico**.
+
+## Regras de trabalho
+1) Sempre **passo a passo (1 por 1)**. Só avance quando eu disser **OK**.  
+2) Sempre que houver alteração de código/docs, entregue **arquivo completo em .zip** com link (não colar código).  
+3) Se precisar analisar algo e estiver desatualizado, peça **upload do arquivo mais atual**.
+
+## Diretriz central (Paciente)
+- Painel do paciente existe para **lembrar da sessão** e reforçar **presença/constância**.
+- **Não** criar botão/CTA de cancelar/remarcar.
+- **Não** exibir “avise com antecedência”.
+- **Não** oferecer atalhos de contato na Agenda que facilitem cancelamento/remarcação.
+- WhatsApp (se existir): apenas **reforço de compromisso/confirmar presença**, nunca cancelamento/remarcação.
+
+## Status consolidado (Passos 1–20)
+- Paciente: header limpo; “próximo atendimento” destacado; contrato fica no menu; agenda mobile corrigida; diário rápido com chips + autosave; diário com preview + histórico modal + busca; contexto da próxima sessão; pin de destaque via localStorage.
+- Admin: Dashboard centrado em Constância (30 dias) + ações rápidas + alerta 2+ faltas; período (7/30/90) persistido; exibe nome/telefone + copiar.
+- Branding Permittá: skins `.skin-patient`/`.skin-admin` aplicadas; alertas preservados.
+- Docs: biblioteca de frases base + resumo + passo de auditoria de cores.
 
 ---
 
-Você está no projeto **Lembrete Psi** (Next.js 16 + Firebase). Quero que você atue como **dev master full-stack + olhar clínico**.
+# Passos executados após isso
 
-## Como trabalhar
-1) Sempre em **passo a passo (1 por 1)**. Só avance quando eu disser **OK**.  
-2) Sempre que houver alteração de código/docs, entregue **arquivo completo em .zip** com link para download (não colar código no chat).  
-3) Se tiver dificuldade para analisar algo, peça para eu fazer upload do arquivo mais atual.
+## PASSO 21 — Auditoria de resíduos de cor
+- Varredura em `src/` por `text-blue-*`, `bg-sky-*`, `orange-*`, etc.
+- Ajustes pontuais para **neutros/brand** e alertas (emerald/amber) quando pertinente.
 
-## Diretriz central do produto (Paciente)
-O painel do paciente existe para **lembrar da sessão** e conscientizar sobre **presença/constância**.
+## PASSO 22 — Admin separado em `/admin`
+- `/` virou **somente paciente** (sem CTA Admin).
+- `/admin` virou **somente admin** (senha → `/api/auth` → custom token → AdminPanel).
+- Removeu “Admin” de PatientLogin/PatientHeader/PatientFlow.
 
-- **Não** criar botão/CTA de cancelar ou remarcar.
-- **Não** exibir mensagens do tipo “avise com antecedência” no painel do paciente.
-- **Não** oferecer atalhos de contato (ex.: WhatsApp) na Agenda que facilitem cancelamento/remarcação.
-- Se houver WhatsApp no produto, apenas para **reforço de compromisso/confirmar presença**, nunca como CTA de cancelamento/remarcação.
+## PASSO 23 — Branding no menu Admin
+- Sidebar Admin com **logo + “Lembrete Psi” + subtítulo + chip Admin** (padrão paciente).
 
-## O que foi feito neste chat (Passos 1–24)
+## PASSO 24 — Branding na tela Acesso Admin
+- `/admin` com cabeçalho padronizado (logo + título + chip Admin).
 
-### Paciente
-- Header: removido “Olá,”, melhorado telefone, contraste do menu.
-- Próximo atendimento: melhor leitura no mobile + destaque sutil.
-- Contrato: card não aparece quando OK; leitura segue no menu.
-- Agenda: corrigidos truncamentos no mobile; removido “Upload: …”; ficou “Agenda atualizada em {data/hora}”.
-- Diário Rápido: hierarquia clínica + textarea melhor + chips de reflexão + status de salvamento.
-- Diário: preview das 2 últimas + histórico modal com busca.
-- Diário: contexto da próxima sessão (data/hora).
-- Diário: “destaque” (pin) por paciente via localStorage.
-- **Admin removido do Paciente**: sem CTA no login e sem item no menu.
+## PASSO 25 — Gate de produção (segurança)
+- **Bloqueadores encontrados:** rotas sensíveis sem auth / segredo público; `.env.local` e arquivos sensíveis sem `.gitignore`.
+- **25.3 aplicado:** padrão **Authorization Bearer idToken + verifyIdToken + claim admin** em rotas sensíveis.
+- `.gitignore` adicionado; secrets migrados para ENV na Vercel.
+- Ajuste de env: `FIREBASE_ADMIN_SERVICE_ACCOUNT_B64`, `ADMIN_UID`, `ADMIN_PASSWORD`.
+- Hotfix build (route register): variável `auth` duplicada corrigida.
 
-### Admin
-- Dashboard centralizado em **Constância Terapêutica (30 dias)**.
-- Ações rápidas (ir para Presença/Faltas, Importação, Follow-ups).
-- Alerta de risco: pacientes com 2+ faltas.
-- Exibir Nome + telefone e botão copiar; período (7/30/90) persistido.
-- **Admin em rota dedicada**: acesso via **`/admin`**.
-- **Menu Admin com branding**: topo do sidebar com logo + "Lembrete Psi" + chip "Admin".
-- **Acesso Admin com branding**: tela de login em **`/admin`** com logo + "Lembrete Psi" + chip "Admin".
+## PASSO 26 — Backup local sem custo
+- Adicionado `npm run backup:local` (gera dump compactado em `./backups/`).
+- `backups/` ignorado no git.
+- Rotina sugerida: semanal, manter 8 semanas.
 
-### Branding Permittá
-- Logo da Permittá aplicado na tela de login.
-- Paleta Permittá aplicada no sistema via skins CSS:
-  - `.skin-patient` e `.skin-admin`
-  - Harmonização de fundos/brancos/bordas/sombras
-  - Contraste de textos/ícones
-  - Estados (hover/focus/ring/disabled)
-  - Alertas preservados (red/amber/green)
-- Auditoria de cores: removidos resíduos `blue/sky/orange` remanescentes em componentes.
+## PASSO 27 — Saúde do Sistema (Admin)
+- Card “Saúde do Sistema” no Dashboard Admin.
+- Backup local registra timestamp em Firestore e aparece no card.
 
-### Diretrizes
-- Biblioteca de frases base: `docs/35_BIBLIOTECA_DE_FRASES_BASE.md`
-- Resumo do chat: `docs/36_ATUALIZACAO_2026-02-14.md`
-- Passo 21 detalhado: `docs/40_PASSO_21_AUDITORIA_CORES.md`
-- Passo 21 executado: `docs/41_ATUALIZACAO_2026-02-14_PASSO_21.md`
-- Passo 22 (Admin em /admin): `docs/42_PASSO_22_ADMIN_EM_ADMIN_ROUTE.md`
-- Passo 23 (menu Admin branding): `docs/44_PASSO_23_MENU_ADMIN_BRANDING.md`
-- Passo 24 (Acesso Admin branding): `docs/46_PASSO_24_ACESSO_ADMIN_BRANDING.md`
+## PASSO 28 — Rate limit + Audit log
+- Rate limit best-effort (in-memory) em rotas admin e endpoints sensíveis.
+- Audit log em `audit_logs` para ações críticas.
+- Hotfix build: duplicidade `rl` em `patients/list` corrigida.
 
-## Próximo passo
-Escolher o próximo item do backlog (ex.: revisão completa do fluxo mobile no Android/Capacitor, pendências de segurança/Rules, ou evolução do painel de constância/presença/faltas).
+## PASSO 28.2 — Aba Auditoria no Admin
+- Nova aba para visualizar `audit_logs` com filtros/busca/paginação.
+- Hotfix: arquivo `AdminAuditTab` e rota `/api/admin/audit/list` adicionados.
+
+## PASSO 29.1 — Contenção de danos (patch entregue)
+- CORS restrito para rotas admin (aceitar apenas origem do domínio).
+- Retry seguro no Admin (mensagens genéricas para usuário).
+- Fail-safe: registrar `audit_logs` com `status=error` + `requestId` quando falhar.
+
+---
+
+## Próximo passo sugerido
+- **PASSO 29.2**: validar em produção (CORS/origin, erros padronizados, fail-safe) e ajustar edge-cases.

@@ -39,6 +39,6 @@ export async function POST(req) {
     return NextResponse.json({ ok: true, token });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ ok: false, error: e.message || "Erro" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Erro interno." }, { status: 500 });
   }
 }

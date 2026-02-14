@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { adminError } from "@/lib/server/adminError";
+
 export const runtime = "nodejs";
 /**
  * GET /api/admin/attendance/summary?days=7|30|90
  *
  * Server-side (Admin SDK) para evitar "Missing or insufficient permissions" no client.
  * Retorna estatísticas agregadas de attendance_logs no período.
- *
- * NÃO cria/permite reagendar/cancelar.
  */
 
 function getServiceAccount() {
@@ -46,11 +47,20 @@ function pickTimestamp(data) {
 }
 
 export async function GET(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:attendance:summary",
+      uid: auth.uid,
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (!rl.ok) return rl.res;
 
     const { searchParams } = new URL(req.url);
     const days = clampDays(searchParams.get("days"));
@@ -121,7 +131,6 @@ export async function GET(req) {
       { status: 200 }
     );
   } catch (e) {
-    console.error("GET /api/admin/attendance/summary error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "attendance_summary", err: e });
   }
 }

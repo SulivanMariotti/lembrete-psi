@@ -9,11 +9,13 @@ import {
   Users,
   Settings,
   History,
+  ShieldCheck,
   LogOut,
 } from 'lucide-react';
 
 import AdminDashboardTab from './AdminDashboardTab';
 import AdminHistoryTab from './AdminHistoryTab';
+import AdminAuditTab from './AdminAuditTab';
 import AdminPatientsTab from './AdminPatientsTab';
 import AdminAttendanceTab from './AdminAttendanceTab';
 import AdminScheduleTab from './AdminScheduleTab';
@@ -476,6 +478,17 @@ export default function AdminPanelView({
             </button>
 
             <button
+              onClick={() => setAdminTab('audit')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                adminTab === 'audit'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-200'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <ShieldCheck size={18} /> Auditoria
+            </button>
+
+            <button
               onClick={() => setAdminTab('config')}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 adminTab === 'config'
@@ -502,6 +515,7 @@ export default function AdminPanelView({
             attendanceError={attendanceError}
             attendanceStats={attendanceStats}
             patientNameByPhone={patientNameByPhone}
+            historyLogs={historyLogs}
             onGoToAttendance={goToAttendance}
             onGoToAttendanceImport={goToAttendanceImport}
             onGoToAttendanceFollowups={goToAttendanceFollowups}
@@ -547,6 +561,8 @@ export default function AdminPanelView({
         {adminTab === 'users' && <AdminPatientsTab subscribers={subscribers} showToast={showToast} globalConfig={globalConfig} />}
 
         {adminTab === 'history' && <AdminHistoryTab historyLogs={historyLogs} />}
+
+        {adminTab === 'audit' && <AdminAuditTab showToast={showToast} />}
 
         {adminTab === 'config' && (
           <AdminConfigTab

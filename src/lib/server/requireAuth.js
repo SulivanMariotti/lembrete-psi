@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
+import { unauthorized } from "@/lib/server/adminError";
 
 /**
  * requireAuth(req)
@@ -16,25 +16,16 @@ export async function requireAuth(req) {
     const idToken = match?.[1]?.trim();
 
     if (!idToken) {
-      return {
-        ok: false,
-        res: NextResponse.json({ ok: false, error: "Missing Authorization token." }, { status: 401 }),
-      };
+      return { ok: false, res: unauthorized() };
     }
 
     const decoded = await admin.auth().verifyIdToken(idToken);
     if (!decoded?.uid) {
-      return {
-        ok: false,
-        res: NextResponse.json({ ok: false, error: "Invalid token." }, { status: 401 }),
-      };
+      return { ok: false, res: unauthorized() };
     }
 
     return { ok: true, decoded };
   } catch (_) {
-    return {
-      ok: false,
-      res: NextResponse.json({ ok: false, error: "Invalid token." }, { status: 401 }),
-    };
+    return { ok: false, res: unauthorized() };
   }
 }

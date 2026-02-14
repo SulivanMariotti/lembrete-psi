@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import crypto from "crypto";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 
 function getServiceAccount() {
@@ -30,12 +33,22 @@ function onlyDigits(v) {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
     const uid = auth.uid;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:push:register",
+      uid,
+      limit: 60,
+      windowMs: 60_000,
+    });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json().catch(() => ({}));
     const token = String(body?.token || "");
@@ -81,9 +94,16 @@ export async function POST(req) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    await logAdminAudit({
+      req,
+      actorUid: uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "push_register",
+      target: phone,
+    });
+
     return NextResponse.json({ ok: true, phone });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "push_register", err: e });
   }
 }

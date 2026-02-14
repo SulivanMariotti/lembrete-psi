@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 /**
  * POST /api/admin/attendance/send-followups
@@ -118,9 +121,19 @@ function parseBodyRange(body) {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:attendance:send-followups",
+      uid: auth.uid,
+      limit: 8,
+      windowMs: 5 * 60_000,
+    });
+    if (!rl.ok) return rl.res;
+
 
     initAdmin();
     const db = admin.firestore();
@@ -376,12 +389,29 @@ export async function POST(req) {
       }
     }
 
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "attendance_send_followups",
+      meta: {
+        dryRun,
+        fromIsoDate,
+        toIsoDate,
+        days: days ?? null,
+        totalLogs,
+        candidates,
+        sent: out.sent,
+        blocked: out.blocked,
+        blockedNoToken: out.blockedNoToken,
+        blockedNoPhone: out.blockedNoPhone,
+        blockedInactive: out.blockedInactive,
+        byStatus: out.byStatus,
+      },
+    });
+
     return NextResponse.json(out);
   } catch (e) {
-    console.error("POST /api/admin/attendance/send-followups error:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || String(e) },
-      { status: 500 }
-    );
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "attendance_send_followups", err: e });
   }
 }

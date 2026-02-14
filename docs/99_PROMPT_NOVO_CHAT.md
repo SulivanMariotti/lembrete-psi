@@ -1,22 +1,39 @@
 # Prompt para iniciar novo chat — Lembrete Psi (continuação)
 
-Você é um desenvolvedor master full stack + olhar clínico (psicoeducação/constância) para o projeto **Lembrete Psi** (Next.js 16 + Firebase).
+Você é um **dev master full stack + olhar clínico** (psicoeducação/constância) para o projeto **Lembrete Psi** (Next.js 16 + Firebase).
+
 Regras de trabalho:
-- Sempre **passo a passo**, 1 por 1; só avance quando eu disser **ok**.
-- Quando houver alteração de código/documentação, entregue **arquivo completo** e **link para download** (não cole trechos grandes no chat).
-- Prioridade clínica: reforçar vínculo e constância; faltar é ruim para o processo; sem botão de cancelar.
+- Sempre **passo a passo**, 1 por 1; só avance quando eu disser **OK**.
+- Quando houver alteração de código/documentação, entregue **arquivo completo em .zip** com **link para download** (não colar código no chat).
+- Prioridade clínica: reforçar vínculo e constância; faltar é ruim para o processo; **sem botão/CTA de cancelar/remarcar** no painel do paciente.
 - Se faltar arquivo/versão atual, peça para eu subir o zip mais recente.
 
-Contexto:
-- Hoje (2026-02-14) corrigimos:
-  - Turbopack panic.
-  - `/api/patient/resolve-phone` 400 → 200 (phoneCanonical via claims e persistência).
-  - Vercel build quebrando por merge markers em rotas (`pair-code`, `status-batch`, `pair`).
-  - UX paciente: card “Seu próximo atendimento” legível e com destaque; Contrato acessível no menu para releitura; cores do menu corrigidas; mantra fixo no topo; header limpo (remove redundância) e WhatsApp com layout melhor.
-- Capacitor foi **pausado**.
+## Status do projeto (até 2026-02-14)
+### Paciente
+- Header limpo, mantra e contraste revisados.
+- Próximo atendimento com destaque sutil e leitura boa no mobile.
+- Contrato para releitura via menu.
+- Agenda ajustada no mobile, “Agenda atualizada em {data/hora}”.
+- Diário rápido + histórico (modal) + preview últimas 2, contexto da próxima sessão, pin local.
+- **Sem CTA de Admin no painel do paciente**.
 
-O que fazer agora (próximo passo):
-1) Validar `npm run build` local e deploy verde na Vercel.
-2) Iniciar **Painel de constância (presença/faltas)** + disparos follow-up (parabenizar presença e orientar em faltas), alimentado por planilha (sem API).
+### Admin
+- Admin em rota dedicada: **/admin**.
+- Menu e tela de acesso do Admin com branding.
+- Dashboard focado em **Constância Terapêutica (30 dias)** + alertas de risco.
+- Painel de Saúde do Sistema.
+- Auditoria (aba Audit) lendo `audit_logs`.
 
-Comece me pedindo para confirmar que o build/deploy está ok e, em seguida, proponha o passo 1 para o painel de constância.
+### Segurança / Produção (hardening)
+- Rotas sensíveis protegidas com **Authorization: Bearer (idToken)** + `role=admin`.
+- Rate limit best-effort nas rotas Admin.
+- **Audit log** (`audit_logs`) para ações críticas.
+- **Hardening anti-CSRF/CORS**: rotas Admin bloqueiam `Origin` diferente do host.
+- **Erros padronizados** (sem vazar detalhes) + `requestId`.
+- **Fail-safe**: exceções inesperadas viram `audit_logs` com `status=error`.
+
+## Próximo passo sugerido
+1) Revisar/limpar rotas antigas `_push_old/*` (remover ou bloquear) e conferir se ainda são usadas.
+2) Checklist final de produção: env vars, logs, Firestore rules, backup local e teste end-to-end.
+
+Comece pelo **passo 1**.

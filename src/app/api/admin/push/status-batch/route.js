@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
@@ -38,11 +40,16 @@ function toPhoneCanonical(raw) {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, { bucket: "admin:push:status-batch", uid: auth.uid, limit: 60, windowMs: 60_000 });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json().catch(() => ({}));
     const phonesRaw = Array.isArray(body.phones) ? body.phones : [];
@@ -70,6 +77,6 @@ export async function POST(req) {
 
     return NextResponse.json({ ok: true, byPhone, count: Object.keys(byPhone).length });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: err?.message || "status-batch failed" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "push_status_batch", err });
   }
 }

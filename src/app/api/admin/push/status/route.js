@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
@@ -24,12 +26,17 @@ function onlyDigits(v) {
 }
 
 export async function GET(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
     const uid = auth.uid;
+
+    const rl = await rateLimit(req, { bucket: "admin:push:status", uid, limit: 120, windowMs: 60_000 });
+    if (!rl.ok) return rl.res;
+
 
     const userSnap = await admin.firestore().collection("users").doc(uid).get();
     const userData = userSnap.exists ? userSnap.data() : null;
@@ -49,7 +56,6 @@ export async function GET(req) {
       phone,
     });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "push_status", err: e });
   }
 }

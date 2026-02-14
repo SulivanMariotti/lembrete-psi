@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 /**
  * POST /api/admin/patient/register
@@ -53,12 +56,22 @@ async function findUserDocByExternalId(db, patientExternalId) {
 }
 
 export async function POST(req) {
+  let gate = null;
   try {
     initAdmin();
 
     // Gatekeeper: valida Bearer token + custom claim role=admin
-    const gate = await requireAdmin(req);
+    gate = await requireAdmin(req);
     if (!gate.ok) return gate.res;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:patient:register",
+      uid: gate.uid,
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json().catch(() => ({}));
     const name = String(body.name || "").trim();
@@ -228,9 +241,17 @@ export async function POST(req) {
       patientExternalId,
     });
 
+    await logAdminAudit({
+      req,
+      actorUid: gate.uid,
+      actorEmail: gate.decoded?.email || null,
+      action: "patient_register_upsert",
+      target: uid,
+      meta: { patientExternalId, phoneCanonical, previousPhoneCanonical: previousPhoneCanonical || null, previousEmail: previousEmail || null },
+    });
+
     return NextResponse.json({ ok: true, uid, phoneCanonical }, { status: 200 });
   } catch (e) {
-    console.error("POST /api/admin/patient/register error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: gate?.ok ? gate : null, action: "patient_register", err: e });
   }
 }

@@ -23,6 +23,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# backups (NUNCA commitar dados de paciente)
+backups/
+*.jsonl.gz
+
 # OS
 .DS_Store
 Thumbs.db

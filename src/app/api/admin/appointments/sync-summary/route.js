@@ -1,21 +1,16 @@
 import { NextResponse } from 'next/server';
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
+
 export const runtime = "nodejs";
 /**
  * PASSO 27/45 — Server-side log do resumo de sincronização
  *
  * Endpoint: POST /api/admin/appointments/sync-summary
  * Proteção: Authorization Bearer (idToken) + role admin
- *
- * Body esperado:
- * {
- *   uploadId: string,
- *   totalAppointments: number,
- *   uniquePatients: number,
- *   dateRange?: { firstISO?: string|null, lastISO?: string|null },
- *   fallbackServiceCount?: number
- * }
  */
 
 function getServiceAccount() {
@@ -36,11 +31,20 @@ function initAdmin() {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:appointments:sync-summary",
+      uid: auth.uid,
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (!rl.ok) return rl.res;
 
     const body = await req.json().catch(() => ({}));
 
@@ -69,9 +73,17 @@ export async function POST(req) {
       createdAt: now,
     });
 
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "appointments_sync_summary",
+      target: uploadId,
+      meta: { totalAppointments, uniquePatients, fallbackServiceCount, firstISO, lastISO },
+    });
+
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || 'Erro' }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "appointments_sync_summary", err: e });
   }
 }

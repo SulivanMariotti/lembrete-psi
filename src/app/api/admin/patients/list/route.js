@@ -4,6 +4,8 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { adminError } from "@/lib/server/adminError";
 /**
  * Admin API: List Patients (server-side via Firebase Admin SDK)
  *
@@ -177,18 +179,15 @@ async function listPatientsStrict({ limit, includePush }) {
   return { rawCount: raw.length, count: patients.length, patients };
 }
 
-function jsonError(err) {
-  const status = err?.statusCode || 500;
-  return NextResponse.json(
-    { ok: false, error: err?.message || "Unknown error", status },
-    { status }
-  );
-}
-
 export async function POST(req) {
+  let auth = null;
   try {
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, { bucket: 'admin:patients:list', uid: auth.uid, limit: 120, windowMs: 60_000 });
+    if (!rl.ok) return rl.res;
+
 
     let body = {};
     try {
@@ -203,13 +202,14 @@ export async function POST(req) {
     const out = await listPatientsStrict({ limit, includePush });
     return NextResponse.json({ ok: true, ...out }, { status: 200 });
   } catch (err) {
-    return jsonError(err);
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "patients_list", err });
   }
 }
 
 export async function GET(req) {
+  let auth = null;
   try {
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
 
     const url = new URL(req.url);
@@ -219,6 +219,6 @@ export async function GET(req) {
     const out = await listPatientsStrict({ limit, includePush });
     return NextResponse.json({ ok: true, ...out }, { status: 200 });
   } catch (err) {
-    return jsonError(err);
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "patients_list", err });
   }
 }

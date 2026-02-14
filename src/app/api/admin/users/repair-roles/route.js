@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 // POST /api/admin/users/repair-roles
 // Corrige docs legados em users/{uid} que ficaram com role ausente (null/undefined),
@@ -14,9 +17,14 @@ function isTruthy(v) {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, { bucket: "admin:users:repair-roles", uid: auth.uid, limit: 5, windowMs: 10 * 60_000 });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json().catch(() => ({}));
     const limit = Math.min(Math.max(Number(body?.limit || 500), 1), 2000);
@@ -100,6 +108,14 @@ export async function POST(req) {
       console.warn('[repair-roles] failed to write history log', e);
     }
 
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "users_repair_roles",
+      meta: { dryRun, limit, scanned, updated, skipped },
+    });
+
     return NextResponse.json({
       ok: true,
       dryRun,
@@ -108,7 +124,6 @@ export async function POST(req) {
       skipped,
     });
   } catch (e) {
-    console.error('[admin/users/repair-roles] error', e);
-    return NextResponse.json({ ok: false, error: 'Internal error' }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: 'users_repair_roles', err: e });
   }
 }

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
@@ -84,12 +87,17 @@ function resolveReminderTitle(cfg, reminderType) {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
     initAdmin();
 
     // Protege endpoint legado (/api/send) — envio de push é ação sensível.
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, { bucket: "admin:send:legacy", uid: auth.uid, limit: 8, windowMs: 5 * 60_000 });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json();
     const items = Array.isArray(body?.items) ? body.items : [];
@@ -177,6 +185,14 @@ export async function POST(req) {
       errors: errors.slice(0, 10),
     });
 
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "legacy_send_push",
+      meta: { sent, skippedNoPhone, skippedNoMessage, skippedNoToken, types },
+    });
+
     if (sent === 0) {
       // ✅ mensagem mais verdadeira do motivo
       const reason =
@@ -200,7 +216,6 @@ export async function POST(req) {
       skippedNoToken,
     });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "legacy_send", err: e });
   }
 }

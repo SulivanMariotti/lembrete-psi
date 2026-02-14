@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 /**
  * PASSO 32/45 — Disparar lembretes (server-side) usando templates msg1/msg2/msg3
@@ -186,11 +189,21 @@ async function sendWithConcurrency(messaging, messages, concurrency = 20) {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:reminders:send",
+      uid: auth.uid,
+      limit: 8,
+      windowMs: 5 * 60_000,
+    });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json().catch(() => ({}));
     const uploadId = body?.uploadId ? String(body.uploadId) : null;
@@ -407,6 +420,24 @@ export async function POST(req) {
       createdAt: now,
     });
 
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "reminders_send",
+      target: uploadId || null,
+      meta: {
+        uploadId: uploadId || null,
+        phonesTotal: phones.length,
+        messagesTotal: messages.length,
+        sentCount,
+        failCount,
+        skippedInactive,
+        skippedInactivePatient,
+        skippedNoToken,
+      },
+    });
+
     return NextResponse.json({
       ok: true,
       sentCount,
@@ -420,7 +451,6 @@ export async function POST(req) {
       messagesPrepared: messages.length,
     });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "reminders_send", err: e });
   }
 }

@@ -3,23 +3,16 @@ import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import crypto from "crypto";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
+
 export const runtime = "nodejs";
 
 /**
  * POST /api/admin/patient/pair-code
  *
  * Gera um código único (não armazenado em texto puro) para o paciente vincular o aparelho.
- * - Armazena apenas hash + salt no users/{uid}
- * - Retorna o código UMA vez (para o Admin copiar e entregar ao paciente)
- *
- * Segurança:
- * - Authorization Bearer (idToken) + role admin
- *
- * Body:
- * { uid: string }
- *
- * Resposta:
- * { ok: true, uid, pairCode, last4 }
  */
 
 function getServiceAccount() {
@@ -37,7 +30,7 @@ function initAdmin() {
 
 function generateReadableCode() {
   // 80 bits de entropia: suficiente para evitar brute force.
-  // Formato amigável: XXXX-XXXX-XXXX (A-Z0-9, sem caracteres especiais).
+  // Formato amigável: XXXX-XXXX-XXXX (A-Z0-9).
   const raw = crypto.randomBytes(10).toString("base64");
   const clean = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
   const s = (clean + "000000000000").slice(0, 12);
@@ -48,18 +41,19 @@ function sha256Hex(input) {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-function jsonError(err) {
-  const status = err?.statusCode || 500;
-  return NextResponse.json(
-    { ok: false, error: err?.message || "Unknown error", status },
-    { status }
-  );
-}
-
 export async function POST(req) {
+  let auth = null;
   try {
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:patient:pair-code",
+      uid: auth.uid,
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (!rl.ok) return rl.res;
 
     const body = await req.json().catch(() => ({}));
     const uid = String(body?.uid || "").trim();
@@ -99,7 +93,7 @@ export async function POST(req) {
       { merge: true }
     );
 
-    // Auditoria (opcional, mas útil)
+    // Auditoria (histórico)
     await db.collection("history").add({
       type: "patient_pair_code_issued",
       createdAt: now,
@@ -111,14 +105,21 @@ export async function POST(req) {
       },
     });
 
-    return NextResponse.json({
-      ok: true,
-      uid,
-      pairCode,
-      last4: pairCode.slice(-4),
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "patient_pair_code_issued",
+      target: uid,
+      meta: {
+        patientExternalId: d?.patientExternalId ?? null,
+        phoneCanonical: d?.phoneCanonical ?? null,
+        last4: pairCode.slice(-4),
+      },
     });
+
+    return NextResponse.json({ ok: true, uid, pairCode, last4: pairCode.slice(-4) });
   } catch (err) {
-    console.error(err);
-    return jsonError(err);
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "patient_pair_code", err });
   }
 }

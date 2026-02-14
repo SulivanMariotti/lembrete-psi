@@ -32,6 +32,12 @@
 - `src/components/Admin/AdminDashboardTab.js`
 - `src/components/Admin/AdminAttendanceTab.js`
 
+### Passo 27 — Saúde do Sistema (dashboard)
+- `src/components/Admin/AdminDashboardTab.js`
+- `src/components/Admin/AdminPanelView.js`
+- `src/app/api/admin/system/health/route.js`
+- `scripts/backup-firestore.mjs`
+
 ### Passo 23 — Menu Admin (branding)
 - `src/components/Admin/AdminPanelView.js`
 
@@ -68,6 +74,28 @@
 - `docs/43_ATUALIZACAO_2026-02-14_PASSO_22.md`
 - `docs/44_PASSO_23_MENU_ADMIN_BRANDING.md`
 - `docs/45_ATUALIZACAO_2026-02-14_PASSO_23.md`
+- `docs/50_PASSO_27_PAINEL_SAUDE_SISTEMA.md`
+- `docs/51_ATUALIZACAO_2026-02-14_PASSO_27.md`
+
+### Passo 28 — Rate limit + Audit log + Aba Audit
+- `src/lib/server/rateLimit.js`
+- `src/lib/server/auditLog.js`
+- `src/components/Admin/AdminPanelView.js`
+- `src/components/Admin/AdminAuditTab.js`
+- `src/app/api/admin/audit/list/route.js`
+
+### Passo 29.1 — CORS (origem) + retry seguro + fail-safe
+- `src/lib/server/requireAdmin.js`
+- `src/lib/server/requireAuth.js`
+- `src/lib/server/adminError.js` (novo)
+- `src/services/adminApi.js`
+- `src/app/api/admin/**/route.js` (vários catch padronizados)
+- `src/app/api/send/route.js`
+- `src/app/api/attendance/import/route.js`
+- `docs/57_PASSO_29_1_CORS_RETRY_FAILSAFE.md`
+- `docs/58_ATUALIZACAO_2026-02-14_PASSO_29_1.md`
+- `docs/39_PROMPT_NOVO_CHAT_2026-02-14.md`
+- `docs/99_PROMPT_NOVO_CHAT.md`
 
 ---
 

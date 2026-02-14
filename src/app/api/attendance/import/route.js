@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 /**
  * POST /api/admin/attendance/import
@@ -101,11 +104,16 @@ function makeAttendanceId({ phoneCanonical, isoDate, appointmentId }) {
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, { bucket: "admin:attendance:import:legacy", uid: auth.uid, limit: 10, windowMs: 5 * 60_000 });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json().catch(() => ({}));
 
@@ -209,12 +217,19 @@ export async function POST(req) {
       sampleErrors: errors.slice(0, 10),
     });
 
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "attendance_import_commit_legacy",
+      meta: { source, imported, skipped },
+    });
+
     return NextResponse.json(
       { ok: true, imported, skipped, errors: errors.slice(0, 50) },
       { status: 200 }
     );
   } catch (e) {
-    console.error("POST /api/admin/attendance/import error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "attendance_import_legacy", err: e });
   }
 }

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Users,
@@ -11,8 +11,11 @@ import {
   Send,
   ArrowRight,
   Copy,
+  ShieldCheck,
+  Database,
 } from 'lucide-react';
 import { Card, StatCard, Button } from '../DesignSystem';
+import { adminFetch } from '../../services/adminApi';
 
 export default function AdminDashboardTab({
   activeUsersCount = 0,
@@ -31,6 +34,9 @@ export default function AdminDashboardTab({
   onGoToAttendance = () => {},
   onGoToAttendanceImport = () => {},
   onGoToAttendanceFollowups = () => {},
+
+  // Histórico (para saúde do sistema)
+  historyLogs = [],
 }) {
   const atRisk = useMemo(() => {
     const rows = Array.isArray(attendanceStats?.topAbsent) ? attendanceStats.topAbsent : [];
@@ -50,8 +56,155 @@ export default function AdminDashboardTab({
     }
   };
 
+  // -------- Saúde do sistema (backup + operações recentes) --------
+  const [healthLoading, setHealthLoading] = useState(true);
+  const [healthError, setHealthError] = useState(null);
+  const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      setHealthLoading(true);
+      setHealthError(null);
+      try {
+        const res = await adminFetch('/api/admin/system/health', { method: 'GET' });
+        const data = await res.json().catch(() => ({}));
+        if (!mounted) return;
+        if (!res.ok || !data?.ok) {
+          setHealth(null);
+          setHealthError(data?.error || 'Falha ao carregar saúde do sistema.');
+        } else {
+          setHealth(data?.health || null);
+        }
+      } catch (e) {
+        if (!mounted) return;
+        setHealth(null);
+        setHealthError('Falha ao carregar saúde do sistema.');
+      } finally {
+        if (mounted) setHealthLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const formatDT = (iso) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(d);
+    } catch (_) {
+      return iso;
+    }
+  };
+
+  const formatFromMillis = (ms) => {
+    if (!ms) return '—';
+    try {
+      const d = new Date(Number(ms));
+      return new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(d);
+    } catch (_) {
+      return '—';
+    }
+  };
+
+  const lastAttendanceImport = useMemo(() => {
+    const logs = Array.isArray(historyLogs) ? historyLogs : [];
+    return logs.find((l) => String(l?.type || '').trim() === 'attendance_import_summary') || null;
+  }, [historyLogs]);
+
+  const lastAgendaSync = useMemo(() => {
+    const logs = Array.isArray(historyLogs) ? historyLogs : [];
+    return logs.find((l) => String(l?.type || '').trim() === 'appointments_sync_summary') || null;
+  }, [historyLogs]);
+
+  const pushFails24h = useMemo(() => {
+    const logs = Array.isArray(historyLogs) ? historyLogs : [];
+    const now = Date.now();
+    const since = now - 24 * 60 * 60 * 1000;
+    return logs.filter((l) => {
+      const t = Number(l?.__sortAt || 0);
+      return t >= since && String(l?.type || '').trim() === 'push_reminder_failed';
+    }).length;
+  }, [historyLogs]);
+
   return (
     <>
+      {/* Saúde do Sistema */}
+      <Card title="Saúde do Sistema" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-start gap-3">
+              <Database size={18} className="text-slate-600 mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-500 uppercase">Último backup</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">
+                  {healthLoading ? 'Carregando…' : formatDT(health?.lastBackup?.atIso)}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {healthLoading
+                    ? '—'
+                    : health?.lastBackup
+                    ? health?.lastBackup?.ok
+                      ? `OK • ${Number(health.lastBackup.documentsTotal || 0)} docs`
+                      : `Atenção • ${Number(health.lastBackup.collectionsError || 0)} coleção(ões) com falha`
+                    : 'Ainda não registrado. Rode: npm run backup:local'}
+                </div>
+                {healthError && <div className="mt-1 text-xs text-red-600">{healthError}</div>}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck size={18} className="text-slate-600 mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-500 uppercase">Risco + Operações</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">
+                  Risco (2+ faltas): {atRisk.length}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Falhas de lembretes (24h): {pushFails24h}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Leitura clínica: risco sugere ruptura/evitação; falhas de envio indicam problema operacional.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-start gap-3">
+              <Upload size={18} className="text-slate-600 mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-500 uppercase">Importações recentes</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">
+                  Presença/Faltas: {lastAttendanceImport ? formatFromMillis(lastAttendanceImport?.__sortAt) : '—'}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Agenda: {lastAgendaSync ? formatFromMillis(lastAgendaSync?.__sortAt) : '—'}
+                </div>
+                <div className="mt-2">
+                  <Button variant="secondary" onClick={onGoToAttendanceImport} icon={ArrowRight} className="w-full">
+                    Abrir importação
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       {/* Constância Terapêutica (centro do dashboard) */}
       <Card title="Constância Terapêutica" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">

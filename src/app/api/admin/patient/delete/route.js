@@ -2,6 +2,9 @@
 import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { requireAdmin } from "@/lib/server/requireAdmin";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { logAdminAudit } from "@/lib/server/auditLog";
+import { adminError } from "@/lib/server/adminError";
 export const runtime = "nodejs";
 /**
  * Admin server-side: desativar (soft-delete) paciente
@@ -94,11 +97,21 @@ async function findUserDocIds(db, { uid, email, phoneCanonical, patientExternalI
 }
 
 export async function POST(req) {
+  let auth = null;
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
+    auth = await requireAdmin(req);
     if (!auth.ok) return auth.res;
+
+    const rl = await rateLimit(req, {
+      bucket: "admin:patient:delete",
+      uid: auth.uid,
+      limit: 20,
+      windowMs: 60_000,
+    });
+    if (!rl.ok) return rl.res;
+
 
     const body = await req.json().catch(() => ({}));
 
@@ -150,6 +163,14 @@ export async function POST(req) {
         createdAt: now,
       });
 
+      await logAdminAudit({
+        req,
+        actorUid: auth.uid,
+        actorEmail: auth.decoded?.email || null,
+        action: "patient_deactivate_not_found",
+        meta: { uid, email, phoneCanonical, patientExternalId, reason },
+      });
+
       return NextResponse.json(
         { ok: false, error: "User not found in users collection", userDocIds: [] },
         { status: 404 }
@@ -182,9 +203,17 @@ export async function POST(req) {
       createdAt: now,
     });
 
+    await logAdminAudit({
+      req,
+      actorUid: auth.uid,
+      actorEmail: auth.decoded?.email || null,
+      action: "patient_deactivate",
+      target: userDocIds.join(","),
+      meta: { uid, email, phoneCanonical, patientExternalId, reason, updatedDocs: userDocIds.length },
+    });
+
     return NextResponse.json({ ok: true, userDocIds, phoneCanonical, email, patientExternalId });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return adminError({ req, auth: auth?.ok ? auth : null, action: "patient_delete", err: e });
   }
 }
