@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Plus, Trash2, CheckCircle, Loader2, Sparkles, History } from "lucide-react";
+import { Search, Plus, Trash2, CheckCircle, Loader2, Sparkles, History, CalendarCheck } from "lucide-react";
 
 import { Button, Card } from "../../../components/DesignSystem";
 import InlineLoading from "./InlineLoading";
@@ -25,7 +25,7 @@ const QUICK_PROMPTS = [
   { label: "Algo que me ativou", value: "Uma situação que me ativou e como eu reagi: " },
 ];
 
-export default function PatientNotesCard({ notes, loadingNotes, saveNote, deleteNote, showToast, error = null, onRetry = null }) {
+export default function PatientNotesCard({ notes, loadingNotes, saveNote, deleteNote, showToast, error = null, onRetry = null, nextSessionDateTimeLabel = null }) {
   const [historySearch, setHistorySearch] = useState("");
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -134,6 +134,14 @@ export default function PatientNotesCard({ notes, loadingNotes, saveNote, delete
             <div className="text-xs text-slate-600 mt-1">
               A evolução acontece na continuidade.
             </div>
+
+            {nextSessionDateTimeLabel ? (
+              <div className="mt-2 inline-flex items-center gap-2 text-xs text-slate-700">
+                <CalendarCheck size={14} className="text-violet-600" />
+                <span>Para sua próxima sessão:</span>
+                <span className="font-semibold text-slate-900">{nextSessionDateTimeLabel}</span>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">

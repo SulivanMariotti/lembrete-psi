@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 
 import { onlyDigits, toCanonical, normalizeWhatsappPhone } from "../../features/patient/lib/phone";
-import { brDateParts, addMinutes, relativeLabelForDate } from "../../features/patient/lib/dates";
+import { brDateParts, addMinutes, relativeLabelForDate, formatDateTimeBR } from "../../features/patient/lib/dates";
 import { makeIcsDataUrl, startDateTimeFromAppointment } from "../../features/patient/lib/ics";
 
 import { prettyServiceLabel, getServiceTypeFromAppointment, getLocationFromAppointment, statusChipFor } from "../../features/patient/lib/appointments";
@@ -408,6 +408,13 @@ useEffect(() => {
     return dt ? relativeLabelForDate(dt) : null;
   }, [nextAppointment]);
 
+
+  const nextSessionDateTimeLabel = useMemo(() => {
+    const dt = nextAppointment ? startDateTimeFromAppointment(nextAppointment) : null;
+    return dt ? formatDateTimeBR(dt.getTime()) : null;
+  }, [nextAppointment]);
+
+
   const nextIsConfirmed = useMemo(() => {
     if (!nextAppointment?.id) return false;
     return confirmedIds.has(String(nextAppointment.id));
@@ -525,6 +532,7 @@ useEffect(() => {
           {/* Diário */}
           <PatientNotesCard
             notes={notes}
+            nextSessionDateTimeLabel={nextSessionDateTimeLabel}
             loadingNotes={loadingNotes}
             saveNote={saveNote}
             deleteNote={deleteNote}
