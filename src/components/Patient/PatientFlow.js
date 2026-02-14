@@ -37,7 +37,7 @@ import { usePushStatus } from "../../features/patient/hooks/usePushStatus";
 
 // 🔹 Normaliza Timestamp/Date/string → millis
 
-export default function PatientFlow({ user, onLogout, onAdminAccess, globalConfig, showToast: showToastFromProps }) {
+export default function PatientFlow({ user, onLogout, globalConfig, showToast: showToastFromProps }) {
   
   // STEP42: o paciente não acessa a coleção subscribers no client
   const subscribers = null;
@@ -439,20 +439,19 @@ useEffect(() => {
       <div className={`min-h-screen bg-slate-50 ${needsContractAcceptance ? "pb-24" : "pb-10"}`}>
         <div className="max-w-5xl mx-auto px-4 pt-4 sm:pt-6 space-y-4 sm:space-y-6">
           {/* Header */}
-<PatientHeader
-  patientName={patientName}
-  patientPhone={resolvedPhone || cleanPhoneFromProfile}
-  devSwitchEnabled={DEV_SWITCH_ENABLED}
-  impersonatePhone={impersonatePhone}
-  setDevPanelOpen={setDevPanelOpen}
-  onAdminAccess={onAdminAccess}
-  onLogout={onLogout}
-  contractText={contractText}
-  needsContractAcceptance={needsContractAcceptance}
-  currentContractVersion={currentContractVersion}
-/>
+          <PatientHeader
+            patientName={patientName}
+            patientPhone={resolvedPhone || cleanPhoneFromProfile}
+            devSwitchEnabled={DEV_SWITCH_ENABLED}
+            impersonatePhone={impersonatePhone}
+            setDevPanelOpen={setDevPanelOpen}
+            onLogout={onLogout}
+            contractText={contractText}
+            needsContractAcceptance={needsContractAcceptance}
+            currentContractVersion={currentContractVersion}
+          />
 
-{/* DEV painel */}
+          {/* DEV painel */}
           {DEV_SWITCH_ENABLED && devPanelOpen && (
             <Card>
               <div className="flex items-start justify-between gap-3">

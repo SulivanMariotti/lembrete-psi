@@ -75,7 +75,7 @@ export const Badge = ({ status, text }) => {
     style = "bg-red-50 text-red-600 border-red-100";
     icon = <AlertTriangle size={14} />;
   } else if (status === 'time' || status === 'pending') {
-    style = "bg-blue-50 text-blue-600 border-blue-100";
+    style = "bg-slate-50 text-slate-700 border-slate-100";
     icon = <Clock size={14} />;
   } else if (status === 'signed') {
     style = "bg-emerald-50 text-emerald-600 border-emerald-100";

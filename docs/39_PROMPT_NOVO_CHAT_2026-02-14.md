@@ -19,7 +19,7 @@ O painel do paciente existe para **lembrar da sessão** e conscientizar sobre **
 - **Não** oferecer atalhos de contato (ex.: WhatsApp) na Agenda que facilitem cancelamento/remarcação.
 - Se houver WhatsApp no produto, apenas para **reforço de compromisso/confirmar presença**, nunca como CTA de cancelamento/remarcação.
 
-## O que foi feito neste chat (Passos 1–20)
+## O que foi feito neste chat (Passos 1–22)
 
 ### Paciente
 - Header: removido “Olá,”, melhorado telefone, contraste do menu.
@@ -30,12 +30,14 @@ O painel do paciente existe para **lembrar da sessão** e conscientizar sobre **
 - Diário: preview das 2 últimas + histórico modal com busca.
 - Diário: contexto da próxima sessão (data/hora).
 - Diário: “destaque” (pin) por paciente via localStorage.
+- **Admin removido do Paciente**: sem CTA no login e sem item no menu.
 
 ### Admin
 - Dashboard centralizado em **Constância Terapêutica (30 dias)**.
 - Ações rápidas (ir para Presença/Faltas, Importação, Follow-ups).
 - Alerta de risco: pacientes com 2+ faltas.
 - Exibir Nome + telefone e botão copiar; período (7/30/90) persistido.
+- **Admin em rota dedicada**: acesso via **`/admin`**.
 
 ### Branding Permittá
 - Logo da Permittá aplicado na tela de login.
@@ -45,17 +47,14 @@ O painel do paciente existe para **lembrar da sessão** e conscientizar sobre **
   - Contraste de textos/ícones
   - Estados (hover/focus/ring/disabled)
   - Alertas preservados (red/amber/green)
+- Auditoria de cores: removidos resíduos `blue/sky/orange` remanescentes em componentes.
 
 ### Diretrizes
 - Biblioteca de frases base: `docs/35_BIBLIOTECA_DE_FRASES_BASE.md`
 - Resumo do chat: `docs/36_ATUALIZACAO_2026-02-14.md`
 - Passo 21 detalhado: `docs/40_PASSO_21_AUDITORIA_CORES.md`
+- Passo 21 executado: `docs/41_ATUALIZACAO_2026-02-14_PASSO_21.md`
+- Passo 22 (Admin em /admin): `docs/42_PASSO_22_ADMIN_EM_ADMIN_ROUTE.md`
 
-## Próximo passo (PASSO 21)
-**Auditoria de resíduos de cor (opcional, recomendado):**
-
-1) Varredura em `src/` por classes/valores fora do padrão (ex.: `text-blue-*`, `bg-indigo-*`, `from-purple-*`, `violet-*` remanescentes, SVG com fill fixo, estilos inline).  
-2) Ajustar pontualmente para `brand-*` ou neutros, sem afetar alertas.  
-3) Entregar zip com correções.
-
-Comece pelo **Passo 21**.
+## Próximo passo
+Escolher o próximo item do backlog (ex.: revisão completa do fluxo mobile no Android/Capacitor, pendências de segurança/Rules, ou evolução do painel de constância/presença/faltas).

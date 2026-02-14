@@ -51,3 +51,12 @@ Garantir que **não restou** nenhuma cor “solta” fora do padrão Permittá a
 - Um `.md` com:
   - lista de ocorrências encontradas
   - o que foi alterado e por quê
+
+---
+
+## Status
+
+✅ **Concluído em 2026-02-14**.
+
+Relatório detalhado:
+- `docs/41_ATUALIZACAO_2026-02-14_PASSO_21.md`

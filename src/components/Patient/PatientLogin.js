@@ -4,9 +4,9 @@ import React, { useMemo, useState } from "react";
 import Image from "next/image";
 import { patientLoginByEmail, patientLoginByPairCode } from "../../services/authService";
 import { Button, Card } from "../DesignSystem";
-import { Mail, Lock, CheckCircle, Bell, CalendarCheck, NotebookPen, Info, Key } from "lucide-react";
+import { Mail, CheckCircle, Bell, CalendarCheck, NotebookPen, Info, Key } from "lucide-react";
 
-export default function PatientLogin({ onAdminAccess }) {
+export default function PatientLogin() {
   const [mode, setMode] = useState("code"); // code | email
 
   const [email, setEmail] = useState("");
@@ -236,17 +236,6 @@ export default function PatientLogin({ onAdminAccess }) {
                 <b>Importante:</b> este sistema existe para fortalecer a <b>constância</b>. Faltar interrompe o ritmo
                 do seu processo.
               </div>
-            </div>
-
-            {/* Acesso Admin */}
-            <div className="pt-2 border-t border-slate-100">
-              <button
-                onClick={onAdminAccess}
-                className="w-full text-sm text-slate-500 hover:text-slate-800 flex items-center justify-center gap-2"
-                type="button"
-              >
-                <Lock size={16} /> Acesso Admin
-              </button>
             </div>
           </div>
         </Card>

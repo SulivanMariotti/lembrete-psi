@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Button } from "../../../components/DesignSystem";
-import { Users, Shield, LogOut, FileText, X, Phone } from "lucide-react";
+import { Users, LogOut, FileText, X, Phone } from "lucide-react";
 import { formatPhoneBR } from "../lib/phone";
 
 export default function PatientHeader({
@@ -11,7 +11,6 @@ export default function PatientHeader({
   devSwitchEnabled,
   impersonatePhone,
   setDevPanelOpen,
-  onAdminAccess,
   onLogout,
 
   // Contrato (leitura futura no menu)
@@ -49,7 +48,6 @@ export default function PatientHeader({
             </div>
           ) : null}
 
-
           {devSwitchEnabled && impersonatePhone ? (
             <div className="mt-2 inline-flex items-center gap-2 text-[11px] px-2 py-1 rounded-full border border-amber-100 bg-amber-50 text-amber-900">
               <Users size={14} />
@@ -68,10 +66,6 @@ export default function PatientHeader({
 
           <Button onClick={() => setContractOpen(true)} variant="secondary" icon={FileText}>
             Contrato
-          </Button>
-
-          <Button onClick={onAdminAccess} variant="secondary" icon={Shield} className="text-slate-900 hover:text-slate-900">
-            Admin
           </Button>
 
           <Button onClick={onLogout} variant="secondary" icon={LogOut} className="text-slate-900 hover:text-slate-900">
@@ -107,16 +101,6 @@ export default function PatientHeader({
                 }}
               >
                 <FileText size={16} className="text-slate-600" /> Contrato
-              </button>
-
-              <button
-                className="w-full text-left px-4 py-3 text-sm text-slate-900 font-semibold hover:bg-slate-50 flex items-center gap-2"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onAdminAccess();
-                }}
-              >
-                <Shield size={16} className="text-slate-900" /> Admin
               </button>
 
               <button
