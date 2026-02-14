@@ -1,94 +1,44 @@
-<<<<<<< HEAD
-# Lembrete Psi — Onde paramos
+# Onde paramos — Lembrete Psi (2026-02-14)
 
-Data: **2026-02-13**
+## Status de hoje (encerrado)
+- Foco: **aprimoramento do WEB** (Capacitor ficou **pausado**).
+- Estabilidade: Turbopack voltou a funcionar sem “panic”.
+- Rotas do paciente/admin voltaram a responder corretamente (resolve-phone 200).
+- Vercel: corrigidos arquivos com **merge conflict markers** que estavam quebrando o build.
 
-## Missão (produto)
-Sustentar o vínculo terapêutico e reduzir faltas pela **constância**:
-- lembretes automáticos (48h, 24h, manhã)
-- psicoeducação no painel do paciente
-- responsabilização (contrato, constância, histórico/auditoria)
-- UX deliberada (sem “cancelar sessão” fácil; sessão como contrato)
+## Entregas concluídas hoje
+1) **Turbopack panic fix**
+   - Ajuste para evitar “FATAL: unexpected Turbopack error / panic log”.
+2) **Resolve Phone (patient)**
+   - `GET /api/patient/resolve-phone` estava 400 → agora **200**.
+   - Suporte a `phoneCanonical` vindo de claims / pareamento e persistência no `users/{uid}`.
+3) **Merge markers removidos (build local/Vercel)**
+   - Removidos `<<<<<<<`, `=======`, `>>>>>>>` nas rotas:
+     - `src/app/api/admin/patient/pair-code/route.js`
+     - `src/app/api/admin/push/status-batch/route.js`
+     - `src/app/api/patient/pair/route.js`
+     - (e também já havíamos corrigido outros arquivos com markers como `resolve-phone/route.js`).
+4) **UX Paciente (mobile-first)**
+   - Card **“Seu próximo atendimento”** com **destaque sutil** e conteúdo legível no celular.
+   - **Contrato** sempre disponível no **menu superior** (para releituras futuras), com modal.
+   - Correção de cor/contraste no menu (**Admin / Sair** estavam claros demais).
+   - **Mantra fixo** no topo do painel (psicoeducação leve e contínua).
+   - Remoção de texto redundante no header (“Olá, paciente… frase longa”) e melhoria do layout do telefone/WhatsApp.
+
+## O que validar amanhã (check rápido)
+- `npm run build` local passando.
+- Deploy Vercel “verde”.
+- No paciente:
+  - “Seu próximo atendimento” visível e legível no mobile.
+  - Menu: Contrato abre corretamente e Admin/Sair legíveis.
+  - `GET /api/patient/resolve-phone` retorna 200.
+
+## Próximo passo sugerido (amanhã)
+> **Painel de constância (presença/faltas)**: consolidar import/registro e preparar os disparos/psicoeducação de follow-up (parabenizar presença + orientar em caso de falta), sem criar “botão de cancelar”.
+
+- Ajustar/confirmar a fonte de dados (planilha 2 de presença/faltas).
+- Garantir que o painel de constância e o disparo estejam acessíveis no Admin.
+- Revisar armazenamento (Firestore) para histórico de constância (sem joins; denormalização).
 
 ---
-
-## Estado atual (confirmado)
-
-### ✅ Painel do Paciente (refatoração concluída + mobile compacto)
-Refatoração para componentes em `src/features/patient/components/`:
-- `ContractStatusCard`
-- `PatientMantraCard`
-- `PatientNotificationsCard` (compacto, mobile-friendly)
-- `PatientSessionsCard` (próximo atendimento + agenda)
-- Estados reutilizáveis: `InlineLoading`, `EmptyState`, `InlineError`
-
-Ajustes finais:
-- Mobile mais compacto (menos scroll)
-- Contrato **fica oculto no mobile** quando aceito (decisão de UX)
-- “Seu Próximo Atendimento” com **destaque sutil** e layout revisado para legibilidade no celular
-
-### ✅ Backlog — Item 1 (Presença/Faltas Admin)
-Marcado como **concluído**:
-- preview `sample` no `dryRun`
-- “Limpar” → reprocessar sem travar estado
-- “Disparos por constância” consistente
-- 2ª planilha/relatório para painel de constância + followups
-- UI upload CSV como botão
-
----
-
-## Próximo passo (prioridades)
-
-### A) (Opcional) Capacitor (APP mantendo WEB)
-Decisão técnica já documentada: **Capacitor Opção A** (shell nativo apontando para a URL do Vercel).
-➡️ Guia em: `docs/14_NEXT_STEP_CAPACITOR.md`
-
-### B) (Se adiar o APP) Padronizar chave do paciente e modelo NoSQL
-Para reduzir `permission-denied` e duplicidades de paciente:
-- Padrão oficial: `phoneCanonical` **SEM 55** (DDD + número)
-- Documento de referência: `docs/13_PATIENT_KEY_DENORMALIZATION.md`
-- Checklist de diagnóstico: `docs/18_TROUBLESHOOTING_COMMON_ERRORS.md`
-=======
-# Onde paramos (Lembrete Psi)
-
-Data: **2026-02-13**
-
-## Objetivo
-Refatorar o painel do paciente (**PatientFlow**) para:
-- reduzir complexidade
-- melhorar UX no mobile (menos altura/scroll)
-- reforçar pilares clínicos: **constância**, **psicoeducação** e **responsabilização**
-
-## Concluído
-### 9.3.9 — Contrato
-- `ContractStatusCard` criado e integrado.
-
-### 9.3.10 — Mantra/Psicoeducação
-- `PatientMantraCard` criado e integrado.
-
-### 9.3.12 — Notificações (compacto)
-- `PatientNotificationsCard` criado e integrado (mobile-friendly).
-
-### 9.3.13 — Sessões/Agenda
-- `PatientSessionsCard` criado e integrado (agrupar próxima sessão + agenda).
-
-### 9.3.14 — Estados reutilizáveis + aplicação
-- Criados: `InlineLoading`, `EmptyState`, `InlineError`
-- Aplicados em: `PatientAgendaCard` e `PatientNotesCard`
-
-### 9.3.15 — Compactação final mobile
-- `PatientFlow` reordenado (hierarquia clínica)
-- `PatientHeader` mostra telefone compacto
-- Removida duplicidade (sem `PatientContactCard` no fluxo)
-
-### 9.3.16 — Limpeza final + smoke checks
-- `PatientFlow`: removido import morto (`Skeleton`) e alinhamento final do arquivo
-- Checklist de smoke checks adicionado à documentação para validar estados principais
-
-## Próximo passo sugerido
-- Se smoke checks OK: encerrar etapa de refatoração do painel do paciente e voltar para backlog principal
-- Se algum cenário falhar: corrigir regressão pontual (1 passo por vez)
-
-## Commit sugerido
-`chore(paciente): smoke checks + cleanup imports`
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
+Capacitor: **pausado** por decisão (retomar só quando o WEB estiver estável e a UX do paciente redonda).
