@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
-<<<<<<< HEAD
 import admin from "@/lib/firebaseAdmin";
 export const runtime = "nodejs";
-=======
-import admin from "firebase-admin";
-
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 function getServiceAccount() {
   const b64 = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64;
   if (b64) {

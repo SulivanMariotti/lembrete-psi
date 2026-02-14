@@ -1,13 +1,8 @@
 // src/app/api/patient/pair/route.js
 import { NextResponse } from "next/server";
-<<<<<<< HEAD
 import admin from "@/lib/firebaseAdmin";
 import crypto from "crypto";
 export const runtime = "nodejs";
-=======
-import admin from "firebase-admin";
-import crypto from "crypto";
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 
 /**
  * POST /api/patient/pair
@@ -172,12 +167,9 @@ export async function POST(req) {
         pairedAt: now,
         lastLogin: now,
         updatedAt: now,
-<<<<<<< HEAD
         phoneCanonical,
         phone: phoneCanonical,
         phoneNumber: phoneCanonical,
-=======
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
       },
       { merge: true }
     );
@@ -202,8 +194,4 @@ export async function POST(req) {
     console.error(e);
     return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
   }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
