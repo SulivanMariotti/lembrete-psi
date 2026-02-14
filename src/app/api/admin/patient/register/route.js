@@ -56,8 +56,9 @@ export async function POST(req) {
   try {
     initAdmin();
 
-    const auth = await requireAdmin(req);
-    if (!auth.ok) return auth.res;
+    // Gatekeeper: valida Bearer token + custom claim role=admin
+    const gate = await requireAdmin(req);
+    if (!gate.ok) return gate.res;
 
     const body = await req.json().catch(() => ({}));
     const name = String(body.name || "").trim();
