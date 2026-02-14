@@ -440,6 +440,9 @@ useEffect(() => {
   setDevPanelOpen={setDevPanelOpen}
   onAdminAccess={onAdminAccess}
   onLogout={onLogout}
+  contractText={contractText}
+  needsContractAcceptance={needsContractAcceptance}
+  currentContractVersion={currentContractVersion}
 />
 
 {/* DEV painel */}
