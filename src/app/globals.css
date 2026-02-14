@@ -110,6 +110,16 @@ body {
     --tw-shadow: 0 20px 25px -5px rgb(var(--surface-shadow) / 0.10), 0 8px 10px -6px rgb(var(--surface-shadow) / 0.06) !important;
   }
 
+  /* Contrast refinements (text + icons) — keeps alerts untouched */
+  .skin-patient .text-slate-300 { color: rgb(100 116 139) !important; } /* slate-500 */
+  .skin-patient .text-slate-400 { color: rgb(71 85 105) !important; }  /* slate-600 */
+  .skin-patient .text-slate-500 { color: rgb(51 65 85) !important; }  /* slate-700 */
+  .skin-patient .text-slate-600 { color: rgb(30 41 59) !important; }  /* slate-800 */
+  .skin-patient .text-slate-500\/70 { color: rgb(51 65 85 / 0.78) !important; }
+  .skin-patient .text-slate-600\/70 { color: rgb(30 41 59 / 0.78) !important; }
+  .skin-patient .placeholder\:text-slate-400::placeholder { color: rgb(100 116 139) !important; } /* slate-500 */
+  .skin-patient .placeholder\:text-slate-500::placeholder { color: rgb(71 85 105) !important; }  /* slate-600 */
+
   /* Core swaps */
   .skin-patient .text-violet-900 { color: var(--brand-900) !important; }
   .skin-patient .text-violet-800 { color: var(--brand-800) !important; }
@@ -195,6 +205,16 @@ body {
   .skin-admin .shadow-xl {
     --tw-shadow: 0 20px 25px -5px rgb(var(--surface-shadow) / 0.10), 0 8px 10px -6px rgb(var(--surface-shadow) / 0.06) !important;
   }
+
+  /* Contrast refinements (text + icons) — keeps alerts untouched */
+  .skin-admin .text-slate-300 { color: rgb(100 116 139) !important; } /* slate-500 */
+  .skin-admin .text-slate-400 { color: rgb(71 85 105) !important; }  /* slate-600 */
+  .skin-admin .text-slate-500 { color: rgb(51 65 85) !important; }  /* slate-700 */
+  .skin-admin .text-slate-600 { color: rgb(30 41 59) !important; }  /* slate-800 */
+  .skin-admin .text-slate-500\/70 { color: rgb(51 65 85 / 0.78) !important; }
+  .skin-admin .text-slate-600\/70 { color: rgb(30 41 59 / 0.78) !important; }
+  .skin-admin .placeholder\:text-slate-400::placeholder { color: rgb(100 116 139) !important; } /* slate-500 */
+  .skin-admin .placeholder\:text-slate-500::placeholder { color: rgb(71 85 105) !important; }  /* slate-600 */
 
   /* Core swaps */
   .skin-admin .text-violet-900 { color: var(--brand-900) !important; }
