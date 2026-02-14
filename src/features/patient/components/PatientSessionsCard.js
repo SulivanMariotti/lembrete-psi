@@ -45,7 +45,7 @@ export default function PatientSessionsCard({
       />
 
       {showConsistencyHint && (
-        <div className="px-1 text-[12px] leading-relaxed text-gray-600">
+        <div className="px-1 text-[12px] leading-relaxed text-slate-600">
           Seu horário é um espaço sagrado de cuidado. A constância sustenta o processo.
         </div>
       )}

@@ -16,7 +16,14 @@ import {
 } from "../lib/dates";
 import { startDateTimeFromAppointment } from "../lib/ics";
 
-export default function PatientAgendaCard({ appointments = [], appointmentsRaw = [], loading = false, confirmedIds, error = null, onRetry = null }) {
+export default function PatientAgendaCard({
+  appointments = [],
+  appointmentsRaw = [],
+  loading = false,
+  confirmedIds,
+  error = null,
+  onRetry = null,
+}) {
   const [agendaView, setAgendaView] = useState("compact");
   const [showAllWeeks, setShowAllWeeks] = useState(false);
   const [showAllMonths, setShowAllMonths] = useState(false);
@@ -219,6 +226,7 @@ export default function PatientAgendaCard({ appointments = [], appointmentsRaw =
           )}
         </div>
       )}
+
     </Card>
   );
 }

@@ -49,4 +49,8 @@ Isso evita envio mesmo se alguém tentar forçar pelo front.
 ## UX (clínico)
 - Sem botão “Cancelar sessão”
 - Sem “Confirmar presença” como condição para a sessão existir
-- WhatsApp é para “confirmação”/contato, não para automação de cancelamento/remarcação.
+
+**Diretriz (painel do paciente):** uso exclusivo para **lembrar da sessão** e **conscientizar sobre presença/constância**.
+- Não exibir avisos do tipo “avise com antecedência”
+- Não oferecer atalhos de contato no card de agenda para facilitar cancelamento/remarcação
+- Se houver WhatsApp no produto, ele pode existir **apenas como opção de confirmação de presença** (reforço de compromisso), nunca como CTA de cancelamento/remarcação.
