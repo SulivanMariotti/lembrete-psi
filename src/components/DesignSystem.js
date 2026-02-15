@@ -59,7 +59,7 @@ export const Card = ({ children, title, className = "" }) => (
         <h3 className="font-bold text-slate-800 text-lg tracking-tight">{title}</h3>
       </div>
     )}
-    <div className="flex-1 p-6">{children}</div>
+    <div className="flex-1 p-6 min-h-0">{children}</div>
   </div>
 );
 

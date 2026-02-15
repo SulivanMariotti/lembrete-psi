@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import { Search, Download, UserPlus, UserMinus, X, Flag, Bell, BellOff, CheckCircle, XCircle, FileText, KeyRound, Copy, Loader2, Pencil } from 'lucide-react';
 import { Button, Card } from '../DesignSystem';
 import { adminFetch } from '../../services/adminApi';
@@ -16,8 +16,94 @@ import { adminFetch } from '../../services/adminApi';
 
 export default function AdminPatientsTab({ showToast, globalConfig }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const currentContractVersion = Number(globalConfig?.contractVersion || 1);
+
+  // --- Table viewport (UX): keep list compact (default ~8 rows visible) ---
+  // We keep data loading limits (500/1000/2000) for speed, but constrain the table height
+  // so the page doesn't become enormous when many patients are loaded.
+  const TABLE_VIEW_ROWS_DEFAULT = 8;
+  const TABLE_ROW_PX = 44;
+  const TABLE_HEADER_PX = 44;
+  const tableMaxHeightPx = TABLE_HEADER_PX + TABLE_ROW_PX * TABLE_VIEW_ROWS_DEFAULT;
+
+  // --- Quick filters ---
+  const [filters, setFilters] = useState({
+    noPush: false,
+    noContract: false,
+    noCode: false,
+  });
+
+
+// Quando filtros mudam, refazemos a listagem via servidor (mantém resultado "completo" e rápido)
+  const filtersInitRef = useRef(false);
+  useEffect(() => {
+    if (!filtersInitRef.current) {
+      filtersInitRef.current = true;
+      return;
+    }
+    reloadPatients(patientsTarget);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.noPush, filters.noContract, filters.noCode]);
+
+
+
+  // --- Smart search (server-side exact lookup) ---
+  // Para evitar carregar 500/1000/2000 só para achar 1 paciente, fazemos lookup exato no servidor
+  // quando o admin digita: telefone (DDD+número), e-mail ou ID externo (com dígito/_/-).
+  const [activeSearch, setActiveSearch] = useState(null);
+  const activeSearchRef = useRef(null);
+
+  const smartSearch = useMemo(() => {
+    const raw = String(deferredSearchTerm || '').trim();
+    if (!raw) return null;
+
+    const lower = raw.toLowerCase();
+    const looksEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lower);
+    if (looksEmail) return { mode: 'email', term: lower };
+
+    const digits = raw.replace(/\D/g, '').replace(/^0+/, '');
+    if (digits.length >= 10) return { mode: 'phone', term: digits };
+
+    const looksExternalId =
+      !/\s/.test(raw) &&
+      raw.length >= 4 &&
+      raw.length <= 64 &&
+      /^[A-Za-z0-9_-]+$/.test(raw) &&
+      (/\d/.test(raw) || raw.includes('_') || raw.includes('-'));
+
+    if (looksExternalId) return { mode: 'externalId', term: raw };
+
+    return null;
+  }, [deferredSearchTerm]);
+
+  // Se o termo virar uma "busca inteligente", recarrega via servidor (lookup exato).
+  // Para busca por nome (substring), mantemos filtro client-side.
+  useEffect(() => {
+    const next = smartSearch || null;
+    const prev = activeSearchRef.current || null;
+
+    const nextKey = next ? `${next.mode}:${next.term}` : '';
+    const prevKey = prev ? `${prev.mode}:${prev.term}` : '';
+
+    if (nextKey === prevKey) return;
+
+    activeSearchRef.current = next;
+    setActiveSearch(next);
+
+    reloadPatients(patientsTarget, { search: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [smartSearch?.mode, smartSearch?.term]);
+
+
+  // --- List loading / perf (cursor pagination) ---
+  const PAGE_SIZE = 200; // tamanho por página (renderiza rápido)
+  const [patientsTarget, setPatientsTarget] = useState(500); // meta: 500/1000/2000
+  const [nextCursor, setNextCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const loadSeqRef = useRef(0);
 
   // --- UI helpers (flags) ---
   const IndicatorPill = ({ kind, ok, label, title }) => {
@@ -170,37 +256,130 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
     }
   };
 
+  const makePatientKey = (p) => {
+    const uid = String(p?.uid || p?.id || '').trim();
+    if (uid) return `uid:${uid}`;
+    const ext = String(p?.patientExternalId || '').trim();
+    if (ext) return `ext:${ext}`;
+    const email = String(p?.email || '').trim().toLowerCase();
+    const phone = String(p?.phoneCanonical || p?.phone || '').trim();
+    return `ep:${email}|${phone}`;
+  };
 
-  const loadPatients = async () => {
-    setIsLoadingPatients(true);
+  const mergeUniquePatients = (prev, next) => {
+    const map = new Map();
+    for (const p of [...prev, ...next]) {
+      const key = makePatientKey(p);
+      if (!map.has(key)) {
+        map.set(key, p);
+        continue;
+      }
+      // Prefer the most recently updated record
+      const prevP = map.get(key);
+      const prevT = Date.parse(prevP?.updatedAt || prevP?.createdAt || '') || 0;
+      const curT = Date.parse(p?.updatedAt || p?.createdAt || '') || 0;
+      if (curT >= prevT) map.set(key, p);
+    }
+    return Array.from(map.values());
+  };
+
+  const fetchPatientsPage = async ({ cursor = null, pageSize = PAGE_SIZE, append = false, silent = false, search = activeSearchRef.current } = {}) => {
+    const seq = ++loadSeqRef.current;
+
+    if (!silent && !append) setIsLoadingPatients(true);
+    if (append) setIsLoadingMore(true);
+
     try {
       const res = await adminFetch('/api/admin/patients/list', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          limit: 2000,
-          includePush: true,
+          pageSize,
+          cursor,
+          includePush: true, // necessário para filtro "Sem Push"
+          search: search || null,
+          filters: { ...filters, contractVersion: currentContractVersion }
         }),
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || 'Falha ao carregar pacientes.');
       }
-      setPatients(Array.isArray(data.patients) ? data.patients : []);
+
+      // Ignore out-of-order responses
+      if (seq !== loadSeqRef.current) return null;
+
+      const pagePatients = Array.isArray(data.patients) ? data.patients : [];
+      setPatients((prev) => (append ? mergeUniquePatients(prev, pagePatients) : pagePatients));
+      setNextCursor(data?.nextCursor || null);
+      setHasMore(Boolean(data?.hasMore));
+
+      return { patients: pagePatients, nextCursor: data?.nextCursor || null, hasMore: Boolean(data?.hasMore) };
     } catch (e) {
-      console.error('loadPatients failed', e);
+      console.error('fetchPatientsPage failed', e);
       showToast?.(e?.message || 'Falha ao carregar pacientes.', 'error');
+      return null;
     } finally {
-      setIsLoadingPatients(false);
+      if (!silent && !append && seq === loadSeqRef.current) setIsLoadingPatients(false);
+      if (append && seq === loadSeqRef.current) setIsLoadingMore(false);
     }
   };
 
+  const reloadPatients = async (target = patientsTarget, opts = {}) => {
+    const t = Math.max(1, Math.min(2000, Number(target) || 500));
+    setPatientsTarget(t);
+    setPatients([]);
+    setNextCursor(null);
+    setHasMore(false);
+
+    const nextSearch = Object.prototype.hasOwnProperty.call(opts, 'search')
+      ? (opts.search || null)
+      : (activeSearchRef.current || null);
+
+    activeSearchRef.current = nextSearch;
+    setActiveSearch(nextSearch);
+
+    // Primeira página (renderiza rápido)
+    await fetchPatientsPage({ cursor: null, pageSize: Math.min(PAGE_SIZE, t), append: false, silent: false, search: nextSearch });
+  };
+
+  const loadMorePatients = async ({ silent = false } = {}) => {
+    if (!nextCursor || !hasMore) return;
+
+    const remaining = Math.max(1, patientsTarget - patients.length);
+    const pageSize = Math.min(PAGE_SIZE, remaining);
+
+    await fetchPatientsPage({ cursor: nextCursor, pageSize, append: true, silent, search: activeSearchRef.current });
+  };
+
+  const setTargetAndReload = async (newTarget) => {
+    await reloadPatients(Number(newTarget));
+  };
+
+  const toggleFilter = (key) => {
+    setFilters((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
   useEffect(() => {
-    loadPatients();
+    reloadPatients(patientsTarget);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-fill: quando o admin seleciona 500/1000/2000, vamos buscando páginas silenciosamente até atingir a meta
+  useEffect(() => {
+    if (isLoadingPatients || isLoadingMore) return;
+    if (!nextCursor || !hasMore) return;
+    if (patients.length >= patientsTarget) return;
+
+    const t = setTimeout(() => {
+      loadMorePatients({ silent: true });
+    }, 60);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patients.length, patientsTarget, nextCursor, hasMore, isLoadingPatients, isLoadingMore]);
+
 
   const openNewPatientModal = () => {
     setEditingPatient(null);
@@ -257,7 +436,7 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
       }
 
       showToast?.(editingPatient ? 'Paciente atualizado com sucesso!' : 'Paciente cadastrado com sucesso!');
-      await loadPatients();
+      await reloadPatients(patientsTarget);
       closePatientModal();
     } catch (e) {
       console.error(e);
@@ -298,7 +477,7 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
       }
 
       showToast?.('Paciente desativado.');
-      await loadPatients();
+      await reloadPatients(patientsTarget);
     } catch (e) {
       console.error(e);
       showToast?.('Erro ao remover paciente.', 'error');
@@ -306,17 +485,59 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
   };
 
   const filteredPatients = useMemo(() => {
-    const term = String(searchTerm || '').trim().toLowerCase();
-    if (!term) return patients;
+    const term = String(deferredSearchTerm || '').trim().toLowerCase();
 
     return patients.filter((p) => {
+      // Quick filters
+      if (filters.noContract) {
+        const accepted = Number(p?.contractAcceptedVersion || 0) >= currentContractVersion;
+        if (accepted) return false;
+      }
+
+      if (filters.noCode) {
+        const hasCode = Boolean(String(p?.pairCodeStatus || '').trim());
+        if (hasCode) return false;
+      }
+
+      if (filters.noPush) {
+        if (Boolean(p?.hasPushToken)) return false;
+      }
+
+      // Search
+      if (!term) return true;
+
       const name = String(p?.name || '').toLowerCase();
       const email = String(p?.email || '').toLowerCase();
       const phone = String(p?.phoneCanonical || p?.phone || '').toLowerCase();
       const ext = String(p?.patientExternalId || '').toLowerCase();
       return name.includes(term) || email.includes(term) || phone.includes(term) || ext.includes(term);
     });
-  }, [patients, searchTerm]);
+  }, [patients, deferredSearchTerm, filters, currentContractVersion]);
+
+  const filterStats = useMemo(() => {
+    let noContract = 0;
+    let noCode = 0;
+    let noPush = 0;
+
+    for (const p of patients) {
+      const accepted = Number(p?.contractAcceptedVersion || 0) >= currentContractVersion;
+      if (!accepted) noContract += 1;
+
+      const hasCode = Boolean(String(p?.pairCodeStatus || '').trim());
+      if (!hasCode) noCode += 1;
+
+      if (!Boolean(p?.hasPushToken)) noPush += 1;
+    }
+
+    return {
+      noContract,
+      noCode,
+      noPush,
+    };
+  }, [patients, currentContractVersion]);
+
+
+
 
   const exportCSV = () => {
     try {
@@ -377,24 +598,145 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
           </div>
         </div>
 
-        <div className="mt-3 text-sm opacity-80">
-          {isLoadingPatients ? 'Carregando pacientes…' : `Total exibido: ${filteredPatients.length}`}
+        <div className="mt-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 mr-1">Filtros:</span>
+
+            <button
+              type="button"
+              onClick={() => toggleFilter('noPush')}
+              className={`px-3 py-1 rounded-full text-xs border transition ${
+                filters.noPush ? 'bg-violet-600 text-white border-violet-600' : 'bg-white hover:bg-slate-50 border-slate-200'
+              }`}
+              title="Mostra somente pacientes sem Push ativo (notificações)."
+            >
+              Sem Push ({filterStats.noPush})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => toggleFilter('noContract')}
+              className={`px-3 py-1 rounded-full text-xs border transition ${
+                filters.noContract ? 'bg-violet-600 text-white border-violet-600' : 'bg-white hover:bg-slate-50 border-slate-200'
+              }`}
+              title="Mostra pacientes que ainda não aceitaram a versão atual do contrato."
+            >
+              Sem Contrato Aceito ({filterStats.noContract})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => toggleFilter('noCode')}
+              className={`px-3 py-1 rounded-full text-xs border transition ${
+                filters.noCode ? 'bg-violet-600 text-white border-violet-600' : 'bg-white hover:bg-slate-50 border-slate-200'
+              }`}
+              title="Mostra pacientes sem código de vinculação (útil para gerar acesso)."
+            >
+              Sem Código ({filterStats.noCode})
+            </button>
+
+            {(filters.noPush || filters.noContract || filters.noCode || String(searchTerm || '').trim()) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilters({ noPush: false, noContract: false, noCode: false });
+                  setSearchTerm('');
+                }}
+                className="px-3 py-1 rounded-full text-xs border bg-white hover:bg-slate-50 border-slate-200"
+                title="Limpa filtros e busca."
+              >
+                Limpar
+              </button>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 justify-end">
+            <span className="text-xs text-slate-500 mr-1">Carregar:</span>
+
+            <button
+              type="button"
+              onClick={() => setTargetAndReload(500)}
+              className={`px-2.5 py-1 rounded-full text-xs border ${
+                patientsTarget === 500 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white hover:bg-slate-50 border-slate-200'
+              }`}
+              title="Carrega até 500 pacientes (mais rápido)."
+            >
+              500
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTargetAndReload(1000)}
+              className={`px-2.5 py-1 rounded-full text-xs border ${
+                patientsTarget === 1000 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white hover:bg-slate-50 border-slate-200'
+              }`}
+              title="Carrega até 1000 pacientes."
+            >
+              1000
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTargetAndReload(2000)}
+              className={`px-2.5 py-1 rounded-full text-xs border ${
+                patientsTarget === 2000 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white hover:bg-slate-50 border-slate-200'
+              }`}
+              title="Carrega até 2000 pacientes (pode ser mais lento)."
+            >
+              2000
+            </button>
+
+            <Button
+              variant="secondary"
+              onClick={() => reloadPatients(patientsTarget)}
+              className="px-3 py-1.5 rounded-lg text-xs"
+              title="Recarregar lista"
+            >
+              Atualizar
+            </Button>
+
+            {hasMore && nextCursor ? (
+              <Button
+                variant="secondary"
+                onClick={() => loadMorePatients({ silent: false })}
+                className="px-3 py-1.5 rounded-lg text-xs"
+                disabled={isLoadingMore}
+                title="Carrega a próxima página (útil se você quiser ir além da meta)."
+              >
+                {isLoadingMore ? (
+                  <>
+                    <Loader2 size={14} className="mr-1.5 animate-spin" />
+                    Carregando
+                  </>
+                ) : (
+                  'Carregar mais'
+                )}
+              </Button>
+            ) : null}
+
+          </div>
+        </div>
+
+        <div className="mt-2 text-sm opacity-80">
+          {isLoadingPatients
+            ? 'Carregando pacientes…'
+            : `Exibidos: ${filteredPatients.length} • Carregados: ${patients.length} • Meta: ${patientsTarget}${isLoadingMore ? ' • carregando mais…' : ''}`}
         </div>
       </Card>
 
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto" style={{ maxHeight: `${tableMaxHeightPx}px` }}>
           <table className="w-full text-[13px]">
             <thead>
               <tr className="text-left border-b bg-slate-50/60">
-                <th className="px-3 py-2">Paciente</th>
-                <th className="px-3 py-2">Email</th>
-                <th className="px-3 py-2">Telefone</th>
-                <th className="px-3 py-2">Push</th>
-                <th className="px-3 py-2">Cadastro</th>
-                <th className="px-3 py-2">Contrato</th>
-                <th className="px-3 py-2">Código</th>
-                <th className="px-3 py-2 text-right">Ações</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur">Paciente</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur">Email</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur">Telefone</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur">Push</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur">Cadastro</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur">Contrato</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur">Código</th>
+                <th className="px-3 py-2 sticky top-0 z-10 bg-slate-50/90 backdrop-blur text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
