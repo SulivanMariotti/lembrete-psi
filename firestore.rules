@@ -43,6 +43,11 @@ service cloud.firestore {
               && resource.data.phone
                  == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phoneCanonical
             )
+
+            || (
+              request.auth.token.phoneCanonical != null
+              && resource.data.phone == request.auth.token.phoneCanonical
+            )
             || (
               request.auth.token.email != null
               && resource.data.email == request.auth.token.email

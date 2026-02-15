@@ -12,33 +12,28 @@ Objetivo: reduzir regressões que quebram lembretes (e quebrar lembretes aumenta
 - Agenda do paciente não carrega / tela em branco / listener falha.
 
 **Causa mais comum**
-<<<<<<< HEAD
-
-> **Padrão oficial:** `phoneCanonical` no projeto é **SEM 55** (DDD + número, 10–11 dígitos). Se algum documento estiver com `55...`, ele vai divergir de `subscribers/{phoneCanonical}` e pode causar `permission-denied`.
-=======
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
+- **Padrão oficial:** `phoneCanonical` no projeto é **somente dígitos, SEM 55** (DDD + número, 10–11 dígitos). Ex.: `"11999999999"`.
 - Inconsistência entre:
   - `users/{uid}.phoneCanonical` (ou `phone`)
-  - `appointments/*.phoneCanonical` (ou `phone`)
+  - `appointments/*.(phone|phoneCanonical)` (campo vindo do import/sync)
   - `subscribers/{phoneCanonical}` (docId)
-- Ou paciente está `status: "inactive"` e endpoints/server-side bloqueiam corretamente.
+- **Primeiro acesso / pós-pareamento:** o client pode iniciar o listener de `appointments` antes do `users/{uid}.phoneCanonical` estar persistido.
+  - Patch (2026-02-14): `appointments` permite leitura também por `request.auth.token.phoneCanonical` (claim do custom token emitido no pareamento), evitando `permission-denied` nessa janela.
+- Ou paciente está `status: "inactive"` e endpoints server-side bloqueiam corretamente.
 
 **Checklist (ordem)**
 1. Verifique em `users/{uid}`:
    - `role` (esperado: `"patient"`)
    - `status` (esperado: `"active"`)
-<<<<<<< HEAD
-   - `phoneCanonical` (string) — padrão do projeto: **somente dígitos, SEM 55** (ex.: `"11999999999"`)
-=======
-   - `phoneCanonical` (string, ex.: `"5511999999999"` ou `"11999999999"` conforme padrão do projeto)
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
+   - `phoneCanonical` (string) — padrão: **somente dígitos, SEM 55** (ex.: `"11999999999"`)
 2. Verifique um `appointments/{id}` do mesmo paciente:
    - `phoneCanonical` ou `phone` deve bater com o padrão
 3. Verifique `subscribers/{phoneCanonical}`:
    - docId deve ser exatamente o `phoneCanonical`
    - `pushToken` pode existir ou não (sem token não impede carregar agenda, mas impede disparo push)
-4. Se o painel depende de resolver telefone por email:
-   - Confirme se existe rota server-side (ex.: `/api/patient/resolve-phone`) e se ela grava o `phoneCanonical` em `users/{uid}`.
+4. Se o problema acontece só no primeiro login:
+   - Confirme que o pareamento/rota do paciente está gravando `phoneCanonical` em `users/{uid}` (ex.: `/api/patient/resolve-phone`)
+   - E/ou que o token contém claim `phoneCanonical`
 
 **Correção típica**
 - Padronizar e gravar `phoneCanonical` em:

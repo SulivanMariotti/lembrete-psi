@@ -1,4 +1,8 @@
 # Changelog
+## 2026-02-14
+- Fix (Rules): `appointments/*` permite leitura do paciente também por claim `request.auth.token.phoneCanonical` (janela do primeiro acesso pós-pareamento) — remove `permission-denied`.
+- Docs: troubleshooting + guia de rules atualizados.
+
 ## 2026-02-12
 - Feature (Admin / Presença-Faltas): upload de CSV + validação (dryRun) + importação + limpar
 - Feature: warnings (não bloqueiam) + detecção de duplicadas no arquivo

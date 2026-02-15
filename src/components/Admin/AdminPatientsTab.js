@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Download, UserPlus, UserMinus, X, Flag, Bell, BellOff, CheckCircle, XCircle, FileText, KeyRound, Copy, Loader2 } from 'lucide-react';
+import { Search, Download, UserPlus, UserMinus, X, Flag, Bell, BellOff, CheckCircle, XCircle, FileText, KeyRound, Copy, Loader2, Pencil } from 'lucide-react';
 import { Button, Card } from '../DesignSystem';
 import { adminFetch } from '../../services/adminApi';
 
@@ -22,7 +22,7 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
   // --- UI helpers (flags) ---
   const IndicatorPill = ({ kind, ok, label, title }) => {
     const base =
-      'inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold border w-fit whitespace-nowrap';
+      'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border w-fit whitespace-nowrap';
 
     const palette = (() => {
       if (kind === 'status') {
@@ -51,8 +51,8 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
 
     return (
       <span className={`${base} ${palette}`} title={title || ''}>
-        <Flag size={14} />
-        <Icon size={14} />
+        <Flag size={12} />
+        <Icon size={12} />
         <span>{label}</span>
       </span>
     );
@@ -62,7 +62,7 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
     const s = String(status || '').toLowerCase();
 
     const base =
-      'inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold border w-fit whitespace-nowrap';
+      'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border w-fit whitespace-nowrap';
 
     const palette = (() => {
       if (!s) return 'bg-slate-50 text-slate-700 border-slate-100';
@@ -90,8 +90,8 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
 
     return (
       <span className={`${base} ${palette}`} title={titleParts.join(' • ')}>
-        <Flag size={14} />
-        <KeyRound size={14} />
+        <Flag size={12} />
+        <KeyRound size={12} />
         <span>{label}</span>
       </span>
     );
@@ -384,38 +384,38 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
 
       <Card className="p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead>
-              <tr className="text-left border-b">
-                <th className="p-3">Paciente</th>
-                <th className="p-3">Email</th>
-                <th className="p-3">Telefone</th>
-                <th className="p-3">Push</th>
-                <th className="p-3">Cadastro</th>
-                <th className="p-3">Contrato</th>
-                <th className="p-3">Código</th>
-                <th className="p-3 text-right">Ações</th>
+              <tr className="text-left border-b bg-slate-50/60">
+                <th className="px-3 py-2">Paciente</th>
+                <th className="px-3 py-2">Email</th>
+                <th className="px-3 py-2">Telefone</th>
+                <th className="px-3 py-2">Push</th>
+                <th className="px-3 py-2">Cadastro</th>
+                <th className="px-3 py-2">Contrato</th>
+                <th className="px-3 py-2">Código</th>
+                <th className="px-3 py-2 text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
               {filteredPatients.length === 0 ? (
                 <tr>
-                  <td className="p-4 opacity-70" colSpan={8}>
+                  <td className="px-3 py-4 opacity-70" colSpan={8}>
                     Nenhum paciente encontrado.
                   </td>
                 </tr>
               ) : (
                 filteredPatients.map((u) => (
-                  <tr key={u.uid || u.id} className="border-b last:border-b-0">
-                    <td className="p-3">
-                      <div className="font-medium text-slate-800">{u?.name || '—'}</div>
+                  <tr key={u.uid || u.id} className="border-b last:border-b-0 hover:bg-slate-50/40">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-slate-800 leading-tight">{u?.name || '—'}</div>
                       {u?.patientExternalId ? (
-                        <div className="text-[11px] text-slate-400 mt-0.5">ID: {u?.patientExternalId}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">ID: {u?.patientExternalId}</div>
                       ) : null}
                     </td>
-                    <td className="p-3">{u?.email || '—'}</td>
-                    <td className="p-3">{u?.phoneCanonical || u?.phone || '—'}</td>
-                    <td className="p-3">
+                    <td className="px-3 py-2">{u?.email || '—'}</td>
+                    <td className="px-3 py-2">{u?.phoneCanonical || u?.phone || '—'}</td>
+                    <td className="px-3 py-2">
                       <IndicatorPill
                         kind="push"
                         ok={Boolean(u?.hasPushToken)}
@@ -427,7 +427,7 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
                         }
                       />
                     </td>
-                    <td className="p-3">
+                    <td className="px-3 py-2">
                       <IndicatorPill
                         kind="status"
                         ok={String(u?.status || '').toLowerCase() === 'active'}
@@ -439,7 +439,7 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
                         }
                       />
                     </td>
-                    <td className="p-3">
+                    <td className="px-3 py-2">
                       <IndicatorPill
                         kind="contract"
                         ok={Number(u?.contractAcceptedVersion || 0) >= currentContractVersion}
@@ -451,7 +451,7 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
                         title={`Aceite do contrato: v${Number(u?.contractAcceptedVersion || 0)} • Versão atual: v${currentContractVersion}`}
                       />
                     </td>
-                    <td className="p-3">
+                    <td className="px-3 py-2">
                       <PairCodePill
                         status={u?.pairCodeStatus}
                         last4={u?.pairCodeLast4}
@@ -459,31 +459,45 @@ export default function AdminPatientsTab({ showToast, globalConfig }) {
                         usedAt={u?.pairCodeUsedAt}
                       />
                     </td>
-                    <td className="p-3">
+                    <td className="px-3 py-2">
                       <div className="flex justify-end gap-2">
                         <Button
                           variant="secondary"
                           onClick={() => handleGeneratePairCode(u)}
                           disabled={pairCodeLoadingUid === (u.uid || u.id)}
                           title="Gerar novo código de vinculação (troca de aparelho/recuperação de acesso)."
+                          className="px-3 py-1.5 rounded-lg text-xs"
                         >
                           {pairCodeLoadingUid === (u.uid || u.id) ? (
                             <>
-                              <Loader2 size={16} className="mr-2 animate-spin" />
+                              <Loader2 size={14} className="mr-1.5 animate-spin" />
                               Gerando
                             </>
                           ) : (
                             <>
-                              <KeyRound size={16} className="mr-2" />
+                              <KeyRound size={14} className="mr-1.5" />
                               Código
                             </>
                           )}
                         </Button>
-                        <Button variant="secondary" onClick={() => openEditPatientModal(u)}>
+
+                        <Button
+                          variant="secondary"
+                          onClick={() => openEditPatientModal(u)}
+                          className="px-3 py-1.5 rounded-lg text-xs"
+                          title="Editar paciente"
+                        >
+                          <Pencil size={14} className="mr-1.5" />
                           Editar
                         </Button>
-                        <Button variant="danger" onClick={() => handleRemovePatient(u)}>
-                          <UserMinus size={16} className="mr-2" />
+
+                        <Button
+                          variant="danger"
+                          onClick={() => handleRemovePatient(u)}
+                          className="px-3 py-1.5 rounded-lg text-xs"
+                          title="Desativar paciente"
+                        >
+                          <UserMinus size={14} className="mr-1.5" />
                           Desativar
                         </Button>
                       </div>

@@ -8,54 +8,25 @@ Você é um **dev master full stack** (Next.js App Router + Firebase/Firestore +
 
 ## Método obrigatório
 1) **Passo a passo (1 por resposta)** — só avance quando eu disser **ok/próximo**.  
-<<<<<<< HEAD
-2) Mudanças sempre com **arquivo completo** e **link para download** (não colar diff).  
-3) Se faltar contexto/arquivo, peça **upload do projeto mais atualizado**.  
-
-## Onde paramos
-- Refatoração do **Painel do Paciente** concluída (componentização + mobile compacto + estados reutilizáveis).
-- Backlog **Item 1 (Presença/Faltas Admin)** concluído.
-- “Seu Próximo Atendimento” ganhou destaque sutil + layout legível no celular.
-- Contrato fica oculto no **mobile** quando aceito (decisão de UX).
-
-## Próximo passo (Capacitor)
-Implementar **Capacitor Opção A** (shell nativo apontando para URL do Vercel), mantendo **WEB + APP**:
-1) Instalar Capacitor (core + cli)
-2) `npx cap init`
-3) Configurar `capacitor.config` com `server.url` (Vercel)
-4) `npx cap add android` / `npx cap add ios`
-5) Validar navegação e rotas `/api`
-
-Referência: `docs/14_NEXT_STEP_CAPACITOR.md`
-=======
-2) Quando houver alteração de código: **arquivo completo + link para download** (não colar código no chat).  
+2) Quando houver alteração de código: **arquivo completo + link para download** (não colar código/diff no chat).  
 3) Se faltar contexto: pedir **upload do ZIP mais atual**.
 
-## Estado atual do projeto (resumo)
-✅ Contrato Terapêutico: `config/global.contractText/contractVersion` → paciente aceita em `users/{uid}` (`contractAcceptedVersion/At`).  
-✅ Push paciente sem permission-denied (usa `/api/patient/push/*`; sem leitura direta de `subscribers`).  
-✅ Histórico Admin robusto (fallback createdAt/sentAt) + labels PT-BR.  
-✅ Admin → Pacientes: flags (Notificações, Cadastro, Contrato).  
-✅ Login paciente por **Código de Vinculação** (telefone + código), sem custo; código single-use com hash+salt.  
+## Onde paramos (status atual)
+✅ **Admin Dashboard**: bloco de **Constância Terapêutica** centralizado (7/30/90 dias), top faltas e alerta de risco.  
+✅ **Login/Pareamento do paciente**: custom token com claim `phoneCanonical`.  
+✅ **Hotfix (Rules / agenda do paciente)**: `appointments/*` permite leitura também por claim `request.auth.token.phoneCanonical` na janela do primeiro acesso (evita `permission-denied` antes de `users/{uid}.phoneCanonical` persistir).  
+✅ Docs sem merge markers nos principais arquivos de continuidade.
 
-✅ **Presença/Faltas por planilha (CSV)**:
-- UI com **Selecionar arquivo (upload)** + **Verificar (dryRun)** + **Importar** + **Limpar**
-- Validação com **Erros** (bloqueiam) e **Avisos** (não bloqueiam)
-- Detecta **duplicadas no arquivo**
-- Botão **Baixar inconsistências (CSV)**
-- Rota: `POST /api/admin/attendance/import` (Admin SDK)
+## Arquivos-chave para continuidade
+- `docs/00_ONDE_PARAMOS.md` (resumo do dia)
+- `docs/15_HANDOFF_2026-02-14.md` (handoff completo)
+- `docs/18_TROUBLESHOOTING_COMMON_ERRORS.md` (erros recorrentes)
+- `docs/25_FIRESTORE_RULES_GUIDE.md` (guia prático de rules)
 
-✅ **Disparos por Constância**:
-- `POST /api/admin/attendance/send-followups`
-- dryRun retorna `sample` com `canSend` + `blockedReason`
-- resolve telefone via `users` por `patientExternalId/patientId` quando o log não tem phone
+## Próximo passo sugerido (1/1)
+Validar end-to-end após publicar as Rules:
+- paciente: entrar → agenda carrega sem `permission-denied` (primeiro acesso e acessos seguintes)
+- admin: dashboard/constância OK
+- smoke checks do painel do paciente
 
-Decisão: manter web por enquanto; considerar PWA/App depois de endurecer segurança.
-
-## Próximo passo obrigatório (1/1)
-Adicionar botão/feature: **“Baixar preview normalizado (CSV)”** do dryRun (não só inconsistências), para auditoria antes de importar.
-
-Comece propondo **1 passo único** para iniciar isso (e peça ZIP atualizado se necessário).
-
----
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
+Comece propondo **1 passo único** (e peça ZIP atualizado se necessário).

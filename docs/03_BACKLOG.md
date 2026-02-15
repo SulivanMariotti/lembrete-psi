@@ -3,25 +3,16 @@
 > Marque com [x] quando concluir.
 
 ## Segurança / Acesso
-- [ ] Corrigir `permission-denied` no painel do paciente (Rules e/ou mover leituras para server-side)
-- [ ] Bloquear envios server-side para pacientes inativos (agenda + presença/falta) → retornar `blockedInactive`
+- [x] Corrigir `permission-denied` no painel do paciente (Rules e/ou mover leituras para server-side)
+- [x] Bloquear envios server-side para pacientes inativos (agenda + presença/falta) → retornar `blockedInactive`
 
 ## Dados / Consistência
-<<<<<<< HEAD
-- [ ] Processar segunda planilha de presença/faltas para painel de constância e disparos futuros
-- [ ] Definir modelo NoSQL Firestore (sem joins), denormalização e chave única (ex.: patientId + phone canônico)
-
-## UX (Paciente)
-- [ ] Identificar paciente no topo do painel (Olá, {nome})
-- [ ] Estado de notificações: “Ativas neste aparelho” / instrução quando inativas
-=======
 - [x] Processar segunda planilha de presença/faltas para painel de constância e disparos futuros
 - [ ] Definir modelo NoSQL Firestore (sem joins), denormalização e chave única (ex.: patientId + phone canônico)
 
 ## UX (Paciente)
 - [x] Identificar paciente no topo do painel (Olá, {nome})
 - [x] Estado de notificações: “Ativas neste aparelho” / instrução quando inativas
->>>>>>> c66289ccbe833c158649430e3e54b0587f907b5c
 
 ## Admin
 - [ ] Melhorar fluxo de seleção/“acessar como” paciente (se necessário)

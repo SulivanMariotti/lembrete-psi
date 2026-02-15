@@ -25,16 +25,35 @@
    - **Mantra fixo** no topo do painel (psicoeducação leve e contínua).
    - Remoção de texto redundante no header (“Olá, paciente… frase longa”) e melhoria do layout do telefone/WhatsApp.
 
+5) **Firestore Rules (appointments) — fallback por claim phoneCanonical**
+   - Fix: remove `permission-denied` na janela do primeiro acesso pós-pareamento, quando `users/{uid}.phoneCanonical` ainda não está persistido.
+   - Solução: permitir leitura do `appointments/*` quando `resource.data.phone == request.auth.token.phoneCanonical`.
+   - Arquivo: `/firestore.rules`
+
+6) **Admin > Pacientes — tabela mais compacta**
+   - Redução do espaçamento das linhas (padding da tabela).
+   - Pills (Push/Contrato/Status/Código) menores.
+   - Botões de ação (Código/Editar/Desativar) compactos.
+   - Ícone de edição no botão "Editar".
+
+
 ## O que validar amanhã (check rápido)
 - `npm run build` local passando.
 - Deploy Vercel “verde”.
+- No Admin:
+  - Aba **Pacientes**: tabela mais compacta (linhas/botões/pills).
 - No paciente:
   - “Seu próximo atendimento” visível e legível no mobile.
   - Menu: Contrato abre corretamente e Admin/Sair legíveis.
   - `GET /api/patient/resolve-phone` retorna 200.
 
 ## Próximo passo sugerido (amanhã)
-> **Painel de constância (presença/faltas)**: consolidar import/registro e preparar os disparos/psicoeducação de follow-up (parabenizar presença + orientar em caso de falta), sem criar “botão de cancelar”.
+1) **Admin > Pacientes**
+   - Filtros rápidos: *Sem Push*, *Sem Contrato Aceito*, *Sem Código*.
+   - Melhorar performance (paginação/consulta incremental e/ou virtualização).
+
+2) **Painel de constância (presença/faltas)**
+   - Consolidar import/registro e preparar os disparos/psicoeducação de follow-up (parabenizar presença + orientar em caso de falta), sem criar “botão de cancelar”.
 
 - Ajustar/confirmar a fonte de dados (planilha 2 de presença/faltas).
 - Garantir que o painel de constância e o disparo estejam acessíveis no Admin.

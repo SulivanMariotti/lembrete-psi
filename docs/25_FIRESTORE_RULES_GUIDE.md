@@ -56,6 +56,7 @@ No client, sempre que permitir leitura, condicione a:
 ### 3.3 `appointments/*`
 - Patient:
   - leitura apenas dos seus horários (filtrados por `phoneCanonical`)
+  - **fallback seguro (primeiro acesso):** aceitar também `request.auth.token.phoneCanonical` (claim emitida server-side no pareamento) enquanto `users/{uid}` ainda não foi persistido
   - escrita: normalmente **negada**
 - Admin:
   - leitura/escrita para import/sincronização
