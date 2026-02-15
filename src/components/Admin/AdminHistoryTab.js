@@ -66,8 +66,21 @@ function uniq(arr) {
   return Array.from(new Set((arr || []).map(String).filter(Boolean)));
 }
 
+function canonicalSlotKey(raw) {
+  const s = String(raw || '').toLowerCase().trim();
+  if (!s) return null;
+  if (s === 'multi' || s.includes('multi')) return 'multi';
+  if (s.includes('slot1') || s.includes('48')) return 'slot1';
+  if (s.includes('slot2') || s.includes('24')) return 'slot2';
+  if (s.includes('slot3') || s.includes('manh') || s.includes('morning') || s.includes('today') || s.includes('hoje')) return 'slot3';
+  return null;
+}
+
 function campaignFromReminderTypes(reminderTypes) {
-  const keys = uniq(reminderTypes);
+  const keys = uniq(reminderTypes)
+    .map(canonicalSlotKey)
+    .filter(Boolean);
+
   const valid = keys.filter((k) => ['slot1', 'slot2', 'slot3'].includes(k));
   const u = uniq(valid);
   if (u.length === 0) return 'unknown';
@@ -78,17 +91,28 @@ function campaignFromReminderTypes(reminderTypes) {
 function getCampaignKey(log) {
   const types = Array.isArray(log?.types) ? log.types.map(String) : [];
 
-  // Resumo do disparo não carrega reminderTypes (hoje), então agrupamos separado.
+  // Resumo do disparo
   if (types.includes('push_reminder_send_summary')) return 'summary';
 
-  // Lembrete enviado: tem reminderTypes
-  if (types.includes('push_reminder_sent') || types.includes('appointment_reminder')) {
-    return campaignFromReminderTypes(log?.reminderTypes || log?.reminderType ? [log.reminderType] : []);
-  }
+  // Tenta extrair slots normalizados de campos possíveis
+  const rawSlots = [];
+  if (Array.isArray(log?.reminderTypes)) rawSlots.push(...log.reminderTypes);
+  if (log?.reminderType) rawSlots.push(log.reminderType);
+  if (log?.slot) rawSlots.push(log.slot);
 
-  // Falha individual: hoje não persistimos reminderType no history (fica como unknown)
-  if (types.includes('push_reminder_failed')) {
-    return campaignFromReminderTypes(log?.reminderTypes || log?.reminderType ? [log.reminderType] : []);
+  // Alguns logs podem carregar info dentro do payload (mantemos defensivo)
+  if (log?.payload?.reminderType) rawSlots.push(log.payload.reminderType);
+  if (Array.isArray(log?.payload?.reminderTypes)) rawSlots.push(...log.payload.reminderTypes);
+
+  // Lembrete enviado / lembrete de sessão / falha individual
+  if (
+    types.includes('push_reminder_sent') ||
+    types.includes('appointment_reminder') ||
+    types.includes('push_reminder_failed')
+  ) {
+    // Se vier 'multi' ou múltiplos slots, campaignFromReminderTypes lida
+    const key = campaignFromReminderTypes(rawSlots);
+    return key || 'unknown';
   }
 
   return 'other';

@@ -4,34 +4,21 @@ import { requireAdmin } from "@/lib/server/requireAdmin";
 import { rateLimit } from "@/lib/server/rateLimit";
 import { logAdminAudit } from "@/lib/server/auditLog";
 import { adminError } from "@/lib/server/adminError";
+
 export const runtime = "nodejs";
+
 /**
- * PASSO 32/45 — Disparar lembretes (server-side) usando templates msg1/msg2/msg3
+ * PASSO 16.2/45 — Push sem duplicar + sempre com conteúdo da sessão
  *
- * Endpoint: POST /api/admin/reminders/send
- * Proteção: Authorization Bearer (idToken) + role admin
+ * Problema observado:
+ * - DATA-ONLY depende do SW atualizar 100%; se o SW antigo estiver ativo, a notificação pode chegar "vazia"
+ * - NOTIFICATION + showNotification() no SW pode duplicar (2x)
  *
- * Body:
- * {
- *   uploadId?: string | null,
- *   reminders: Array<{
- *     appointmentId?: string|null,
- *     phoneCanonical: string,
- *     patientName?: string,
- *     startISO?: string|null,
- *     reminderType?: string|null, // 'slot1' | 'slot2' | 'slot3' | legado '48h'/'24h'/'12h'
- *     serviceType?: string,
- *     location?: string
- *   }>
- * }
- *
- * Compatibilidade:
- * - Preferência: msg1/msg2/msg3
- * - Fallback: msg48h/msg24h/msg12h
- *
- * Envio:
- * - Algumas versões do firebase-admin não expõem messaging().sendAll()
- * - Este endpoint tenta sendAll -> sendEach -> fallback send() com concorrência limitada.
+ * Solução:
+ * - Enviar como WEBPUSH notification (para o navegador exibir com title/body SEM depender do SW)
+ * - Enviar também "data" (para deep-link e auditoria)
+ * - No SW (firebase-messaging-sw.js), se payload.notification existir, NÃO chamar showNotification (evita 2x)
+ * - Usar "tag" (dedupeKey) para colapsar duplicatas no Android/Chrome
  */
 
 function getServiceAccount() {
@@ -62,42 +49,79 @@ function normalizePhoneCanonical(input) {
   return d;
 }
 
-function safeDateParts(startISO) {
+function safeDateParts(startISO, dateBR, timeBR) {
+  const dbr = String(dateBR || "").trim();
+  const tbr = String(timeBR || "").trim();
+  if (dbr || tbr) return { date: dbr, time: tbr };
+
   const s = String(startISO || "");
   const date = s.length >= 10 ? s.slice(0, 10) : "";
   const time = s.length >= 16 ? s.slice(11, 16) : "";
   return { date, time };
 }
 
+function escapeRegExp(str) {
+  return String(str || "").replace(/[.*+?^${}()|[\[\]\\]/g, "\\$&");
+}
+
 function applyTemplate(tpl, vars) {
   const template = String(tpl || "");
-  return template
-    .replaceAll("{name}", vars.name || "")
-    .replaceAll("{date}", vars.date || "")
-    .replaceAll("{time}", vars.time || "")
-    .replaceAll("{serviceType}", vars.serviceType || "Sessão")
-    .replaceAll("{location}", vars.location || "Clínica");
+  if (!template) return "";
+
+  const nameFull = String(vars.nameFull || vars.nomeCompleto || vars.name || vars.nome || "").trim();
+  const firstName = nameFull ? nameFull.split(" ")[0] : "";
+
+  const map = {
+    // nomes
+    nome: firstName,
+    name: firstName,
+    nomecompleto: nameFull,
+    fullname: nameFull,
+
+    // data/hora
+    data: String(vars.date || vars.data || ""),
+    date: String(vars.date || vars.data || ""),
+    hora: String(vars.time || vars.hora || ""),
+    time: String(vars.time || vars.hora || ""),
+
+    // profissional
+    profissional: String(vars.professional || vars.profissional || ""),
+    professional: String(vars.professional || vars.profissional || ""),
+    terapeuta: String(vars.professional || vars.profissional || ""),
+
+    // serviço/local
+    servicotype: String(vars.serviceType || vars.servico || "Sessão"),
+    servico: String(vars.serviceType || vars.servico || "Sessão"),
+    service: String(vars.serviceType || vars.servico || "Sessão"),
+
+    location: String(vars.location || vars.local || "Clínica"),
+    local: String(vars.location || vars.local || "Clínica"),
+  };
+
+  let out = template;
+
+  for (const [k, v] of Object.entries(map)) {
+    const key = escapeRegExp(k);
+    const re = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}|\\{\\s*${key}\\s*\\}`, "gi");
+    out = out.replace(re, String(v ?? ""));
+  }
+
+  return out;
 }
 
 function pickTemplate(cfg, reminderType) {
   const rt = String(reminderType || "").toLowerCase().trim();
 
-  // Preferência: slots (offsets variáveis)
   if (rt === "slot1" || rt.includes("slot1") || rt === "1") return cfg?.msg1 || "";
   if (rt === "slot2" || rt.includes("slot2") || rt === "2") return cfg?.msg2 || "";
   if (rt === "slot3" || rt.includes("slot3") || rt === "3") return cfg?.msg3 || "";
 
-  // Compat legado 48/24/12
   if (rt.includes("48")) return cfg?.msg48h || cfg?.msg1 || "";
   if (rt.includes("24")) return cfg?.msg24h || cfg?.msg2 || "";
   if (rt.includes("12")) return cfg?.msg12h || cfg?.msg3 || "";
 
-  // Fallback final: msg2 -> msg1 -> msg3 (ordem mais comum)
   return cfg?.msg2 || cfg?.msg1 || cfg?.msg3 || cfg?.msg24h || cfg?.msg48h || cfg?.msg12h || "";
 }
-
-
-const BRAND_DEFAULT_PREFIX = "💜 Permittá • Lembrete Psi";
 
 function normalizeReminderSlot(reminderType) {
   const rt = String(reminderType || "").toLowerCase().trim();
@@ -113,12 +137,8 @@ function joinTitle(prefix, suffix) {
   const s = String(suffix || "").trim();
   if (!p) return s;
   if (!s) return p;
-
   const needsSpace = !p.endsWith(" ") && !s.startsWith(" ");
-  // Se o prefixo já termina com pontuação/dash, só concatena
   if (/[—\-:•]$/.test(p)) return p + (needsSpace ? " " : "") + s;
-
-  // Caso padrão: separa com " — "
   return p + " — " + s;
 }
 
@@ -151,13 +171,11 @@ function resolveReminderTitle(cfg, slotKey) {
   const raw = cfg && cfg[k] != null ? String(cfg[k]).trim() : "";
   const prefix = cfg && cfg.reminderTitlePrefix != null ? String(cfg.reminderTitlePrefix).trim() : "";
 
-  // Se o campo específico existir, usa. Se parecer "sufixo", concatena com prefixo se houver.
   if (raw) {
     if (prefix && !raw.includes("Permittá") && !raw.includes("Lembrete Psi")) return joinTitle(prefix, raw);
     return raw;
   }
 
-  // Se não houver campo específico, tenta montar com prefixo configurável
   if (prefix) {
     const suf = suffixDefaults[slotKey] || suffixDefaults.fallback;
     return joinTitle(prefix, suf);
@@ -166,7 +184,6 @@ function resolveReminderTitle(cfg, slotKey) {
   return defaultsFull[slotKey] || defaultsFull.fallback;
 }
 
-// concorrência limitada para fallback send()
 async function sendWithConcurrency(messaging, messages, concurrency = 20) {
   const results = new Array(messages.length);
   let idx = 0;
@@ -188,6 +205,16 @@ async function sendWithConcurrency(messaging, messages, concurrency = 20) {
   return { results };
 }
 
+function isUserInactive(u) {
+  if (!u) return false;
+  const st = String(u.status || "").toLowerCase();
+  if (["inactive", "disabled", "archived", "deleted"].includes(st)) return true;
+  if (u.deletedAt || u.disabledAt) return true;
+  if (u.isActive === false || u.disabled === true) return true;
+  if (u.mergedTo) return true;
+  return false;
+}
+
 export async function POST(req) {
   let auth = null;
   try {
@@ -204,7 +231,6 @@ export async function POST(req) {
     });
     if (!rl.ok) return rl.res;
 
-
     const body = await req.json().catch(() => ({}));
     const uploadId = body?.uploadId ? String(body.uploadId) : null;
     const remindersRaw = Array.isArray(body?.reminders) ? body.reminders : [];
@@ -214,10 +240,14 @@ export async function POST(req) {
         appointmentId: r?.appointmentId ? String(r.appointmentId) : null,
         phoneCanonical: normalizePhoneCanonical(r?.phoneCanonical || r?.phone || ""),
         patientName: r?.patientName ? String(r.patientName) : "",
+        professionalName: r?.professionalName ? String(r.professionalName) : "",
         startISO: r?.startISO ? String(r.startISO) : null,
+        dateBR: r?.dateBR ? String(r.dateBR) : "",
+        time: r?.time ? String(r.time) : "",
         reminderType: r?.reminderType ? String(r.reminderType) : null,
         serviceType: r?.serviceType ? String(r.serviceType) : "Sessão",
         location: r?.location ? String(r.location) : "Clínica",
+        messageBody: r?.messageBody ? String(r.messageBody) : "",
       }))
       .filter((r) => r.phoneCanonical && (r.phoneCanonical.length === 10 || r.phoneCanonical.length === 11));
 
@@ -228,28 +258,24 @@ export async function POST(req) {
     const db = admin.firestore();
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // Templates
     const cfgSnap = await db.collection("config").doc("global").get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
 
-    // Agrupa por telefone
     const byPhone = new Map();
     for (const r of reminders) {
       const arr = byPhone.get(r.phoneCanonical) || [];
       arr.push(r);
       byPhone.set(r.phoneCanonical, arr);
     }
-
-    // Busca subscribers em batch
     const phones = Array.from(byPhone.keys());
+
+    // Subscribers (token) em batch
     const resultsByPhone = {};
     const chunkSize = 50;
-
     for (let i = 0; i < phones.length; i += chunkSize) {
       const chunk = phones.slice(i, i + chunkSize);
       const refs = chunk.map((p) => db.collection("subscribers").doc(p));
       const snaps = await db.getAll(...refs);
-
       snaps.forEach((snap, idx) => {
         const phone = chunk[idx];
         const data = snap.exists ? snap.data() : null;
@@ -259,21 +285,10 @@ export async function POST(req) {
       });
     }
 
-    
-    // Busca users (pacientes) por phoneCanonical para bloquear inativos (server-side)
-    function isUserInactive(u) {
-      if (!u) return false;
-      const st = String(u.status || "").toLowerCase();
-      if (["inactive", "disabled", "archived", "deleted"].includes(st)) return true;
-      if (u.deletedAt || u.disabledAt) return true;
-      if (u.isActive === false || u.disabled === true) return true;
-      if (u.mergedTo) return true;
-      return false;
-    }
-
+    // Users inativos (bloqueio) — best effort
     const userInactiveByPhone = {};
     if (phones.length) {
-      const inChunk = 10; // Firestore 'in' supports up to 10
+      const inChunk = 10;
       for (let i = 0; i < phones.length; i += inChunk) {
         const chunk = phones.slice(i, i + inChunk);
         const snapUsers = await db
@@ -281,7 +296,6 @@ export async function POST(req) {
           .where("role", "==", "patient")
           .where("phoneCanonical", "in", chunk)
           .get();
-
         snapUsers.docs.forEach((d) => {
           const data = d.data() || {};
           const ph = String(data.phoneCanonical || "").trim();
@@ -291,78 +305,142 @@ export async function POST(req) {
       }
     }
 
-// Monta 1 mensagem por telefone
     const messages = [];
     const perPhoneMeta = [];
 
-    let skippedInactive = 0;
+    let skippedInactiveSubscriber = 0;
     let skippedInactivePatient = 0;
     let skippedNoToken = 0;
 
+    const clickUrl = "https://agenda.msgflow.app.br";
+
     for (const phone of phones) {
       const meta = resultsByPhone[phone] || { token: null, inactive: false };
-      const items = byPhone.get(phone) || [];
+      const itemsRaw = byPhone.get(phone) || [];
 
-      const patientInactive = userInactiveByPhone[phone] === true;
-      if (patientInactive) {
-        skippedInactivePatient += items.length;
+      if (userInactiveByPhone[phone] === true) {
+        skippedInactivePatient += itemsRaw.length;
         continue;
       }
-
       if (meta.inactive) {
-        skippedInactive += items.length;
+        skippedInactiveSubscriber += itemsRaw.length;
         continue;
       }
       if (!meta.token) {
-        skippedNoToken += items.length;
+        skippedNoToken += itemsRaw.length;
         continue;
       }
 
-      const first = items[0];
-      const { date, time } = safeDateParts(first.startISO);
+      // Dedup local por appointmentId+slot (mesma chamada)
+      const seen = new Set();
+      const items = [];
+      for (const it of itemsRaw) {
+        const slot = normalizeReminderSlot(it.reminderType);
+        const key = `${it.appointmentId || "noid"}:${slot || "noslot"}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({ ...it, _slot: slot });
+      }
+      if (!items.length) continue;
 
-      const tpl = pickTemplate(cfg, first.reminderType);
-      const bodyText = tpl
-        ? applyTemplate(tpl, {
-            name: first.patientName,
-            date,
-            time,
-            serviceType: first.serviceType,
-            location: first.location,
-          })
-        : `Olá${first.patientName ? ", " + first.patientName : ""}. Seu horário de cuidado está reservado para ${date || "a data agendada"} às ${
-            time || "hora agendada"
-          }.`;
+      const first = items[0];
+      const { date, time } = safeDateParts(first.startISO, first.dateBR, first.time);
+
+      // 1) Preferência: messageBody (já preenchido pelo parseCSV)
+      let bodyText = String(first.messageBody || "").trim();
+
+      // 2) Fallback: template global com placeholders PT/EN
+      if (!bodyText) {
+        const tpl = pickTemplate(cfg, first.reminderType);
+        bodyText = tpl
+          ? applyTemplate(tpl, {
+              nameFull: first.patientName,
+              professional: first.professionalName,
+              date,
+              time,
+              serviceType: first.serviceType,
+              location: first.location,
+            })
+          : "";
+      }
+
+      // 3) Fallback final: mensagem segura com data/hora se disponíveis
+      if (!bodyText) {
+        const firstName = first.patientName ? first.patientName.split(" ")[0] : "";
+        bodyText = `Olá${firstName ? ", " + firstName : ""}. Seu horário de cuidado está reservado para ${date || "a data agendada"} às ${
+          time || "hora agendada"
+        }.`;
+      }
 
       const extraCount = items.length - 1;
-      const finalBody =
-        extraCount > 0 ? `${bodyText}\n\nVocê tem mais ${extraCount} lembrete(s) pendente(s) nesta seleção.` : bodyText;
+      const finalBody = extraCount > 0 ? `${bodyText}\n\nVocê tem mais ${extraCount} lembrete(s) nesta seleção.` : bodyText;
 
-
-      const slotKeys = items.map((x) => normalizeReminderSlot(x.reminderType)).filter(Boolean);
+      const slotKeys = items.map((x) => x._slot).filter(Boolean);
       const uniqSlots = Array.from(new Set(slotKeys));
+
       const titleKey = uniqSlots.length > 1 ? "multi" : uniqSlots.length === 1 ? uniqSlots[0] : "fallback";
-      const notificationTitle = resolveReminderTitle(cfg, titleKey);
+      const title = resolveReminderTitle(cfg, titleKey);
+
+      const slotForKey = uniqSlots.length === 1 ? uniqSlots[0] : (first._slot || "");
+      const dedupeKey = `${first.appointmentId || phone}:${slotForKey || "reminder"}`;
 
       messages.push({
         token: meta.token,
-        notification: { title: notificationTitle, body: finalBody },
+        webpush: {
+          notification: {
+            title: String(title),
+            body: String(finalBody),
+            icon: "/icon.png",
+            tag: String(dedupeKey),
+            renotify: false,
+          },
+          fcmOptions: { link: clickUrl },
+        },
         data: {
           kind: "appointment_reminder",
-          phoneCanonical: phone,
-          uploadId: uploadId || "",
-          reminderType: first.reminderType || "",
-          appointmentId: first.appointmentId || "",
+          title: String(title),
+          body: String(finalBody),
+          phoneCanonical: String(phone),
+          uploadId: String(uploadId || ""),
+          reminderType: String(first.reminderType || ""),
+          appointmentId: String(first.appointmentId || ""),
+          reminderTypes: JSON.stringify(uniqSlots),
+          dedupeKey: String(dedupeKey),
+          click_url: clickUrl,
         },
       });
 
-      perPhoneMeta.push({ phone, items });
+      perPhoneMeta.push({ phone, items, uniqSlots });
+    }
+
+    if (!messages.length) {
+      await db.collection("history").add({
+        type: "push_reminder_send_summary",
+        uploadId: uploadId || null,
+        phonesTotal: phones.length,
+        messagesTotal: 0,
+        sentCount: 0,
+        failCount: 0,
+        skippedInactiveSubscriber,
+        skippedInactivePatient,
+        skippedNoToken,
+        createdAt: now,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        sentCount: 0,
+        failCount: 0,
+        messagesPrepared: 0,
+        skippedInactiveSubscriber,
+        skippedInactivePatient,
+        skippedNoToken,
+      });
     }
 
     const messaging = admin.messaging();
 
     let sendResponses = null;
-
     if (typeof messaging.sendAll === "function") {
       const resp = await messaging.sendAll(messages);
       sendResponses = resp.responses.map((r) => ({ success: r.success, error: r.error || null }));
@@ -379,7 +457,8 @@ export async function POST(req) {
 
     for (let i = 0; i < sendResponses.length; i++) {
       const r = sendResponses[i];
-      const { phone, items } = perPhoneMeta[i];
+      const { phone, items, uniqSlots } = perPhoneMeta[i];
+      const reminderType = uniqSlots.length > 1 ? "multi" : uniqSlots[0] || "";
 
       if (r?.success) {
         sentCount += 1;
@@ -388,7 +467,8 @@ export async function POST(req) {
           uploadId: uploadId || null,
           phoneCanonical: phone,
           appointmentIds: items.map((x) => x.appointmentId).filter(Boolean),
-          reminderTypes: items.map((x) => x.reminderType).filter(Boolean),
+          reminderType,
+          reminderTypes: uniqSlots,
           createdAt: now,
         });
       } else {
@@ -399,6 +479,8 @@ export async function POST(req) {
           phoneCanonical: phone,
           error: r?.error?.message || "FCM send error",
           appointmentIds: items.map((x) => x.appointmentId).filter(Boolean),
+          reminderType,
+          reminderTypes: uniqSlots,
           createdAt: now,
         });
       }
@@ -411,12 +493,9 @@ export async function POST(req) {
       messagesTotal: messages.length,
       sentCount,
       failCount,
-      skippedInactive,
+      skippedInactiveSubscriber,
       skippedInactivePatient,
-      blockedInactive: skippedInactivePatient,
-      blockedInactiveSubscriber: skippedInactive,
       skippedNoToken,
-      blockedNoToken: skippedNoToken,
       createdAt: now,
     });
 
@@ -432,7 +511,7 @@ export async function POST(req) {
         messagesTotal: messages.length,
         sentCount,
         failCount,
-        skippedInactive,
+        skippedInactiveSubscriber,
         skippedInactivePatient,
         skippedNoToken,
       },
@@ -442,13 +521,10 @@ export async function POST(req) {
       ok: true,
       sentCount,
       failCount,
-      skippedInactive,
-      skippedInactivePatient,
-      blockedInactive: skippedInactivePatient,
-      blockedInactiveSubscriber: skippedInactive,
-      skippedNoToken,
-      blockedNoToken: skippedNoToken,
       messagesPrepared: messages.length,
+      skippedInactiveSubscriber,
+      skippedInactivePatient,
+      skippedNoToken,
     });
   } catch (e) {
     return adminError({ req, auth: auth?.ok ? auth : null, action: "reminders_send", err: e });

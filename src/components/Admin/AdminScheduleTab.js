@@ -4,9 +4,11 @@ import {
   collection,
   doc,
   getDocs,
+  limit,
   orderBy,
   query,
   setDoc,
+  startAfter,
   updateDoc,
   where,
   writeBatch,
@@ -98,33 +100,53 @@ const chunkArray = (arr, size = 10) => {
   return out;
 };
 
-const cancelMissingFutureAppointments = async ({ list, currentIdsSet, uploadId }) => {
+const computeUploadWindowEnd = (list) => {
+  let lastISO = null;
+  (list || []).forEach((a) => {
+    const iso = String(a?.isoDate || normalizeToISODate(a?.data || a?.date || '') || '').trim();
+    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      if (!lastISO || iso > lastISO) lastISO = iso;
+    }
+  });
+  if (!lastISO) return null;
+  // final do dia (cobre a janela completa do upload)
+  return new Date(`${lastISO}T23:59:59`);
+};
+
+// RECONCILIAÇÃO (fonte da verdade = upload atual)
+// Cancela sessões FUTURAS (dentro da janela do upload) que existiam no Firestore,
+// mas que NÃO estão presentes no upload atual.
+//
+// Importante:
+// - NÃO apaga histórico
+// - Apenas marca como `status: "cancelled"` com motivo.
+// - Só afeta registros sincronizados pelo upload (`source: "admin_sync"`).
+const cancelMissingFutureAppointments = async ({ list, currentIdsSet, uploadId, windowEnd }) => {
   try {
     const now = new Date();
-
-    // Telefones presentes no upload (para limitar a busca). Firestore "in" limita 10 itens.
-    const phones = Array.from(
-      new Set(
-        (list || [])
-          .map((a) => String(a.cleanPhone || a.phone || '').replace(/\D/g, ''))
-          .filter(Boolean)
-      )
-    );
-
-    if (!phones.length) return { cancelled: 0, scanned: 0 };
+    const end = windowEnd || computeUploadWindowEnd(list) || new Date(now.getTime() + 32 * 24 * 60 * 60 * 1000);
 
     let cancelled = 0;
     let scanned = 0;
 
-    for (const phoneChunk of chunkArray(phones, 10)) {
-      const q = query(
-        collection(db, 'appointments'),
-        where('phone', 'in', phoneChunk),
-        where('startAt', '>=', now),
-        orderBy('startAt', 'asc')
-      );
+    // Paginação para não estourar memória/tempo em agendas grandes
+    const PAGE_SIZE = 500;
+    let lastDoc = null;
 
+    while (true) {
+      const constraints = [
+        where('startAt', '>=', now),
+        where('startAt', '<=', end),
+        orderBy('startAt', 'asc'),
+      ];
+      if (lastDoc) constraints.push(startAfter(lastDoc));
+      constraints.push(limit(PAGE_SIZE));
+
+      const q = query(collection(db, 'appointments'), ...constraints);
       const snap = await getDocs(q);
+
+      if (snap.empty) break;
+
       scanned += snap.size || 0;
 
       for (const d of snap.docs) {
@@ -132,27 +154,38 @@ const cancelMissingFutureAppointments = async ({ list, currentIdsSet, uploadId }
         const status = String(appt.status || '').toLowerCase();
         if (status === 'cancelled' || status === 'done') continue;
 
-        if (currentIdsSet.has(d.id)) continue;
+        // Só reconcilia o que veio do upload (não mexe em cadastro manual/outros sources)
+        if (String(appt.source || '') !== 'admin_sync') continue;
 
+        // Se está no upload atual, mantém
+        if (currentIdsSet?.has?.(d.id)) continue;
+
+        // Compat: se o upload usa externalId, permite casar por externalId
         const externalId = String(appt.externalId || '').trim();
-        if (externalId && currentIdsSet.has(externalId)) continue;
+        if (externalId && currentIdsSet?.has?.(externalId)) continue;
 
         await updateDoc(doc(db, 'appointments', d.id), {
           status: 'cancelled',
           cancelledBy: 'sync',
+          cancelledReason: 'missing_in_upload',
           cancelledAt: new Date(),
           cancelledUploadId: uploadId,
+          updatedAt: new Date(),
         });
         cancelled += 1;
       }
+
+      lastDoc = snap.docs[snap.docs.length - 1];
+      if (snap.size < PAGE_SIZE) break;
     }
 
-    return { cancelled, scanned };
+    return { cancelled, scanned, windowEnd: end.toISOString() };
   } catch (e) {
     console.error('cancelMissingFutureAppointments failed:', e);
     return { cancelled: 0, scanned: 0, error: e?.message || String(e) };
   }
 };
+
 
 export default function AdminScheduleTab({ subscribers, dbAppointments, showToast, globalConfig, localConfig }) {
   const STATUS_BATCH_URL = '/api/admin/push/status-batch';
@@ -386,9 +419,9 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
   // 6. Processar CSV
   const processCsv = async () => {
     const parsed = parseCSV(csvInput, subscribers, {
-      msg48h: localConfig?.msg48h || '',
-      msg24h: localConfig?.msg24h || '',
-      msg12h: localConfig?.msg12h || '',
+      msg48h: localConfig?.msg1 || localConfig?.msg48h || '',
+      msg24h: localConfig?.msg2 || localConfig?.msg24h || '',
+      msg12h: localConfig?.msg3 || localConfig?.msg12h || '',
     });
 
     setAppointments(parsed);
@@ -526,13 +559,23 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
       // mas que NÃO estão mais presentes no upload atual.
       // Importante: não apaga histórico; apenas marca como `status: "cancelled"` com motivo.
       const syncedIdSet = new Set(syncedIds);
-      const recon = await cancelMissingFutureAppointments({ list: appointments, currentIdsSet: syncedIdSet, uploadId });
+      const windowEnd =
+        verificationSummary?.lastISO && /^\d{4}-\d{2}-\d{2}$/.test(String(verificationSummary.lastISO))
+          ? new Date(`${verificationSummary.lastISO}T23:59:59`)
+          : computeUploadWindowEnd(appointments);
+
+      const recon = await cancelMissingFutureAppointments({
+        list: appointments,
+        currentIdsSet: syncedIdSet,
+        uploadId,
+        windowEnd,
+      });
       if (recon?.cancelled) {
-        showToast(`Reconciliação: ${recon.cancelled} sessões futuras canceladas (não estavam no upload).`, 'info');
+        showToast(`Reconciliação: ${recon.cancelled} sessões futuras canceladas (removidas do upload). Verificadas: ${recon.scanned}.`, 'info');
       }
 
       showToast(
-        `Agenda sincronizada! (${syncedIds.length} registros) • Reconciliação aplicada (futuros removidos foram cancelados).`
+        `Agenda sincronizada! (${syncedIds.length} registros) • Reconciliação aplicada (sessões futuras removidas do upload foram canceladas).`
       );
 
       // Log resumo do upload no history (server-side)
@@ -695,15 +738,34 @@ export default function AdminScheduleTab({ subscribers, dbAppointments, showToas
       },
       patients,
       blockedPatients,
-      willSendItems: willSend.map((a) => ({
-        appointmentId: a.id || a.appointmentId || null,
-        phoneCanonical: toCanonical(a.cleanPhone || a.phoneCanonical || a.phone),
-        patientName: a.name || a.patientName || '',
-        startISO: a.startISO || a.start || a.dateISO || a.date || null,
-        reminderType: a.reminderType || null,
-        serviceType: a.serviceType || 'Sessão',
-        location: a.location || 'Clínica',
-      })),
+      willSendItems: willSend.map((a) => {
+        const phone = toCanonical(a.cleanPhone || a.phoneCanonical || a.phone || a.tel || '');
+        const isoDate = String(a?.isoDate || normalizeToISODate(a?.data || a?.date || '') || '').trim();
+        const time = String(a?.hora || a?.time || '').trim();
+        const profissional = String(a?.profissional || a?.professional || a?.professionalName || '').trim();
+
+        const startISO = isoDate && time ? `${isoDate}T${time}:00` : (a.startISO || a.start || a.dateISO || a.date || null);
+
+        // ID determinístico (mesmo padrão usado no sync) — essencial para dedupe por sessão
+        const appointmentId = (a.appointmentId && String(a.appointmentId).trim())
+          ? String(a.appointmentId).trim()
+          : (phone && isoDate && time ? makeAppointmentId({ phone, isoDate, time, profissional }) : null);
+
+        return {
+          appointmentId,
+          phoneCanonical: phone,
+          patientName: a.nome || a.name || a.patientName || '',
+          professionalName: profissional,
+          startISO,
+          dateBR: a.data || a.date || '',
+          time,
+          reminderType: a.reminderType || null,
+          serviceType: a.serviceType || 'Sessão',
+          location: a.location || 'Clínica',
+          // se vier do parseCSV, já vem com {nome}/{data}/{hora}/{profissional} preenchidos
+          messageBody: a.messageBody || '',
+        };
+      }),
     };
 
     setSendPreview(preview);

@@ -1,4 +1,8 @@
-// Service Worker Atualizado - Versão Simples (Sem Links Externos)
+// Service Worker — Lembrete Psi (anti-duplicação + compat)
+// - Se payload.notification existir (webpush notification), NÃO chama showNotification (evita 2x)
+// - Se NÃO existir, usa payload.data.title/body e mostra manualmente (DATA-ONLY)
+// - Usa "tag" (dedupeKey) para colapsar duplicatas no Android/Chrome
+
 importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js');
 importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-messaging.js');
 
@@ -11,42 +15,52 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// 1. Quando a mensagem chega (Background)
 messaging.onBackgroundMessage((payload) => {
-  console.log('Notificação recebida:', payload);
+  try {
+    // 1) Se o navegador já vai mostrar (notification payload), NÃO duplicar via SW.
+    if (payload && payload.notification && (payload.notification.title || payload.notification.body)) {
+      return;
+    }
 
-  const notificationTitle = payload.notification?.title || '💜 Permittá • Lembrete Psi';
-  const notificationOptions = {
-    body: payload.notification?.body || 'Nova mensagem recebida.',
-    icon: '/icon.png'
-    // Removemos a lógica de data { click_url } para simplificar
-  };
+    // 2) DATA-ONLY
+    const data = (payload && payload.data) ? payload.data : {};
+    const notificationTitle = data.title || '💜 Permittá • Lembrete Psi';
+    const notificationBody = data.body || 'Nova mensagem recebida.';
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
+    const tag = data.dedupeKey || (
+      data.appointmentId && data.reminderType ? `${data.appointmentId}:${data.reminderType}` : undefined
+    );
+
+    const clickUrl = data.click_url || 'https://agenda.msgflow.app.br';
+
+    const notificationOptions = {
+      body: notificationBody,
+      icon: '/icon.png',
+      tag,
+      renotify: false,
+      data: { click_url: clickUrl }
+    };
+
+    self.registration.showNotification(notificationTitle, notificationOptions);
+  } catch (e) {
+    console.error('SW showNotification error:', e);
+  }
 });
 
-// 2. Quando o usuário CLICA na notificação
 self.addEventListener('notificationclick', function(event) {
-  console.log('Notificação clicada!');
-  
   event.notification.close();
 
-  // URL fixa do site principal (sem links externos para WhatsApp por enquanto)
-  const urlToOpen = 'https://agenda.msgflow.app.br';
+  const urlToOpen = (event.notification && event.notification.data && event.notification.data.click_url)
+    ? event.notification.data.click_url
+    : 'https://agenda.msgflow.app.br';
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
-      // Tenta focar se já estiver aberto
       for (let i = 0; i < windowClients.length; i++) {
         const client = windowClients[i];
-        if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
-        }
+        if (client.url === urlToOpen && 'focus' in client) return client.focus();
       }
-      // Se não, abre nova janela
-      if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
-      }
+      if (clients.openWindow) return clients.openWindow(urlToOpen);
     })
   );
 });
