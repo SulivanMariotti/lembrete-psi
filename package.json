@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "backup:local": "node scripts/backup-firestore.mjs",
-    "security:check": "node scripts/security-check.mjs"
+    "security:check": "node scripts/security-check.mjs",
+    "test:report-admin": "node --test tests/report-admin/*.test.mjs"
   },
   "dependencies": {
     "firebase": "^12.8.0",
