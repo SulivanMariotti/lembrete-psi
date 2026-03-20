@@ -34,6 +34,12 @@ const DEFAULT_FILTERS = {
   ignoreEmptyPatientName: true,
 };
 
+const DEFAULT_RESULTS_QUICK_FILTERS = {
+  patientQuery: "",
+  professionalQuery: "",
+  specialty: "all",
+  sortBy: "row",
+};
 
 const RESULTS_FILTER_OPTIONS = [
   { value: "all", label: "Todos os resultados" },
@@ -115,6 +121,20 @@ function buildStatusOptions(analysis, selectedStatuses) {
   return deduped;
 }
 
+function getFindingScheduledAtSortValue(finding) {
+  const direct = cleanText(finding?.summary?.scheduledAt);
+  if (direct) return normalizeText(direct);
+
+  const values = Array.isArray(finding?.rows)
+    ? finding.rows.map((row) => cleanText(row?.scheduledAt)).filter(Boolean)
+    : [];
+
+  if (!values.length) return "";
+  return values
+    .map((value) => normalizeText(value))
+    .sort((left, right) => left.localeCompare(right, "pt-BR"))[0];
+}
+
 export default function AdminAnalysisView({ showToast }) {
   const inputRef = useRef(null);
 
@@ -124,6 +144,7 @@ export default function AdminAnalysisView({ showToast }) {
   const [error, setError] = useState("");
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [resultsFilter, setResultsFilter] = useState("all");
+  const [resultsQuickFilters, setResultsQuickFilters] = useState(DEFAULT_RESULTS_QUICK_FILTERS);
 
   const previewHeaders = useMemo(() => analysis?.structure?.headers || [], [analysis]);
   const previewRows = useMemo(() => analysis?.previewRows || [], [analysis]);
@@ -132,6 +153,72 @@ export default function AdminAnalysisView({ showToast }) {
     if (resultsFilter === "all") return findings;
     return findings.filter((finding) => finding?.type === resultsFilter);
   }, [findings, resultsFilter]);
+  const resultSpecialtyOptions = useMemo(() => {
+    const values = [];
+    const seen = new Set();
+
+    for (const finding of findings) {
+      const label = cleanText(finding?.specialty);
+      const key = normalizeText(label);
+      if (!label || seen.has(key)) continue;
+      seen.add(key);
+      values.push(label);
+    }
+
+    return values.sort((left, right) => left.localeCompare(right, "pt-BR"));
+  }, [findings]);
+  const refinedFindings = useMemo(() => {
+    const patientQuery = normalizeText(resultsQuickFilters.patientQuery);
+    const professionalQuery = normalizeText(resultsQuickFilters.professionalQuery);
+    const specialtyFilter = normalizeText(resultsQuickFilters.specialty);
+    const sortBy = resultsQuickFilters.sortBy || "row";
+
+    const next = filteredFindings.filter((finding) => {
+      if (patientQuery) {
+        const patientMatches = [finding?.patientName, finding?.patientCode].some((value) =>
+          normalizeText(value).includes(patientQuery)
+        );
+        if (!patientMatches) return false;
+      }
+
+      if (professionalQuery) {
+        const professionalMatches = Array.isArray(finding?.rows)
+          ? finding.rows.some((row) =>
+              [row?.professionalName, row?.professionalCode].some((value) => normalizeText(value).includes(professionalQuery))
+            )
+          : false;
+        if (!professionalMatches) return false;
+      }
+
+      if (specialtyFilter && specialtyFilter !== "all") {
+        if (normalizeText(finding?.specialty) !== specialtyFilter) return false;
+      }
+
+      return true;
+    });
+
+    next.sort((left, right) => {
+      if (sortBy === "patient") {
+        return normalizeText(left?.patientName).localeCompare(normalizeText(right?.patientName), "pt-BR");
+      }
+
+      if (sortBy === "specialty") {
+        const specialtyCompare = normalizeText(left?.specialty).localeCompare(normalizeText(right?.specialty), "pt-BR");
+        if (specialtyCompare !== 0) return specialtyCompare;
+        return normalizeText(left?.patientName).localeCompare(normalizeText(right?.patientName), "pt-BR");
+      }
+
+      if (sortBy === "scheduledAt") {
+        const scheduledCompare = getFindingScheduledAtSortValue(left).localeCompare(getFindingScheduledAtSortValue(right), "pt-BR");
+        if (scheduledCompare !== 0) return scheduledCompare;
+        return (Number(left?.firstRowIndex) || 0) - (Number(right?.firstRowIndex) || 0);
+      }
+
+      return (Number(left?.firstRowIndex) || 0) - (Number(right?.firstRowIndex) || 0);
+    });
+
+    return next;
+  }, [filteredFindings, resultsQuickFilters]);
   const missingRequiredFields = useMemo(() => analysis?.structure?.missingRequiredFields || [], [analysis]);
   const ignoredRowsPreview = useMemo(() => analysis?.ignoredRowsPreview || [], [analysis]);
   const exportBundles = useMemo(
@@ -154,6 +241,7 @@ export default function AdminAnalysisView({ showToast }) {
     setAnalysis(null);
     setError("");
     setResultsFilter("all");
+    setResultsQuickFilters(DEFAULT_RESULTS_QUICK_FILTERS);
 
     if (!nextFile) return;
 
@@ -247,6 +335,13 @@ export default function AdminAnalysisView({ showToast }) {
     if (inputRef.current) {
       inputRef.current.value = "";
     }
+  };
+
+  const updateResultsQuickFilters = (partial) => {
+    setResultsQuickFilters((current) => ({
+      ...current,
+      ...partial,
+    }));
   };
 
   const handleExportBundle = (bundle) => {
@@ -750,17 +845,73 @@ export default function AdminAnalysisView({ showToast }) {
                   Conflito de profissional: {analysis?.summary?.professionalConflictGroups || 0}
                 </span>
                 <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
-                  Exibindo agora: {filteredFindings.length} grupo(s)
+                  Exibindo agora: {refinedFindings.length} grupo(s)
                 </span>
               </div>
             </div>
 
-            {!filteredFindings.length ? (
+            <div className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm">
+              <div className="grid gap-3 xl:grid-cols-4">
+                <label className="block">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Buscar paciente</div>
+                  <input
+                    type="text"
+                    value={resultsQuickFilters.patientQuery}
+                    onChange={(event) => updateResultsQuickFilters({ patientQuery: event.target.value })}
+                    placeholder="Nome ou código do paciente"
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Buscar profissional</div>
+                  <input
+                    type="text"
+                    value={resultsQuickFilters.professionalQuery}
+                    onChange={(event) => updateResultsQuickFilters({ professionalQuery: event.target.value })}
+                    placeholder="Nome ou código do profissional"
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Especialidade</div>
+                  <select
+                    value={resultsQuickFilters.specialty}
+                    onChange={(event) => updateResultsQuickFilters({ specialty: event.target.value })}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                  >
+                    <option value="all">Todas as especialidades</option>
+                    {resultSpecialtyOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Ordenar por</div>
+                  <select
+                    value={resultsQuickFilters.sortBy}
+                    onChange={(event) => updateResultsQuickFilters({ sortBy: event.target.value })}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                  >
+                    <option value="row">Linha da planilha</option>
+                    <option value="patient">Paciente</option>
+                    <option value="specialty">Especialidade</option>
+                    <option value="scheduledAt">Data/hora</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            {!refinedFindings.length ? (
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
-                Nenhum grupo corresponde ao filtro selecionado nesta faixa de resultados.
+                Nenhum grupo corresponde ao recorte atual desta faixa de resultados.
               </div>
             ) : (
-              filteredFindings.map((finding) => (
+              refinedFindings.map((finding) => (
                 <details
                   key={finding.id}
                   className="group rounded-2xl border border-slate-200 bg-white shadow-sm open:border-violet-200 open:ring-1 open:ring-violet-100"
