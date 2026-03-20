@@ -63,8 +63,8 @@ export function categoryStatusToBadge(status) {
   if (status === "missing-specialty") return { status: "missing", text: "Especialidade em branco" };
   if (status === "specialty-not-found") return { status: "missing", text: "Especialidade não encontrada" };
   if (status === "inactive-specialty") return { status: "pending", text: "Especialidade inativa" };
-  if (status === "psychology-missing-demand") return { status: "missing", text: "Psicologia sem Demanda" };
-  if (status === "psychology-demand-not-found") return { status: "missing", text: "Demanda da Psicologia não encontrada" };
+  if (status === "excel-missing-demand") return { status: "missing", text: "Sem Demanda/Tags no arquivo" };
+  if (status === "excel-demand-not-found") return { status: "missing", text: "Demanda da planilha não encontrada" };
   if (status === "specialty-without-default-demand") return { status: "missing", text: "Sem Demanda padrão" };
   if (status === "inactive-demand") return { status: "pending", text: "Demanda inativa" };
   if (status === "missing-category") return { status: "missing", text: "Categoria vazia" };
@@ -90,9 +90,9 @@ export function specialtyModeToLabel(mode) {
 
 export function specialtyModeToHint(mode) {
   if (mode === REPORT_SPECIALTY_DEMAND_SOURCE_MODES.SYSTEM_DEFAULT) {
-    return "Nutrição e Fonoaudiologia podem usar Demanda padrão do sistema e deixar a Demanda do arquivo vazia.";
+    return "A Especialidade usa a Demanda padrão cadastrada no sistema.";
   }
-  return "A Especialidade espera a Demanda no arquivo. Psicologia segue essa regra.";
+  return "A Especialidade usa a coluna Demanda da planilha e, se ela vier vazia, faz fallback em Tags.";
 }
 
 export function readLogoAsJpegDataUrl(file) {

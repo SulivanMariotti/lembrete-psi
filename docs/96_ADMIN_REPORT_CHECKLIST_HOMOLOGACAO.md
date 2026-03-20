@@ -18,15 +18,10 @@ Executar a homologação funcional e operacional do módulo `/admin/report` com 
 Fluxo oficial:
 **Especialidade → regra da Especialidade → Demanda resolvida → CID do sistema → Categoria do sistema**
 
-### Psicologia
+### Psicologia, Nutrição e Fonoaudiologia
 - origem oficial da Demanda: coluna `Demanda`
 - fallback: `Tags`
 - modo da Especialidade: `EXCEL`
-
-### Nutrição e Fonoaudiologia
-- ignoram a Demanda da planilha como fonte oficial
-- usam a Demanda padrão cadastrada na Especialidade
-- modo da Especialidade: `SYSTEM_DEFAULT`
 
 ### CID e Categoria
 - derivados pelo sistema
@@ -44,7 +39,7 @@ Fluxo oficial:
 
 ### Bloco B — Importação e preview
 
-#### Cenário B1 — Planilha válida de Psicologia com Demanda preenchida
+#### Cenário B1 — Psicologia com Demanda preenchida
 - [ ] Acessar `/admin/report`
 - [ ] Selecionar categoria
 - [ ] Selecionar modelo/template
@@ -66,28 +61,50 @@ Fluxo oficial:
 - linha resolvida quando `Tags` permitir fallback
 - status consistente no preview
 
-#### Cenário B3 — Psicologia sem Demanda e sem `Tags`
+#### Cenário B3 — Nutrição com Demanda preenchida
+- [ ] Importar planilha válida de Nutrição com `Demanda`
+
+**Esperado**
+- linha pronta
+- Demanda resolvida pela coluna `Demanda`
+
+#### Cenário B4 — Nutrição sem Demanda, usando fallback em `Tags`
+- [ ] Importar planilha de Nutrição sem `Demanda` e com `Tags` válida
+
+**Esperado**
+- linha pronta
+- resolução via `Tags`
+
+#### Cenário B5 — Fonoaudiologia com Demanda preenchida
+- [ ] Importar planilha válida de Fonoaudiologia com `Demanda`
+
+**Esperado**
+- linha pronta
+- Demanda resolvida pela coluna `Demanda`
+
+#### Cenário B6 — Fonoaudiologia sem Demanda, usando fallback em `Tags`
+- [ ] Importar planilha de Fonoaudiologia sem `Demanda` e com `Tags` válida
+
+**Esperado**
+- linha pronta
+- resolução via `Tags`
+
+#### Cenário B7 — Especialidade em `excel` sem Demanda e sem `Tags`
 - [ ] Importar planilha sem `Demanda` e sem `Tags`
 
 **Esperado**
 - linha não pronta
-- status de falta de Demanda para Psicologia
+- status `excel-missing-demand`
 - preview explicando o bloqueio
 
-#### Cenário B4 — Nutrição
-- [ ] Importar planilha válida de Nutrição
+#### Cenário B8 — Especialidade em `excel` com Demanda não encontrada
+- [ ] Importar planilha com `Demanda` inexistente no catálogo da especialidade
 
 **Esperado**
-- Demanda oficial resolvida pela Demanda padrão da Especialidade
-- valor vindo da planilha não prevalece como regra oficial
+- linha não pronta
+- status `excel-demand-not-found`
 
-#### Cenário B5 — Fonoaudiologia
-- [ ] Importar planilha válida de Fonoaudiologia
-
-**Esperado**
-- Demanda oficial resolvida pela Demanda padrão da Especialidade
-
-#### Cenário B6 — Template inválido
+#### Cenário B9 — Template inválido
 - [ ] Importar planilha com cabeçalho/template inválido
 
 **Esperado**
@@ -126,7 +143,7 @@ Fluxo oficial:
 - [ ] Editar Demanda vinculada
 - [ ] Inativar Demanda
 - [ ] Excluir Demanda, quando permitido
-- [ ] Em Especialidade `SYSTEM_DEFAULT`, definir Demanda padrão
+- [ ] Em Especialidade `SYSTEM_DEFAULT`, definir Demanda padrão apenas quando esse modo for usado de forma excepcional
 
 **Esperado**
 - alterações refletidas no fluxo de importação
@@ -168,25 +185,3 @@ Fluxo oficial:
 
 **Esperado**
 - bloqueio controlado
-- sem queda da rota
-
----
-
-## Critérios de aprovação
-Considerar o módulo apto para homologação aprovada quando:
-- [ ] suíte `test:report-admin` estiver verde
-- [ ] todos os cenários B, C, D, E e F críticos estiverem aprovados
-- [ ] preview e PDF estiverem coerentes
-- [ ] isolamento de sessão por admin estiver confirmado
-- [ ] cleanup manual funcionar
-- [ ] nenhum erro crítico aparecer no fluxo principal
-
-## Registro sugerido da rodada
-Preencher ao final:
-- Data:
-- Ambiente:
-- Admin responsável:
-- Resultado geral: Aprovado / Aprovado com ressalvas / Reprovado
-- Incidentes encontrados:
-- Ação corretiva:
-- Próximo passo:

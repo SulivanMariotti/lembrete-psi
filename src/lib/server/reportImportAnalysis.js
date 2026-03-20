@@ -286,8 +286,8 @@ function buildDemandResolution(row, specialty) {
       excelDemandInput,
       excelDemandNormalized,
       demand: null,
-      missingDemandStatus: "psychology-missing-demand",
-      missingDemandLabel: "Psicologia sem Demanda no arquivo",
+      missingDemandStatus: "excel-missing-demand",
+      missingDemandLabel: "Sem Demanda/Tags no arquivo",
     };
   }
 
@@ -296,8 +296,8 @@ function buildDemandResolution(row, specialty) {
     excelDemandInput,
     excelDemandNormalized,
     demand,
-    missingDemandStatus: demand ? "" : "psychology-demand-not-found",
-    missingDemandLabel: demand ? "" : "Demanda da Psicologia não encontrada",
+    missingDemandStatus: demand ? "" : "excel-demand-not-found",
+    missingDemandLabel: demand ? "" : "Demanda da planilha não encontrada",
   };
 }
 
@@ -365,8 +365,8 @@ export function buildMatchSummary(rows = []) {
     missingSpecialty: 0,
     specialtyNotFound: 0,
     inactiveSpecialty: 0,
-    psychologyMissingDemand: 0,
-    psychologyDemandNotFound: 0,
+    excelMissingDemand: 0,
+    excelDemandNotFound: 0,
     specialtyWithoutDefaultDemand: 0,
     inactiveDemand: 0,
     missingCategory: 0,
@@ -377,8 +377,8 @@ export function buildMatchSummary(rows = []) {
     if (row.categoryStatus === "missing-specialty") acc.missingSpecialty += 1;
     if (row.categoryStatus === "specialty-not-found") acc.specialtyNotFound += 1;
     if (row.categoryStatus === "inactive-specialty") acc.inactiveSpecialty += 1;
-    if (row.categoryStatus === "psychology-missing-demand") acc.psychologyMissingDemand += 1;
-    if (row.categoryStatus === "psychology-demand-not-found") acc.psychologyDemandNotFound += 1;
+    if (row.categoryStatus === "excel-missing-demand") acc.excelMissingDemand += 1;
+    if (row.categoryStatus === "excel-demand-not-found") acc.excelDemandNotFound += 1;
     if (row.categoryStatus === "specialty-without-default-demand") acc.specialtyWithoutDefaultDemand += 1;
     if (row.categoryStatus === "inactive-demand") acc.inactiveDemand += 1;
     if (row.categoryStatus === "missing-category") acc.missingCategory += 1;
@@ -468,8 +468,8 @@ export async function analyzeReportImportFile({
       "Leitura da primeira aba do arquivo.",
       "Pré-análise do arquivo antes do snapshot temporário do resultado.",
       "Especialidade é a validação principal do lote.",
-      "Psicologia exige Demanda no arquivo (coluna Demanda ou fallback em Tags).",
-      "Nutrição/Fonoaudiologia usam a Demanda padrão cadastrada na Especialidade.",
+      "Especialidades em modo excel usam a coluna Demanda e fazem fallback em Tags quando ela vier vazia.",
+      "CID e Categoria são resolvidos a partir da Demanda encontrada no sistema.",
       "Catálogo de Especialidades/Demandas com cache curto em memória e fallback seguro para leitura tradicional.",
       selectedTemplate
         ? `Modelo aplicado no lote: ${selectedTemplate.name}.`

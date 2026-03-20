@@ -24,7 +24,11 @@ function createDoc(id, data, specialtyId = null) {
 function createFirestoreMock() {
   const createDoc = (id, data, specialtyId = null) => {
     const ref = specialtyId
-      ? { parent: { parent: { id: specialtyId, parent: { id: "report_specialties" } } } }
+      ? {
+          parent: {
+            parent: { id: specialtyId, parent: { id: "report_specialties" } },
+          },
+        }
       : {};
     return { id, ref, data: () => data };
   };
@@ -41,8 +45,15 @@ function createFirestoreMock() {
       name: "Nutrição",
       nameNormalized: "nutricao",
       isActive: true,
-      demandSourceMode: "system_default",
-      defaultDemandId: "nutri-default",
+      demandSourceMode: "excel",
+      defaultDemandId: "",
+    }),
+    createDoc("speech-therapy", {
+      name: "Fonoaudiologia",
+      nameNormalized: "fonoaudiologia",
+      isActive: true,
+      demandSourceMode: "excel",
+      defaultDemandId: "",
     }),
   ];
 
@@ -61,7 +72,7 @@ function createFirestoreMock() {
       "psychology"
     ),
     createDoc(
-      "nutri-default",
+      "plano-alimentar",
       {
         name: "Plano alimentar",
         nameNormalized: "plano alimentar",
@@ -69,9 +80,48 @@ function createFirestoreMock() {
         cidAdult: "Z71.3",
         cidInf: "Z71.3",
         category1Title: "Categoria 1",
-        category1Content: "Conteúdo Nutri",
+        category1Content: "Conteúdo Nutri A",
       },
       "nutrition"
+    ),
+    createDoc(
+      "reeducacao-alimentar",
+      {
+        name: "Reeducação alimentar",
+        nameNormalized: "reeducacao alimentar",
+        isActive: true,
+        cidAdult: "Z71.3",
+        cidInf: "Z71.3",
+        category1Title: "Categoria 1",
+        category1Content: "Conteúdo Nutri B",
+      },
+      "nutrition"
+    ),
+    createDoc(
+      "linguagem",
+      {
+        name: "Linguagem",
+        nameNormalized: "linguagem",
+        isActive: true,
+        cidAdult: "F80.9",
+        cidInf: "F80.9",
+        category1Title: "Categoria 1",
+        category1Content: "Conteúdo Fono A",
+      },
+      "speech-therapy"
+    ),
+    createDoc(
+      "disfagia",
+      {
+        name: "Disfagia",
+        nameNormalized: "disfagia",
+        isActive: true,
+        cidAdult: "R13",
+        cidInf: "R13",
+        category1Title: "Categoria 1",
+        category1Content: "Conteúdo Fono B",
+      },
+      "speech-therapy"
     ),
   ];
 
@@ -161,7 +211,57 @@ function createFirestoreMock() {
   };
 }
 
+function buildWorkbookRow({
+  codigoPaciente,
+  especialidade,
+  dataNascimento,
+  tags = "",
+  demanda = "",
+}) {
+  const row = Array(45).fill("");
+  row[0] = "ativo";
+  row[1] = "1";
+  row[2] = "Profissional";
+  row[3] = "Conselho";
+  row[4] = especialidade;
+  row[9] = String(codigoPaciente);
+  row[10] = `Paciente ${codigoPaciente}`;
+  row[11] = dataNascimento;
+  row[14] = tags;
+  row[24] = "Convênio";
+  row[26] = "Confirmado";
+  row[28] = "Sim";
+  row[31] = "Online";
+  row[32] = demanda;
+  return row;
+}
+
 function workbookFixture() {
+  const buildWorkbookRow = ({
+    codigoPaciente,
+    especialidade,
+    dataNascimento,
+    tags = "",
+    demanda = "",
+  }) => {
+    const row = Array(45).fill("");
+    row[0] = "ativo";
+    row[1] = "1";
+    row[2] = "Profissional";
+    row[3] = "Conselho";
+    row[4] = especialidade;
+    row[9] = String(codigoPaciente);
+    row[10] = `Paciente ${codigoPaciente}`;
+    row[11] = dataNascimento;
+    row[14] = tags;
+    row[24] = "Convênio";
+    row[26] = "Confirmado";
+    row[28] = "Sim";
+    row[31] = "Online";
+    row[32] = demanda;
+    return row;
+  };
+
   return {
     sheetName: "Importação",
     sheetCount: 1,
@@ -213,149 +313,34 @@ function workbookFixture() {
         "Motivo de Bloqueio",
         "Motivo do cancelamento",
       ],
-      [
-        "ativo",
-        "1",
-        "Prof Psi",
-        "CRP",
-        "Psicologia",
-        "",
-        "",
-        "",
-        "",
-        "10",
-        "Paciente A",
-        "2010-03-15",
-        "",
-        "",
-        "Ansiedade",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "Convênio A",
-        "",
-        "Confirmado",
-        "",
-        "Sim",
-        "",
-        "",
-        "Online",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-      ],
-      [
-        "ativo",
-        "2",
-        "Prof Nutri",
-        "CRN",
-        "Nutrição",
-        "",
-        "",
-        "",
-        "",
-        "11",
-        "Paciente B",
-        "1990-04-15",
-        "",
-        "",
-        "Demanda ignorada",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "Convênio B",
-        "",
-        "Confirmado",
-        "",
-        "Sim",
-        "",
-        "",
-        "Presencial",
-        "Outra Demanda",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-      ],
-      [
-        "ativo",
-        "3",
-        "Prof Psi",
-        "CRP",
-        "Psicologia",
-        "",
-        "",
-        "",
-        "",
-        "12",
-        "Paciente C",
-        "2012-04-15",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "Convênio C",
-        "",
-        "Confirmado",
-        "",
-        "Sim",
-        "",
-        "",
-        "Online",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-      ],
+      buildWorkbookRow({
+        codigoPaciente: "11",
+        especialidade: "Nutrição",
+        dataNascimento: "1990-04-15",
+        demanda: "Plano alimentar",
+      }),
+      buildWorkbookRow({
+        codigoPaciente: "13",
+        especialidade: "Fonoaudiologia",
+        dataNascimento: "2014-06-10",
+        demanda: "Linguagem",
+      }),
+      buildWorkbookRow({
+        codigoPaciente: "15",
+        especialidade: "Nutrição",
+        dataNascimento: "1988-07-10",
+      }),
+      buildWorkbookRow({
+        codigoPaciente: "16",
+        especialidade: "Fonoaudiologia",
+        dataNascimento: "2011-08-11",
+        demanda: "Demanda Inexistente",
+      }),
     ],
   };
 }
 
-test("analyzeReportImportFile mantém regra oficial por especialidade e resumo do lote", async () => {
+test("analyzeReportImportFile aplica regra excel nas linhas com Demanda e consolida os novos status", async () => {
   const mod = await importWithMocks({
     entry: "src/lib/server/reportImportAnalysis.js",
     repoRoot,
@@ -381,13 +366,15 @@ test("analyzeReportImportFile mantém regra oficial por especialidade e resumo d
             status: String(sourceRow["Status"] || "").trim(),
             demanda: String(sourceRow["Demanda"] || "").trim(),
             tags: String(sourceRow["Tags"] || "").trim(),
+            codigoPaciente: String(sourceRow["Cód paciente"] || "").trim(),
+            dataNascimento: String(sourceRow["Data de Nascimento"] || "").trim(),
           };
         }
       `,
       "@/lib/shared/reportDemands": `
         export const REPORT_DEMAND_CATEGORY_OPTIONS = [1,2,3,4,5];
         export function normalizeDemandName(value) {
-          return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\\s+/g, " ");
+          return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
         }
         export function extractDemandCategory(demand = {}, selectedCategory = 1) {
           return {
@@ -397,7 +384,7 @@ test("analyzeReportImportFile mantém regra oficial por especialidade e resumo d
           };
         }
         export function resolveDemandCidByBirthDate(demand = {}, birthDate = "") {
-          const year = Number(String(birthDate || "").slice(0,4));
+          const year = Number(String(birthDate || "").slice(0, 4));
           const age = Number.isFinite(year) ? new Date().getFullYear() - year : null;
           const useInf = typeof age === "number" && age < 18;
           return {
@@ -407,12 +394,14 @@ test("analyzeReportImportFile mantém regra oficial por especialidade e resumo d
             age,
           };
         }
-        export function formatBirthDateDisplay(value) { return String(value || "").trim(); }
+        export function formatBirthDateDisplay(value) {
+          return String(value || "").trim();
+        }
       `,
       "@/lib/shared/reportSpecialties": `
         export const REPORT_SPECIALTY_DEMAND_SOURCE_MODES = { EXCEL: "excel", SYSTEM_DEFAULT: "system_default" };
         export function normalizeSpecialtyName(value) {
-          return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\\s+/g, " ");
+          return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
         }
       `,
       "@/lib/shared/reportTemplates": `
@@ -431,22 +420,32 @@ test("analyzeReportImportFile mantém regra oficial por especialidade e resumo d
     templateId: "template-default",
   });
 
-  assert.equal(result.summary.totalRows, 3);
+
+  assert.equal(result.summary.totalRows, 4);
   assert.equal(result.matchSummary.ready, 2);
-  assert.equal(result.matchSummary.psychologyMissingDemand, 1);
+  assert.equal(result.matchSummary.excelMissingDemand, 1);
+  assert.equal(result.matchSummary.excelDemandNotFound, 1);
+  assert.equal("psychologyMissingDemand" in result.matchSummary, false);
+  assert.equal("psychologyDemandNotFound" in result.matchSummary, false);
 
-  const psychologyReady = result.matchedRows.find((row) => row.codigoPaciente === "10");
-  assert.equal(psychologyReady.demandSourceUsed, "excel");
-  assert.equal(psychologyReady.demandName, "Ansiedade");
-  assert.equal(psychologyReady.categoryStatus, "ready");
 
-  const nutritionReady = result.matchedRows.find((row) => row.codigoPaciente === "11");
-  assert.equal(nutritionReady.demandSourceUsed, "system_default");
-  assert.equal(nutritionReady.demandName, "Plano alimentar");
-  assert.equal(nutritionReady.categoryStatus, "ready");
+  const nutritionByDemand = result.matchedRows.find((row) => row.codigoPaciente === "11");
+  assert.equal(nutritionByDemand.demandSourceUsed, "excel");
+  assert.equal(nutritionByDemand.demandName, "Plano alimentar");
+  assert.equal(nutritionByDemand.categoryStatus, "ready");
 
-  const psychologyMissingDemand = result.matchedRows.find((row) => row.codigoPaciente === "12");
-  assert.equal(psychologyMissingDemand.categoryStatus, "psychology-missing-demand");
+
+  const speechByDemand = result.matchedRows.find((row) => row.codigoPaciente === "13");
+  assert.equal(speechByDemand.demandSourceUsed, "excel");
+  assert.equal(speechByDemand.demandName, "Linguagem");
+  assert.equal(speechByDemand.categoryStatus, "ready");
+
+
+  const missingDemand = result.matchedRows.find((row) => row.codigoPaciente === "15");
+  assert.equal(missingDemand.categoryStatus, "excel-missing-demand");
+
+  const demandNotFound = result.matchedRows.find((row) => row.codigoPaciente === "16");
+  assert.equal(demandNotFound.categoryStatus, "excel-demand-not-found");
 
   assert.equal(mod.parseSelectedCategory("9"), 1);
   assert.deepEqual(mod.getReportImportCatalogPolicy(), {
@@ -456,7 +455,83 @@ test("analyzeReportImportFile mantém regra oficial por especialidade e resumo d
   });
 });
 
-test("buildMatchSummary consolida os status do preview de forma estável", async () => {
+
+test("buildDemandResolution usa Tags como fallback para especialidades em modo excel", async () => {
+  const mod = await importWithMocks({
+    entry: "src/lib/server/reportImportRuleEngine.js",
+    repoRoot,
+    mocks: {
+      "@/lib/shared/reportDemands": `
+        export function normalizeDemandName(value) {
+          return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\\s+/g, " ");
+        }
+        export function extractDemandCategory(demand = {}, selectedCategory = 1) {
+          return {
+            number: selectedCategory,
+            title: String(demand["category" + selectedCategory + "Title"] || ""),
+            content: String(demand["category" + selectedCategory + "Content"] || ""),
+          };
+        }
+        export function resolveDemandCidByBirthDate(demand = {}, birthDate = "") {
+          const year = Number(String(birthDate || "").slice(0, 4));
+          const age = Number.isFinite(year) ? new Date().getFullYear() - year : null;
+          const useInf = typeof age === "number" && age < 18;
+          return {
+            value: useInf ? String(demand.cidInf || "") : String(demand.cidAdult || ""),
+            source: useInf ? "cidInf" : "cidAdult",
+            ageBand: useInf ? "inf" : "adult",
+            age,
+          };
+        }
+      `,
+      "@/lib/shared/reportSpecialties": `
+        export const REPORT_SPECIALTY_DEMAND_SOURCE_MODES = { EXCEL: "excel", SYSTEM_DEFAULT: "system_default" };
+        export function normalizeSpecialtyName(value) {
+          return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\\s+/g, " ");
+        }
+      `,
+    },
+  });
+
+  function createSpecialty(name, demands) {
+    return {
+      name,
+      demandSourceMode: "excel",
+      demands,
+      demandsByNormalized: new Map(demands.map((demand) => [demand.nameNormalized, demand])),
+    };
+  }
+
+  const psychology = createSpecialty("Psicologia", [
+    { id: "ansiedade", name: "Ansiedade", nameNormalized: "ansiedade", isActive: true, category1Content: "A", cidAdult: "F41.1", cidInf: "F93.8" },
+  ]);
+  const nutrition = createSpecialty("Nutrição", [
+    { id: "reeducacao", name: "Reeducação alimentar", nameNormalized: "reeducacao alimentar", isActive: true, category1Content: "B", cidAdult: "Z71.3", cidInf: "Z71.3" },
+    { id: "plano", name: "Plano alimentar", nameNormalized: "plano alimentar", isActive: true, category1Content: "C", cidAdult: "Z71.3", cidInf: "Z71.3" },
+  ]);
+  const speech = createSpecialty("Fonoaudiologia", [
+    { id: "disfagia", name: "Disfagia", nameNormalized: "disfagia", isActive: true, category1Content: "D", cidAdult: "R13", cidInf: "R13" },
+  ]);
+
+  const psychologyFallback = mod.buildDemandResolution({ demanda: "", tags: "Ansiedade" }, psychology);
+  assert.equal(psychologyFallback.demand?.name, "Ansiedade");
+  assert.equal(psychologyFallback.demandSourceUsed, "excel");
+
+  const nutritionFallback = mod.buildDemandResolution({ demanda: "", tags: "Reeducação alimentar" }, nutrition);
+  assert.equal(nutritionFallback.demand?.name, "Reeducação alimentar");
+  assert.equal(nutritionFallback.demandSourceUsed, "excel");
+
+  const speechFallback = mod.buildDemandResolution({ demanda: "", tags: "Disfagia" }, speech);
+  assert.equal(speechFallback.demand?.name, "Disfagia");
+  assert.equal(speechFallback.demandSourceUsed, "excel");
+
+  const demandPriority = mod.buildDemandResolution({ demanda: "Plano alimentar", tags: "Reeducação alimentar" }, nutrition);
+  assert.equal(demandPriority.demand?.name, "Plano alimentar");
+  assert.equal(demandPriority.missingDemandStatus, "");
+});
+
+
+test("buildMatchSummary consolida os status genéricos do preview de forma estável", async () => {
   const mod = await importWithMocks({
     entry: "src/lib/server/reportImportAnalysis.js",
     repoRoot,
@@ -470,14 +545,18 @@ test("buildMatchSummary consolida os status do preview de forma estável", async
       `,
       "@/lib/shared/reportDemands": `
         export const REPORT_DEMAND_CATEGORY_OPTIONS = [1,2,3,4,5];
-        export function normalizeDemandName(value) { return String(value || ""); }
+        export function normalizeDemandName(value) {
+          return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+        }
         export function extractDemandCategory() { return { number: 1, title: "", content: "" }; }
         export function resolveDemandCidByBirthDate() { return { value: "", source: "", ageBand: "", age: null }; }
         export function formatBirthDateDisplay(value) { return String(value || ""); }
       `,
       "@/lib/shared/reportSpecialties": `
         export const REPORT_SPECIALTY_DEMAND_SOURCE_MODES = { EXCEL: "excel", SYSTEM_DEFAULT: "system_default" };
-        export function normalizeSpecialtyName(value) { return String(value || ""); }
+        export function normalizeSpecialtyName(value) {
+          return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+        }
       `,
       "@/lib/shared/reportTemplates": `export function mapTemplateToForm(template = {}) { return template; }`,
     },
@@ -487,11 +566,15 @@ test("buildMatchSummary consolida os status do preview de forma estável", async
     { categoryStatus: "ready" },
     { categoryStatus: "ready" },
     { categoryStatus: "missing-specialty" },
+    { categoryStatus: "excel-missing-demand" },
+    { categoryStatus: "excel-demand-not-found" },
     { categoryStatus: "inactive-demand" },
   ]);
 
   assert.equal(summary.ready, 2);
   assert.equal(summary.missingSpecialty, 1);
+  assert.equal(summary.excelMissingDemand, 1);
+  assert.equal(summary.excelDemandNotFound, 1);
   assert.equal(summary.inactiveDemand, 1);
-  assert.equal(summary.psychologyMissingDemand, 0);
+  assert.equal("psychologyMissingDemand" in summary, false);
 });

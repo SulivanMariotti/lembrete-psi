@@ -130,7 +130,9 @@ export async function PATCH(req, ctx) {
     const current = serializeFirestoreValue(existing.data() || {});
     const nextDemandSourceMode =
       patch.demandSourceMode ?? current?.demandSourceMode ?? REPORT_SPECIALTY_DEMAND_SOURCE_MODES.EXCEL;
-    const nextDefaultDemandId = patch.defaultDemandId ?? String(current?.defaultDemandId || "").trim();
+    const rawNextDefaultDemandId = patch.defaultDemandId ?? String(current?.defaultDemandId || "").trim();
+    const nextDefaultDemandId =
+      nextDemandSourceMode === REPORT_SPECIALTY_DEMAND_SOURCE_MODES.SYSTEM_DEFAULT ? rawNextDefaultDemandId : "";
 
     if (!Object.values(REPORT_SPECIALTY_DEMAND_SOURCE_MODES).includes(nextDemandSourceMode)) {
       return NextResponse.json({ ok: false, error: "Modo de origem da Demanda inválido." }, { status: 400 });
@@ -146,8 +148,12 @@ export async function PATCH(req, ctx) {
       );
     }
 
-    if (patch.defaultDemandId != null && patch.defaultDemandId) {
-      const demandSnap = await ref.collection("demands").doc(patch.defaultDemandId).get();
+    if (nextDemandSourceMode !== REPORT_SPECIALTY_DEMAND_SOURCE_MODES.SYSTEM_DEFAULT) {
+      patch.defaultDemandId = "";
+    }
+
+    if (nextDemandSourceMode === REPORT_SPECIALTY_DEMAND_SOURCE_MODES.SYSTEM_DEFAULT && nextDefaultDemandId) {
+      const demandSnap = await ref.collection("demands").doc(nextDefaultDemandId).get();
       if (!demandSnap.exists) {
         return NextResponse.json({ ok: false, error: "Demanda padrão não encontrada." }, { status: 404 });
       }

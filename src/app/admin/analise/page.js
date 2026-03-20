@@ -6,10 +6,10 @@ import { getAuth, getIdTokenResult, onAuthStateChanged, signInWithCustomToken } 
 
 import { app } from "../../firebase";
 import { Button, Card, Toast } from "../../../components/DesignSystem";
-import AdminReportImportView from "../../../components/Admin/AdminReportImportView";
+import AdminAnalysisView from "../../../components/Admin/AdminAnalysisView";
 import { logoutUser } from "../../../services/authService";
 
-export default function AdminReportPage() {
+export default function AdminAnalisePage() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -128,7 +128,7 @@ export default function AdminReportPage() {
         )}
 
         <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-          <AdminReportImportView showToast={showToast} />
+          <AdminAnalysisView showToast={showToast} />
         </div>
       </>
     );
@@ -146,9 +146,9 @@ export default function AdminReportPage() {
 
       <div className="min-h-screen bg-slate-50 px-4 py-8 md:px-6 lg:px-8">
         <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-3xl border border-slate-100 bg-gradient-to-br from-white via-violet-50/30 to-slate-50 shadow-sm p-6 md:p-8">
+          <div className="rounded-3xl border border-slate-100 bg-gradient-to-br from-white via-violet-50/30 to-slate-50 p-6 shadow-sm md:p-8">
             <div className="flex items-start gap-4">
-              <div className="relative w-14 h-14 rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden flex items-center justify-center">
+              <div className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
                 <Image
                   src="/logo.png"
                   alt="Lembrete Psi"
@@ -161,36 +161,39 @@ export default function AdminReportPage() {
 
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="font-black tracking-tight text-slate-900 text-xl sm:text-2xl">
+                  <div className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
                     Lembrete Psi
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-semibold">
+                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
                     Admin
                   </span>
                 </div>
-                <div className="text-xs sm:text-sm text-slate-500 mt-0.5">Relatórios • importação, especialidades, demandas e modelos</div>
+                <div className="mt-0.5 text-xs text-slate-500 sm:text-sm">
+                  Análise • preparação para detecção de duplicidades em Excel
+                </div>
               </div>
             </div>
 
             <div className="mt-6 space-y-4 text-slate-600">
               <p className="text-sm sm:text-base">
-                Área preparada para receber planilhas da <b>Amplimed</b>, validar a <b>Especialidade</b> do lote, resolver a Demanda pela coluna <b>Demanda</b> com fallback em <b>Tags</b> nas especialidades em modo <b>excel</b> e usar a Demanda resolvida no sistema para preencher <b>CID</b> e <b>Categoria</b> antes de gerar os PDFs do relatório.
+                Área preparada para receber planilhas <b>.xlsx</b>, validar o cabeçalho da primeira aba,
+                mapear colunas e devolver um preview das linhas antes de aplicar as regras de duplicidade.
               </p>
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <div className="text-xs uppercase font-bold tracking-wide text-slate-400">Rota</div>
-                  <div className="mt-1 font-semibold text-slate-800">/admin/report</div>
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Rota</div>
+                  <div className="mt-1 font-semibold text-slate-800">/admin/analise</div>
                 </div>
 
                 <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <div className="text-xs uppercase font-bold tracking-wide text-slate-400">Upload</div>
-                  <div className="mt-1 font-semibold text-slate-800">.xlsx + PDF A4</div>
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Upload</div>
+                  <div className="mt-1 font-semibold text-slate-800">.xlsx</div>
                 </div>
 
                 <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <div className="text-xs uppercase font-bold tracking-wide text-slate-400">Cadastro</div>
-                  <div className="mt-1 font-semibold text-slate-800">Especialidades, Demandas e Modelos</div>
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Saída atual</div>
+                  <div className="mt-1 font-semibold text-slate-800">Cabeçalhos + preview</div>
                 </div>
               </div>
             </div>
@@ -201,7 +204,7 @@ export default function AdminReportPage() {
               <div className="space-y-3">
                 <div className="text-sm text-slate-600">
                   Você já está logado, mas <b>sem permissão de admin</b>.
-                  <div className="text-xs text-slate-400 mt-1">
+                  <div className="mt-1 text-xs text-slate-400">
                     Para entrar como Admin, saia e informe a senha de administrador.
                   </div>
                 </div>
@@ -213,13 +216,13 @@ export default function AdminReportPage() {
             ) : (
               <form className="space-y-3" onSubmit={handleAdminLogin}>
                 <div className="text-sm text-slate-600">
-                  Área restrita. Use a senha para acessar relatórios, cadastro de Especialidades e Demandas, montagem de Modelos, validação por categoria e geração dos PDFs.
+                  Área restrita. Use a senha para acessar a leitura da planilha e, no próximo passo, configurar as regras que vão devolver as linhas duplicadas.
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase ml-1">Senha</label>
+                  <label className="ml-1 text-xs font-bold uppercase text-slate-500">Senha</label>
                   <input
-                    className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-violet-200 text-slate-700"
+                    className="w-full rounded-xl border border-slate-200 p-3 text-slate-700 outline-none focus:ring-2 focus:ring-violet-200"
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
@@ -234,8 +237,8 @@ export default function AdminReportPage() {
               </form>
             )}
 
-            <div className="mt-4 text-[11px] text-slate-400 leading-snug">
-              * Dica: esta rota concentra Especialidades, Demandas por Especialidade, Modelos de Relatório, importação por categoria e geração de PDF.
+            <div className="mt-4 text-[11px] leading-snug text-slate-400">
+              * Nesta etapa a rota faz a leitura da estrutura do Excel. As regras de duplicidade entram no próximo passo.
             </div>
           </Card>
         </div>

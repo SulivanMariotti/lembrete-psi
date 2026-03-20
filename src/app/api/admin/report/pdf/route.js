@@ -60,7 +60,7 @@ export async function POST(req) {
         {
           ok: false,
           error:
-            "Nenhuma linha pronta para PDF. Revise a Especialidade, a Demanda do arquivo em Psicologia, a Demanda padrão do sistema em Nutrição/Fonoaudiologia, o modelo e a categoria escolhida.",
+            "Nenhuma linha pronta para PDF. Revise a Especialidade, a Demanda da planilha (com fallback em Tags nas especialidades em modo excel), o modelo e a categoria escolhida.",
           matchSummary: session?.matchSummary || null,
         },
         { status: 400 }

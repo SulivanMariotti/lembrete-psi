@@ -10,6 +10,27 @@ import { REPORT_IMPORT_TEMPLATE } from "@/lib/shared/reportImportTemplate";
 
 export const runtime = "nodejs";
 
+
+function serializePreviewRowForClient(row = {}) {
+  return {
+    rowIndex: Number(row?.rowIndex || 0),
+    paciente: String(row?.paciente || "").trim(),
+    profissional: String(row?.profissional || "").trim(),
+    especialidade: String(row?.especialidade || "").trim(),
+    convenio: String(row?.convenio || "").trim(),
+    dataHoraAgendada: String(row?.dataHoraAgendada || "").trim(),
+    demanda: String(row?.demanda || "").trim(),
+    tags: String(row?.tags || "").trim(),
+    demandName: String(row?.demandName || "").trim(),
+    demandSourceUsed: String(row?.demandSourceUsed || "").trim(),
+    resolvedCid: String(row?.resolvedCid || "").trim(),
+    categoryTitle: String(row?.categoryTitle || "").trim(),
+    categoryStatus: String(row?.categoryStatus || "").trim(),
+    categoryStatusLabel: String(row?.categoryStatusLabel || "").trim(),
+  };
+}
+
+
 export async function POST(req) {
   const adminAuth = await requireAdmin(req);
   if (!adminAuth.ok) return adminAuth.res;
@@ -80,7 +101,7 @@ export async function POST(req) {
       selectedTemplate: analysis.selectedTemplate,
       summary: analysis.summary,
       matchSummary: analysis.matchSummary,
-      previewRows: analysis.previewRows,
+      previewRows: analysis.matchedRows.map(serializePreviewRowForClient),
       readyRows: analysis.readyRows,
       assumptions,
     });
@@ -118,7 +139,7 @@ export async function POST(req) {
       summary: analysis.summary,
       selectedCategory: analysis.selectedCategory,
       matchSummary: analysis.matchSummary,
-      previewRows: analysis.previewRows,
+      previewRows: analysis.matchedRows.map(serializePreviewRowForClient),
       importedAt: analysis.importedAt,
       assumptions,
     });

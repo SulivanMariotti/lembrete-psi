@@ -20,13 +20,16 @@ A importação do `/admin/report` é guiada pela **Especialidade**. A Especialid
 
 ## Regra padrão por Especialidade
 - **Psicologia** -> `excel`
-- **Nutrição** -> `system_default`
-- **Fonoaudiologia** -> `system_default`
+- **Nutrição** -> `excel`
+- **Fonoaudiologia** -> `excel`
 
 ## Origem oficial dos campos
 
 ### Demanda
-- Pode vir do arquivo ou do sistema, conforme `demandSourceMode`.
+- Para as especialidades oficiais do módulo, vem do arquivo conforme o modo `excel`.
+- A precedência é:
+  1. `Demanda`
+  2. `Tags`
 
 ### CID
 - Sempre vem da **Demanda resolvida no sistema**.
@@ -48,21 +51,26 @@ A importação do `/admin/report` é guiada pela **Especialidade**. A Especialid
 - `missing-specialty`
 - `specialty-not-found`
 - `inactive-specialty`
-- `psychology-missing-demand`
-- `psychology-demand-not-found`
+- `excel-missing-demand`
+- `excel-demand-not-found`
 - `specialty-without-default-demand`
 - `inactive-demand`
 - `missing-category`
 
 ## Regras que não podem ficar ambíguas
 - `Tags` não é a regra única do sistema.
-- `Demanda` continua opcional na planilha como compatibilidade.
+- `Demanda` continua opcional na planilha por compatibilidade, mas é a fonte prioritária quando informada.
 - `CID` não é lido da planilha como fonte oficial.
 - `Categoria` não é lida da planilha como fonte oficial.
+- Nutrição e Fonoaudiologia seguem a mesma regra oficial da Psicologia no módulo atual.
 
 ## Critérios de aceitação
 1. Psicologia com `Demanda` válida fica pronta e usa CID/Categoria do sistema.
 2. Psicologia sem `Demanda`, mas com `Tags` válida, fica pronta e usa CID/Categoria do sistema.
-3. Nutrição ignora `Tags` para escolher a Demanda e usa a Demanda padrão do sistema.
-4. Fonoaudiologia sem Demanda padrão válida fica inconsistente com `specialty-without-default-demand`.
-5. Especialidade inexistente fica inconsistente com `specialty-not-found`.
+3. Nutrição com `Demanda` válida fica pronta e usa CID/Categoria do sistema.
+4. Nutrição sem `Demanda`, mas com `Tags` válida, fica pronta e usa CID/Categoria do sistema.
+5. Fonoaudiologia com `Demanda` válida fica pronta e usa CID/Categoria do sistema.
+6. Fonoaudiologia sem `Demanda`, mas com `Tags` válida, fica pronta e usa CID/Categoria do sistema.
+7. Especialidade inexistente fica inconsistente com `specialty-not-found`.
+8. Linha sem `Demanda` e sem `Tags` em especialidade `excel` fica inconsistente com `excel-missing-demand`.
+9. Linha com `Demanda`/`Tags` sem correspondência ativa no catálogo fica inconsistente com `excel-demand-not-found`.

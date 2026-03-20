@@ -185,6 +185,9 @@ export async function POST(req) {
     if (!bodyRes.ok) return NextResponse.json({ ok: false, error: bodyRes.error }, { status: 400 });
 
     const payload = normalizeSpecialtyPayload(bodyRes.value);
+    if (payload.demandSourceMode !== REPORT_SPECIALTY_DEMAND_SOURCE_MODES.SYSTEM_DEFAULT) {
+      payload.defaultDemandId = "";
+    }
     if (!payload.name) {
       return NextResponse.json({ ok: false, error: "Nome da Especialidade é obrigatório." }, { status: 400 });
     }

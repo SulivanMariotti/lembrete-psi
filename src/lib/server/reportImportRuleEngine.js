@@ -17,8 +17,8 @@ export const REPORT_IMPORT_MATCH_SUMMARY_TEMPLATE = Object.freeze({
   missingSpecialty: 0,
   specialtyNotFound: 0,
   inactiveSpecialty: 0,
-  psychologyMissingDemand: 0,
-  psychologyDemandNotFound: 0,
+  excelMissingDemand: 0,
+  excelDemandNotFound: 0,
   specialtyWithoutDefaultDemand: 0,
   inactiveDemand: 0,
   missingCategory: 0,
@@ -40,8 +40,8 @@ function resolveMissingDemandStatus({ specialtyMode, demand }) {
   }
 
   return {
-    missingDemandStatus: "psychology-demand-not-found",
-    missingDemandLabel: "Demanda da Psicologia não encontrada",
+    missingDemandStatus: "excel-demand-not-found",
+    missingDemandLabel: "Demanda da planilha não encontrada",
   };
 }
 
@@ -124,8 +124,8 @@ export function buildDemandResolution(row = {}, specialty = null) {
       excelDemandInput,
       excelDemandNormalized,
       demand: null,
-      missingDemandStatus: "psychology-missing-demand",
-      missingDemandLabel: "Psicologia sem Demanda no arquivo",
+      missingDemandStatus: "excel-missing-demand",
+      missingDemandLabel: "Sem Demanda/Tags no arquivo",
     };
   }
 
@@ -191,8 +191,8 @@ export function buildMatchSummary(rows = []) {
     if (row?.categoryStatus === "missing-specialty") acc.missingSpecialty += 1;
     if (row?.categoryStatus === "specialty-not-found") acc.specialtyNotFound += 1;
     if (row?.categoryStatus === "inactive-specialty") acc.inactiveSpecialty += 1;
-    if (row?.categoryStatus === "psychology-missing-demand") acc.psychologyMissingDemand += 1;
-    if (row?.categoryStatus === "psychology-demand-not-found") acc.psychologyDemandNotFound += 1;
+    if (row?.categoryStatus === "excel-missing-demand") acc.excelMissingDemand += 1;
+    if (row?.categoryStatus === "excel-demand-not-found") acc.excelDemandNotFound += 1;
     if (row?.categoryStatus === "specialty-without-default-demand") acc.specialtyWithoutDefaultDemand += 1;
     if (row?.categoryStatus === "inactive-demand") acc.inactiveDemand += 1;
     if (row?.categoryStatus === "missing-category") acc.missingCategory += 1;

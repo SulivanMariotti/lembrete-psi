@@ -45,7 +45,7 @@ export default function AdminReportImportView({ showToast }) {
               </h1>
               <p className="text-sm text-slate-500">
                 Monte o modelo do PDF, cadastre Especialidades/Demandas e gere um preview congelado.
-                Psicologia usa Demanda do arquivo; Nutrição/Fonoaudiologia usam a Demanda padrão do sistema.
+                Especialidades em modo excel usam a Demanda da planilha, com fallback em Tags quando necessário; CID e Categoria vêm sempre da Demanda resolvida no sistema.
               </p>
             </div>
           </div>

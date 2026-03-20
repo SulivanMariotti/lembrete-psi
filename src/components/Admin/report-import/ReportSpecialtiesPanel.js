@@ -113,7 +113,7 @@ export default function ReportSpecialtiesPanel({ specialtiesManager }) {
                     ))}
                   </select>
                   <div className="mt-1 text-[11px] text-slate-500">
-                    Obrigatória quando a Especialidade usa Demanda do sistema.
+                    Obrigatória apenas quando a Especialidade usa Demanda do sistema. No modo arquivo, a resolução usa Demanda e fallback em Tags.
                   </div>
                 </div>
               </div>

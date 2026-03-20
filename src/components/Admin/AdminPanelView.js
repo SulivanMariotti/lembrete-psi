@@ -13,6 +13,7 @@ import {
   BarChart3,
   BookOpen,
   FileText,
+  FlaskConical,
   LogOut,
 } from 'lucide-react';
 
@@ -640,6 +641,13 @@ export default function AdminPanelView({
             >
               <BookOpen size={18} /> Biblioteca
             </button>
+
+<a
+  href="/admin/analise"
+  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all bg-slate-50 text-slate-600 hover:bg-slate-100"
+>
+  <FlaskConical size={18} /> Análise Excel
+</a>
 
 
             <button
