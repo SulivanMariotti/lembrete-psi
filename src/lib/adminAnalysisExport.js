@@ -171,7 +171,7 @@ export function convertRowsToCsv(rows = []) {
       .join(";")
   );
 
-  return [headerLine, ...dataLines].join("\r\n");
+  return `\ufeff${[headerLine, ...dataLines].join("\r\n")}`;
 }
 
 export function buildAdminAnalysisExportBundles({ analysis = {}, fileName = "" } = {}) {

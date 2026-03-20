@@ -25,7 +25,7 @@ test("gera bundles CSV separados por duplicidade, conflito e linhas ignoradas", 
         type: "duplicidade_exata",
         typeLabel: "Duplicidade exata",
         patientCode: "100",
-        patientName: "Paciente X",
+        patientName: "José da Silva",
         specialty: "Psicologia",
         firstRowIndex: 2,
         rowCount: 2,
@@ -33,24 +33,24 @@ test("gera bundles CSV separados por duplicidade, conflito e linhas ignoradas", 
           {
             rowIndex: 2,
             patientCode: "100",
-            patientName: "Paciente X",
+            patientName: "José da Silva",
             specialty: "Psicologia",
             professionalCode: "10",
-            professionalName: "Profissional A",
+            professionalName: "Dra. Márcia",
             scheduledAt: "02/03/2026 08:00",
-            convenio: "AMIL",
+            convenio: "Convênio São José",
             status: "Agendado",
             hasNeuroConvenio: false,
           },
           {
             rowIndex: 3,
             patientCode: "100",
-            patientName: "Paciente X",
+            patientName: "José da Silva",
             specialty: "Psicologia",
             professionalCode: "10",
-            professionalName: "Profissional A",
+            professionalName: "Dra. Márcia",
             scheduledAt: "02/03/2026 08:00",
-            convenio: "AMIL",
+            convenio: "Convênio São José",
             status: "Agendado",
             hasNeuroConvenio: false,
           },
@@ -61,7 +61,7 @@ test("gera bundles CSV separados por duplicidade, conflito e linhas ignoradas", 
         type: "conflito_profissional_mesma_especialidade",
         typeLabel: "Conflito de profissional na mesma especialidade",
         patientCode: "100",
-        patientName: "Paciente X",
+        patientName: "José da Silva",
         specialty: "Psicologia",
         firstRowIndex: 4,
         rowCount: 2,
@@ -124,7 +124,11 @@ test("gera bundles CSV separados por duplicidade, conflito e linhas ignoradas", 
 
   assert.equal(exact.rowCount, 2);
   assert.match(exact.fileName, /amplimed-marco-duplicidades-exatas\.csv$/);
+  assert.equal(exact.csv.charCodeAt(0), 0xfeff);
   assert.match(exact.csv, /Duplicidade exata/);
+  assert.match(exact.csv, /José da Silva/);
+  assert.match(exact.csv, /Dra\. Márcia/);
+  assert.match(exact.csv, /Convênio São José/);
 
   assert.equal(conflict.rowCount, 2);
   assert.match(conflict.csv, /profissionais diferentes/);
